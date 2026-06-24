@@ -28,6 +28,33 @@ let refreshTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
+const LOGIN_STORAGE_KEY = 'sleepAirline_lastLogin';
+
+function saveLoginProfile({ passengerId, name, groupId }) {
+  try {
+    localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify({ passengerId, name, groupId }));
+  } catch { /* private mode / storage full */ }
+}
+
+function loadLoginProfile() {
+  try {
+    const raw = localStorage.getItem(LOGIN_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.passengerId || !data?.name || !data?.groupId) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function fillLoginForm(profile) {
+  if (!profile) return;
+  $('input-pid').value = profile.passengerId;
+  $('input-name').value = profile.name;
+  $('input-group').value = profile.groupId;
+}
+
 // ── API Helper ────────────────────────────────────────────────────────────────
 
 async function api(method, url, body) {
@@ -243,6 +270,7 @@ async function doLogin(e) {
   try {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
     passenger = data.passenger;
+    saveLoginProfile({ passengerId, name, groupId });
     showMsg('login', 'success', data.created ? '乘客建立成功！' : '已找到您的乘客資料。');
     await fetchBoard();
     if (passenger.status === 'in_flight') await refreshProgress();
@@ -403,4 +431,5 @@ function toggleSection(contentId, headerEl) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+fillLoginForm(loadLoginProfile());
 updateUI();
