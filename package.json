@@ -5,11 +5,11 @@
   "scripts": {
     "dev": "tsx watch server.ts",
     "start": "tsx server.ts",
+    "build": "node scripts/build-vercel.mjs",
     "setup": "tsx scripts/setup-notion.ts"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",
-    "@vercel/node": "^5.8.19",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "openai": "^4.52.7"
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/express": "^4",
     "@types/node": "^20",
+    "esbuild": "^0.25.0",
     "tsx": "^4.22.4",
     "typescript": "^5"
   }

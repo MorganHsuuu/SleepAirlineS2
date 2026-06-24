@@ -1,9 +1,5 @@
 {
   "version": 2,
   "framework": null,
-  "functions": {
-    "api/**/*.ts": {
-      "includeFiles": "src/**"
-    }
-  }
+  "buildCommand": "npm run build"
 }
