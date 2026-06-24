@@ -4,7 +4,7 @@ dotenv.config({ path: '.env.local' });
 import express from 'express';
 import { join } from 'path';
 
-import { getOrCreatePassenger, updatePassengerStatus } from './src/lib/notion/passengers';
+import { getOrCreatePassenger } from './src/lib/notion/passengers';
 import { createFlight, getActiveFlight, updateFlight, getGroupFlights, getAllActiveFlights } from './src/lib/notion/flights';
 import { getAvailableDestinations, seedDestinations } from './src/lib/notion/destinations';
 import { calculateFlightDistance } from './src/lib/flight/distance';
@@ -69,11 +69,6 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection: routeDirection as RouteDirection,
       directionSource: directionSource as DirectionSource,
       directionNote,
-    });
-
-    await updatePassengerStatus(passenger.notionId, {
-      status: 'in_flight',
-      lastFlightId: flight.flightId,
     });
 
     res.json({ flight });
@@ -154,14 +149,6 @@ app.post('/api/flight/land', async (req, res) => {
       socialCueType: socialCue.cueType,
       socialCueText: socialCue.cueText,
       relatedPassenger: socialCue.relatedPassenger ?? '',
-    });
-
-    await updatePassengerStatus(passenger.notionId, {
-      status: 'landed',
-      currentLocation: arrival.displayName,
-      currentLatitude: arrival.latitude,
-      currentLongitude: arrival.longitude,
-      lastFlightId: activeFlight.flightId,
     });
 
     res.json({

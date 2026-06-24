@@ -2,7 +2,6 @@ import type { Passenger, PassengerStatus } from '../../types';
 import {
   getNotionClient, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,
-  wTitle, wText, wSelect, wNumber, wDate,
 } from './client';
 import { resolveDashboardDbId } from './ensure-dashboard';
 
@@ -12,21 +11,94 @@ const DEFAULT_LNG = 121.5654;
 
 const mem = new Map<string, Passenger>();
 
-function parsePassenger(page: Record<string, unknown>): Passenger {
+/** Notion 模式下登入不寫表，起飛前暫存姓名／小隊。 */
+const profileCache = new Map<string, { name: string; groupId: string; deviceId: string }>();
+
+function resolveProfile(
+  passengerId: string,
+  name: string,
+  groupId: string,
+  deviceId: string
+): { name: string; groupId: string; deviceId: string } {
+  const cached = profileCache.get(passengerId);
+  const resolved = {
+    name: name || cached?.name || '',
+    groupId: groupId || cached?.groupId || '',
+    deviceId: deviceId || cached?.deviceId || 'web',
+  };
+  if (resolved.name || resolved.groupId) {
+    profileCache.set(passengerId, resolved);
+  }
+  return resolved;
+}
+
+function readPassengerId(props: Record<string, unknown>): string {
+  return readText(props, 'Passenger ID') || readTitle(props, 'Passenger ID');
+}
+
+function readFlightId(props: Record<string, unknown>): string {
+  return readTitle(props, 'Flight ID') || readText(props, 'Flight ID');
+}
+
+/** 從航班列推導乘客目前狀態（登入不寫 Notion，僅讀最新／進行中航班）。 */
+function parsePassengerFromFlightRow(
+  page: Record<string, unknown>,
+  overrides?: { name?: string; groupId?: string; deviceId?: string }
+): Passenger {
   const props = page.properties as Record<string, unknown>;
+  const status = (readSelect(props, 'Status') ?? 'not_started') as PassengerStatus;
+  const passengerId = readPassengerId(props);
+
+  let currentLocation = DEFAULT_LOCATION;
+  let currentLatitude = DEFAULT_LAT;
+  let currentLongitude = DEFAULT_LNG;
+
+  if (status === 'landed') {
+    currentLocation = readText(props, 'Arrival Location') || DEFAULT_LOCATION;
+    currentLatitude = readNumber(props, 'Arrival Latitude') ?? DEFAULT_LAT;
+    currentLongitude = readNumber(props, 'Arrival Longitude') ?? DEFAULT_LNG;
+  } else if (status === 'in_flight') {
+    currentLocation = readText(props, 'Departure Location') || DEFAULT_LOCATION;
+    currentLatitude = readNumber(props, 'Departure Latitude') ?? DEFAULT_LAT;
+    currentLongitude = readNumber(props, 'Departure Longitude') ?? DEFAULT_LNG;
+  }
+
   return {
     notionId: page.id as string,
-    passengerId: readTitle(props, 'Passenger ID'),
-    name: readText(props, 'Name'),
-    groupId: readSelect(props, 'Group ID') ?? '',
-    deviceId: readText(props, 'Device ID'),
-    currentLocation: readText(props, 'Current Location') || DEFAULT_LOCATION,
-    currentLatitude: readNumber(props, 'Current Latitude') ?? DEFAULT_LAT,
-    currentLongitude: readNumber(props, 'Current Longitude') ?? DEFAULT_LNG,
-    lastFlightId: readText(props, 'Flight ID') || null,
-    status: (readSelect(props, 'Status') ?? 'not_started') as PassengerStatus,
+    passengerId,
+    name: overrides?.name || readText(props, 'Name'),
+    groupId: overrides?.groupId || (readSelect(props, 'Group ID') ?? ''),
+    deviceId: overrides?.deviceId || readText(props, 'Device ID') || 'web',
+    currentLocation,
+    currentLatitude,
+    currentLongitude,
+    lastFlightId: readFlightId(props) || null,
+    status: status === 'not_started' ? 'landed' : status,
     createdAt: readDate(props, 'Created At') ?? new Date().toISOString(),
     updatedAt: readDate(props, 'Updated At') ?? new Date().toISOString(),
+  };
+}
+
+function defaultPassenger(
+  passengerId: string,
+  name: string,
+  groupId: string,
+  deviceId: string
+): Passenger {
+  const now = new Date().toISOString();
+  return {
+    notionId: `pending_${passengerId}`,
+    passengerId,
+    name,
+    groupId,
+    deviceId,
+    currentLocation: DEFAULT_LOCATION,
+    currentLatitude: DEFAULT_LAT,
+    currentLongitude: DEFAULT_LNG,
+    lastFlightId: null,
+    status: 'not_started',
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
@@ -36,115 +108,95 @@ export async function getOrCreatePassenger(
   groupId: string,
   deviceId: string = 'web'
 ): Promise<{ passenger: Passenger; created: boolean }> {
+  const profile = resolveProfile(passengerId, name, groupId, deviceId);
+
   if (!isNotionConfigured()) {
     const existing = mem.get(passengerId);
     if (existing) {
-      if (name) existing.name = name;
-      if (groupId) existing.groupId = groupId;
+      if (profile.name) existing.name = profile.name;
+      if (profile.groupId) existing.groupId = profile.groupId;
       existing.updatedAt = new Date().toISOString();
       return { passenger: existing, created: false };
     }
-    const now = new Date().toISOString();
-    const p: Passenger = {
-      notionId: `mem_${passengerId}`,
-      passengerId, name, groupId, deviceId,
-      currentLocation: DEFAULT_LOCATION,
-      currentLatitude: DEFAULT_LAT,
-      currentLongitude: DEFAULT_LNG,
-      lastFlightId: null,
-      status: 'not_started',
-      createdAt: now, updatedAt: now,
-    };
+    const p = defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId);
+    p.notionId = `mem_${passengerId}`;
     mem.set(passengerId, p);
     return { passenger: p, created: true };
   }
 
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
-  const now = new Date().toISOString();
 
-  const existing = await client.databases.query({
+  const inFlight = await client.databases.query({
     database_id: dbId,
-    filter: { property: 'Passenger ID', title: { equals: passengerId } },
+    filter: {
+      and: [
+        { property: 'Passenger ID', rich_text: { equals: passengerId } },
+        { property: 'Status', select: { equals: 'in_flight' } },
+      ],
+    },
     page_size: 1,
   });
 
-  if (existing.results.length > 0) {
-    const page = existing.results[0] as Record<string, unknown>;
-    if (name || groupId) {
-      const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
-      if (name) properties['Name'] = wText(name);
-      if (groupId) properties['Group ID'] = wSelect(groupId);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await client.pages.update({ page_id: page.id as string, properties: properties as any });
-    }
-    const refreshed = name || groupId
-      ? await client.pages.retrieve({ page_id: page.id as string })
-      : page;
+  if (inFlight.results.length > 0) {
+    const page = inFlight.results[0] as Record<string, unknown>;
     return {
-      passenger: parsePassenger(refreshed as Record<string, unknown>),
+      passenger: parsePassengerFromFlightRow(page, {
+        name: profile.name || undefined,
+        groupId: profile.groupId || undefined,
+        deviceId: profile.deviceId,
+      }),
       created: false,
     };
   }
 
-  const page = await client.pages.create({
-    parent: { database_id: dbId },
-    properties: {
-      'Passenger ID': wTitle(passengerId),
-      'Name': wText(name),
-      'Group ID': wSelect(groupId),
-      'Device ID': wText(deviceId),
-      'Current Location': wText(DEFAULT_LOCATION),
-      'Current Latitude': wNumber(DEFAULT_LAT),
-      'Current Longitude': wNumber(DEFAULT_LNG),
-      'Flight ID': wText(null),
-      'Status': wSelect('not_started'),
-      'Created At': wDate(now),
-      'Updated At': wDate(now),
-    },
+  const history = await client.databases.query({
+    database_id: dbId,
+    filter: { property: 'Passenger ID', rich_text: { equals: passengerId } },
+    sorts: [{ property: 'Updated At', direction: 'descending' }],
+    page_size: 1,
   });
 
+  if (history.results.length > 0) {
+    const page = history.results[0] as Record<string, unknown>;
+    const passenger = parsePassengerFromFlightRow(page, {
+      name: profile.name || undefined,
+      groupId: profile.groupId || undefined,
+      deviceId: profile.deviceId,
+    });
+    if (passenger.status === 'landed') {
+      passenger.status = 'not_started';
+    }
+    return { passenger, created: false };
+  }
+
   return {
-    passenger: parsePassenger(page as unknown as Record<string, unknown>),
+    passenger: defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId),
     created: true,
   };
 }
 
-export async function updatePassengerStatus(
-  notionId: string,
+/** 記憶體模式：起飛／降落時同步乘客快取。 */
+export function syncMemPassenger(
+  passengerId: string,
   updates: {
     status?: PassengerStatus;
     currentLocation?: string;
     currentLatitude?: number;
     currentLongitude?: number;
     lastFlightId?: string;
+    name?: string;
+    groupId?: string;
   }
-): Promise<void> {
-  if (!isNotionConfigured()) {
-    for (const p of mem.values()) {
-      if (p.notionId === notionId) {
-        if (updates.status !== undefined) p.status = updates.status;
-        if (updates.currentLocation !== undefined) p.currentLocation = updates.currentLocation;
-        if (updates.currentLatitude !== undefined) p.currentLatitude = updates.currentLatitude;
-        if (updates.currentLongitude !== undefined) p.currentLongitude = updates.currentLongitude;
-        if (updates.lastFlightId !== undefined) p.lastFlightId = updates.lastFlightId;
-        p.updatedAt = new Date().toISOString();
-        break;
-      }
-    }
-    return;
-  }
-
-  const client = getNotionClient();
-  const now = new Date().toISOString();
-
-  const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
-  if (updates.status !== undefined) properties['Status'] = wSelect(updates.status);
-  if (updates.currentLocation !== undefined) properties['Current Location'] = wText(updates.currentLocation);
-  if (updates.currentLatitude !== undefined) properties['Current Latitude'] = wNumber(updates.currentLatitude);
-  if (updates.currentLongitude !== undefined) properties['Current Longitude'] = wNumber(updates.currentLongitude);
-  if (updates.lastFlightId !== undefined) properties['Flight ID'] = wText(updates.lastFlightId);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await client.pages.update({ page_id: notionId, properties: properties as any });
+): void {
+  const p = mem.get(passengerId);
+  if (!p) return;
+  if (updates.status !== undefined) p.status = updates.status;
+  if (updates.currentLocation !== undefined) p.currentLocation = updates.currentLocation;
+  if (updates.currentLatitude !== undefined) p.currentLatitude = updates.currentLatitude;
+  if (updates.currentLongitude !== undefined) p.currentLongitude = updates.currentLongitude;
+  if (updates.lastFlightId !== undefined) p.lastFlightId = updates.lastFlightId;
+  if (updates.name !== undefined) p.name = updates.name;
+  if (updates.groupId !== undefined) p.groupId = updates.groupId;
+  p.updatedAt = new Date().toISOString();
 }

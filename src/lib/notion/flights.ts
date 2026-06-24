@@ -2,26 +2,35 @@ import type { Flight, FlightStatus, NarrativeRegion, RouteDirection, DirectionSo
 import {
   getNotionClient, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,
-  wText, wSelect, wNumber, wDate,
+  wTitle, wText, wSelect, wNumber, wDate,
 } from './client';
 import { resolveDashboardDbId } from './ensure-dashboard';
+import { syncMemPassenger } from './passengers';
 
 const mem: Flight[] = [];
+
+function readPassengerId(props: Record<string, unknown>): string {
+  return readText(props, 'Passenger ID') || readTitle(props, 'Passenger ID');
+}
+
+function readFlightId(props: Record<string, unknown>): string {
+  return readTitle(props, 'Flight ID') || readText(props, 'Flight ID');
+}
 
 function parseFlight(page: Record<string, unknown>): Flight {
   const props = page.properties as Record<string, unknown>;
   const takeoffTime = readDate(props, 'Takeoff Time');
   return {
     notionId: page.id as string,
-    flightId: readText(props, 'Flight ID') || readTitle(props, 'Passenger ID'),
-    passengerId: readTitle(props, 'Passenger ID'),
+    flightId: readFlightId(props),
+    passengerId: readPassengerId(props),
     passengerName: readText(props, 'Name'),
     groupId: readSelect(props, 'Group ID') ?? '',
     deviceId: readText(props, 'Device ID'),
     status: (readSelect(props, 'Status') ?? 'not_started') as FlightStatus,
-    departureLocation: readText(props, 'Departure Location') || readText(props, 'Current Location'),
-    departureLatitude: readNumber(props, 'Departure Latitude') ?? readNumber(props, 'Current Latitude') ?? 0,
-    departureLongitude: readNumber(props, 'Departure Longitude') ?? readNumber(props, 'Current Longitude') ?? 0,
+    departureLocation: readText(props, 'Departure Location'),
+    departureLatitude: readNumber(props, 'Departure Latitude') ?? 0,
+    departureLongitude: readNumber(props, 'Departure Longitude') ?? 0,
     arrivalLocation: readText(props, 'Arrival Location') || null,
     arrivalLatitude: readNumber(props, 'Arrival Latitude'),
     arrivalLongitude: readNumber(props, 'Arrival Longitude'),
@@ -50,17 +59,6 @@ function generateFlightId(passengerId: string): string {
   return `FL-${suffix}-${ts}`;
 }
 
-async function findPassengerPageId(passengerId: string): Promise<string | null> {
-  const client = getNotionClient();
-  const dbId = await resolveDashboardDbId();
-  const result = await client.databases.query({
-    database_id: dbId,
-    filter: { property: 'Passenger ID', title: { equals: passengerId } },
-    page_size: 1,
-  });
-  return result.results.length > 0 ? (result.results[0] as { id: string }).id : null;
-}
-
 export async function createFlight(params: {
   passengerId: string;
   passengerName: string;
@@ -82,9 +80,8 @@ export async function createFlight(params: {
         mem.splice(i, 1);
       }
     }
-    const notionId = `mem_${params.passengerId}`;
     const f: Flight = {
-      notionId,
+      notionId: `mem_flight_${flightId}`,
       flightId,
       passengerId: params.passengerId,
       passengerName: params.passengerName,
@@ -107,45 +104,52 @@ export async function createFlight(params: {
       createdAt: now, updatedAt: now,
     };
     mem.push(f);
+    syncMemPassenger(params.passengerId, {
+      status: 'in_flight',
+      lastFlightId: flightId,
+      name: params.passengerName,
+      groupId: params.groupId,
+    });
     return f;
   }
 
-  const pageId = await findPassengerPageId(params.passengerId);
-  if (!pageId) throw new Error(`找不到乘客 ${params.passengerId}，請先登入。`);
-
   const client = getNotionClient();
-  const properties = {
-    'Flight ID': wText(flightId),
-    'Name': wText(params.passengerName),
-    'Group ID': wSelect(params.groupId),
-    'Device ID': wText(params.deviceId),
-    'Status': wSelect('in_flight'),
-    'Departure Location': wText(params.departureLocation),
-    'Departure Latitude': wNumber(params.departureLatitude),
-    'Departure Longitude': wNumber(params.departureLongitude),
-    'Arrival Location': wText(null),
-    'Arrival Latitude': wNumber(null),
-    'Arrival Longitude': wNumber(null),
-    'Takeoff Time': wDate(now),
-    'Landing Time': wDate(null),
-    'Flight Duration Minutes': wNumber(null),
-    'Estimated Flight Distance KM': wNumber(null),
-    'Flight Progress': wNumber(0),
-    'Narrative Region': wSelect('departure_clouds'),
-    'Route Direction': wSelect(params.routeDirection),
-    'Direction Source': wSelect(params.directionSource),
-    'Direction Note': wText(params.directionNote),
-    'Captain Broadcast Style': wSelect(null),
-    'Captain Broadcast': wText(null),
-    'Social Cue Type': wSelect(null),
-    'Social Cue Text': wText(null),
-    'Related Passenger': wText(null),
-    'Updated At': wDate(now),
-  };
+  const dbId = await resolveDashboardDbId();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await client.pages.update({ page_id: pageId, properties: properties as any });
-  const page = await client.pages.retrieve({ page_id: pageId });
+  const page = await client.pages.create({
+    parent: { database_id: dbId },
+    properties: {
+      'Flight ID': wTitle(flightId),
+      'Passenger ID': wText(params.passengerId),
+      'Name': wText(params.passengerName),
+      'Group ID': wSelect(params.groupId),
+      'Device ID': wText(params.deviceId),
+      'Status': wSelect('in_flight'),
+      'Departure Location': wText(params.departureLocation),
+      'Departure Latitude': wNumber(params.departureLatitude),
+      'Departure Longitude': wNumber(params.departureLongitude),
+      'Arrival Location': wText(null),
+      'Arrival Latitude': wNumber(null),
+      'Arrival Longitude': wNumber(null),
+      'Takeoff Time': wDate(now),
+      'Landing Time': wDate(null),
+      'Flight Duration Minutes': wNumber(null),
+      'Estimated Flight Distance KM': wNumber(null),
+      'Flight Progress': wNumber(0),
+      'Narrative Region': wSelect('departure_clouds'),
+      'Route Direction': wSelect(params.routeDirection),
+      'Direction Source': wSelect(params.directionSource),
+      'Direction Note': wText(params.directionNote),
+      'Captain Broadcast Style': wSelect(null),
+      'Captain Broadcast': wText(null),
+      'Social Cue Type': wSelect(null),
+      'Social Cue Text': wText(null),
+      'Related Passenger': wText(null),
+      'Created At': wDate(now),
+      'Updated At': wDate(now),
+    },
+  });
+
   return parseFlight(page as unknown as Record<string, unknown>);
 }
 
@@ -161,7 +165,7 @@ export async function getActiveFlight(passengerId: string): Promise<Flight | nul
     database_id: dbId,
     filter: {
       and: [
-        { property: 'Passenger ID', title: { equals: passengerId } },
+        { property: 'Passenger ID', rich_text: { equals: passengerId } },
         { property: 'Status', select: { equals: 'in_flight' } },
       ],
     },
@@ -196,6 +200,15 @@ export async function updateFlight(
     if (f) {
       Object.assign(f, updates);
       f.updatedAt = new Date().toISOString();
+      if (updates.status === 'landed' && updates.arrivalLocation) {
+        syncMemPassenger(f.passengerId, {
+          status: 'landed',
+          currentLocation: updates.arrivalLocation,
+          currentLatitude: updates.arrivalLatitude,
+          currentLongitude: updates.arrivalLongitude,
+          lastFlightId: f.flightId,
+        });
+      }
     }
     return;
   }
@@ -205,18 +218,9 @@ export async function updateFlight(
 
   const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
   if (updates.status !== undefined) properties['Status'] = wSelect(updates.status);
-  if (updates.arrivalLocation !== undefined) {
-    properties['Arrival Location'] = wText(updates.arrivalLocation);
-    properties['Current Location'] = wText(updates.arrivalLocation);
-  }
-  if (updates.arrivalLatitude !== undefined) {
-    properties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
-    properties['Current Latitude'] = wNumber(updates.arrivalLatitude);
-  }
-  if (updates.arrivalLongitude !== undefined) {
-    properties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
-    properties['Current Longitude'] = wNumber(updates.arrivalLongitude);
-  }
+  if (updates.arrivalLocation !== undefined) properties['Arrival Location'] = wText(updates.arrivalLocation);
+  if (updates.arrivalLatitude !== undefined) properties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
+  if (updates.arrivalLongitude !== undefined) properties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
   if (updates.landingTime !== undefined) properties['Landing Time'] = wDate(updates.landingTime);
   if (updates.flightDurationMinutes !== undefined) properties['Flight Duration Minutes'] = wNumber(updates.flightDurationMinutes);
   if (updates.estimatedFlightDistanceKm !== undefined) properties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);

@@ -1,4 +1,5 @@
-export const DASHBOARD_TITLE = 'Sleep Airline Dashboard';
+/** 每趟航班一列；舊版「Sleep Airline Dashboard」（一人一列）請保留作 archive。 */
+export const DASHBOARD_TITLE = 'Sleep Airline Flight Log';
 
 const GROUP_OPTIONS = [
   { name: 'group_01', color: 'blue' as const },
@@ -43,15 +44,12 @@ const SOCIAL_CUE_OPTIONS = [
 
 export function getDashboardProperties() {
   return {
-    'Passenger ID': { title: {} },
+    'Flight ID': { title: {} },
+    'Passenger ID': { rich_text: {} },
     'Name': { rich_text: {} },
     'Group ID': { select: { options: GROUP_OPTIONS } },
     'Device ID': { rich_text: {} },
     'Status': { select: { options: STATUS_OPTIONS } },
-    'Current Location': { rich_text: {} },
-    'Current Latitude': { number: { format: 'number' } },
-    'Current Longitude': { number: { format: 'number' } },
-    'Flight ID': { rich_text: {} },
     'Departure Location': { rich_text: {} },
     'Departure Latitude': { number: { format: 'number' } },
     'Departure Longitude': { number: { format: 'number' } },

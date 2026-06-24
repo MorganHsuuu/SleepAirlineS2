@@ -2,7 +2,7 @@ import esbuild from 'esbuild';
 import { mkdirSync, rmSync } from 'fs';
 import { dirname } from 'path';
 
-const outfile = 'api/[...slug].js';
+const outfile = 'api/index.js';
 
 rmSync('api', { recursive: true, force: true });
 mkdirSync(dirname(outfile), { recursive: true });
