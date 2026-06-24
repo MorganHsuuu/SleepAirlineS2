@@ -1,5 +1,6 @@
-/** 機場廣播：Attention 嗶嗶嗶 → 登登提示音 → 語音朗讀 */
+/** 機場廣播：Attention 嗶嗶嗶 → 登登提示音 → OpenAI TTS（失敗則瀏覽器 TTS） */
 let audioCtx = null;
+let currentAudio = null;
 
 function getAudioCtx() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -27,6 +28,14 @@ function tone(freq, startSec, durSec, volume = 0.12) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function stopPlayback() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+  if (window.speechSynthesis) speechSynthesis.cancel();
 }
 
 async function playAttentionBeeps() {
@@ -73,11 +82,51 @@ function speakText(text) {
   });
 }
 
-async function playCaptainBroadcast(text) {
+async function speakWithOpenAI(text, style) {
+  try {
+    const res = await fetch('/api/broadcast/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, style: style || 'formal_captain' }),
+    });
+    if (!res.ok) return false;
+
+    const blob = await res.blob();
+    if (!blob.size || !blob.type.startsWith('audio/')) return false;
+
+    const url = URL.createObjectURL(blob);
+    return await new Promise((resolve) => {
+      const audio = new Audio(url);
+      currentAudio = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        resolve(true);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        resolve(false);
+      };
+      audio.play().catch(() => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        resolve(false);
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function playCaptainBroadcast(text, style) {
   if (!text?.trim()) return false;
+  stopPlayback();
   try {
     await playAttentionBeeps();
     await playPaChime();
+    const usedOpenAI = await speakWithOpenAI(text, style);
+    if (usedOpenAI) return true;
     return await speakText(text);
   } catch {
     return false;
@@ -89,4 +138,4 @@ if (window.speechSynthesis) {
   speechSynthesis.addEventListener('voiceschanged', () => speechSynthesis.getVoices());
 }
 
-window.BroadcastAudio = { playCaptainBroadcast, speakText };
+window.BroadcastAudio = { playCaptainBroadcast, speakText, stopPlayback };

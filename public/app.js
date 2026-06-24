@@ -306,7 +306,10 @@ async function doTakeoff() {
     await fetchBoard();
     startAutoRefresh();
     if (activeFlight.takeoffBroadcast && window.BroadcastAudio) {
-      BroadcastAudio.playCaptainBroadcast(activeFlight.takeoffBroadcast);
+      BroadcastAudio.playCaptainBroadcast(
+        activeFlight.takeoffBroadcast,
+        activeFlight.takeoffBroadcastStyle || $('tk-style').value
+      );
     }
   } catch (err) {
     showMsg('main', 'error', err.message);
@@ -334,7 +337,10 @@ async function doLand() {
     updateUI();
     await fetchBoard();
     if (landed.captainBroadcast && window.BroadcastAudio) {
-      BroadcastAudio.playCaptainBroadcast(landed.captainBroadcast);
+      BroadcastAudio.playCaptainBroadcast(
+        landed.captainBroadcast,
+        $('fl-style').value
+      );
     }
   } catch (err) {
     showMsg('main', 'error', err.message);

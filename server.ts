@@ -13,6 +13,7 @@ import { getNarrativeRegion } from './src/lib/flight/region';
 import { findArrivalDestination } from './src/lib/flight/direction';
 import { calculateGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
+import { generateBroadcastSpeech } from './src/lib/ai/speech';
 
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 
@@ -308,6 +309,24 @@ app.get('/api/workshop', async (_req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+});
+
+// ── POST /api/broadcast/speech ────────────────────────────────────────────────
+
+app.post('/api/broadcast/speech', async (req, res) => {
+  try {
+    const { text, style } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      res.status(400).json({ error: '請提供廣播文字。' });
+      return;
+    }
+    const audio = await generateBroadcastSpeech(text.trim(), style as BroadcastStyle | undefined);
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(audio);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '語音生成失敗' });
   }
 });
 

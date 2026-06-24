@@ -106975,6 +106975,33 @@ function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arriv
   return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u62B5\u9054 ${arrivalLocation ?? "\u76EE\u7684\u5730"}\u3002${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${socialCueText}`;
 }
 
+// src/lib/ai/speech.ts
+var import_openai2 = __toESM(require("openai"));
+var VOICE_BY_STYLE = {
+  formal_captain: "onyx",
+  poetic: "fable",
+  playful: "nova",
+  flight_attendant: "shimmer",
+  radio_host: "echo",
+  custom: "alloy"
+};
+async function generateBroadcastSpeech(text, style) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002");
+  }
+  const client = new import_openai2.default({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_TTS_MODEL ?? "tts-1";
+  const envVoice = process.env.OPENAI_TTS_VOICE;
+  const voice = style && VOICE_BY_STYLE[style] || envVoice || "onyx";
+  const response = await client.audio.speech.create({
+    model,
+    voice,
+    input: text.slice(0, 4096),
+    response_format: "mp3"
+  });
+  return Buffer.from(await response.arrayBuffer());
+}
+
 // server.ts
 import_dotenv.default.config({ path: ".env.local" });
 var app = (0, import_express.default)();
@@ -107234,6 +107261,21 @@ app.get("/api/workshop", async (_req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+});
+app.post("/api/broadcast/speech", async (req, res) => {
+  try {
+    const { text, style } = req.body;
+    if (!text || typeof text !== "string" || !text.trim()) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u5EE3\u64AD\u6587\u5B57\u3002" });
+      return;
+    }
+    const audio = await generateBroadcastSpeech(text.trim(), style);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(audio);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u8A9E\u97F3\u751F\u6210\u5931\u6557" });
   }
 });
 app.post("/api/seed", async (_req, res) => {
