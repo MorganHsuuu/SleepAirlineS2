@@ -261,7 +261,7 @@ app.post('/api/seed', async (_req, res) => {
   try {
     const result = await seedDestinations();
     res.json({
-      message: `完成。新增 ${result.seeded} 個城市，略過 ${result.skipped} 個已存在的城市。`,
+      message: `城市資料已在後台載入（${result.skipped} 筆），不需寫入 Notion。`,
       ...result,
     });
   } catch (err) {

@@ -3,31 +3,17 @@ import { Client } from '@notionhq/client';
 let _client: Client | null = null;
 
 export function isNotionConfigured(): boolean {
-  return !!(process.env.NOTION_API_KEY && process.env.NOTION_PASSENGERS_DB_ID);
+  return !!process.env.NOTION_API_KEY;
 }
 
 export function getNotionClient(): Client {
   if (!process.env.NOTION_API_KEY) {
-    throw new Error('NOTION_API_KEY 尚未設定。請在 .env.local 中加入 Notion API Key。');
+    throw new Error('NOTION_API_KEY 尚未設定。請在 Vercel 環境變數中加入 Notion API Key。');
   }
   if (!_client) {
     _client = new Client({ auth: process.env.NOTION_API_KEY });
   }
   return _client;
-}
-
-export function getDbId(name: 'passengers' | 'flights' | 'destinations'): string {
-  const map = {
-    passengers: 'NOTION_PASSENGERS_DB_ID',
-    flights: 'NOTION_FLIGHTS_DB_ID',
-    destinations: 'NOTION_DESTINATIONS_DB_ID',
-  } as const;
-  const key = map[name];
-  const value = process.env[key];
-  if (!value) {
-    throw new Error(`${key} 尚未設定。請在 .env.local 中加入 Database ID。`);
-  }
-  return value;
 }
 
 // ---- Property helpers: read ----

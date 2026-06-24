@@ -1,15 +1,14 @@
 import type { Passenger, PassengerStatus } from '../../types';
 import {
-  getNotionClient, getDbId, isNotionConfigured,
+  getNotionClient, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,
   wTitle, wText, wSelect, wNumber, wDate,
 } from './client';
+import { resolveDashboardDbId } from './ensure-dashboard';
 
 const DEFAULT_LOCATION = 'Taipei, Taiwan';
 const DEFAULT_LAT = 25.0330;
 const DEFAULT_LNG = 121.5654;
-
-// ── In-memory fallback ────────────────────────────────────────────────────────
 
 const mem = new Map<string, Passenger>();
 
@@ -24,7 +23,7 @@ function parsePassenger(page: Record<string, unknown>): Passenger {
     currentLocation: readText(props, 'Current Location') || DEFAULT_LOCATION,
     currentLatitude: readNumber(props, 'Current Latitude') ?? DEFAULT_LAT,
     currentLongitude: readNumber(props, 'Current Longitude') ?? DEFAULT_LNG,
-    lastFlightId: readText(props, 'Last Flight ID') || null,
+    lastFlightId: readText(props, 'Flight ID') || null,
     status: (readSelect(props, 'Status') ?? 'not_started') as PassengerStatus,
     createdAt: readDate(props, 'Created At') ?? new Date().toISOString(),
     updatedAt: readDate(props, 'Updated At') ?? new Date().toISOString(),
@@ -39,7 +38,12 @@ export async function getOrCreatePassenger(
 ): Promise<{ passenger: Passenger; created: boolean }> {
   if (!isNotionConfigured()) {
     const existing = mem.get(passengerId);
-    if (existing) return { passenger: existing, created: false };
+    if (existing) {
+      if (name) existing.name = name;
+      if (groupId) existing.groupId = groupId;
+      existing.updatedAt = new Date().toISOString();
+      return { passenger: existing, created: false };
+    }
     const now = new Date().toISOString();
     const p: Passenger = {
       notionId: `mem_${passengerId}`,
@@ -56,7 +60,7 @@ export async function getOrCreatePassenger(
   }
 
   const client = getNotionClient();
-  const dbId = getDbId('passengers');
+  const dbId = await resolveDashboardDbId();
   const now = new Date().toISOString();
 
   const existing = await client.databases.query({
@@ -66,8 +70,19 @@ export async function getOrCreatePassenger(
   });
 
   if (existing.results.length > 0) {
+    const page = existing.results[0] as Record<string, unknown>;
+    if (name || groupId) {
+      const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
+      if (name) properties['Name'] = wText(name);
+      if (groupId) properties['Group ID'] = wSelect(groupId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await client.pages.update({ page_id: page.id as string, properties: properties as any });
+    }
+    const refreshed = name || groupId
+      ? await client.pages.retrieve({ page_id: page.id as string })
+      : page;
     return {
-      passenger: parsePassenger(existing.results[0] as Record<string, unknown>),
+      passenger: parsePassenger(refreshed as Record<string, unknown>),
       created: false,
     };
   }
@@ -82,7 +97,7 @@ export async function getOrCreatePassenger(
       'Current Location': wText(DEFAULT_LOCATION),
       'Current Latitude': wNumber(DEFAULT_LAT),
       'Current Longitude': wNumber(DEFAULT_LNG),
-      'Last Flight ID': wText(null),
+      'Flight ID': wText(null),
       'Status': wSelect('not_started'),
       'Created At': wDate(now),
       'Updated At': wDate(now),
@@ -128,7 +143,7 @@ export async function updatePassengerStatus(
   if (updates.currentLocation !== undefined) properties['Current Location'] = wText(updates.currentLocation);
   if (updates.currentLatitude !== undefined) properties['Current Latitude'] = wNumber(updates.currentLatitude);
   if (updates.currentLongitude !== undefined) properties['Current Longitude'] = wNumber(updates.currentLongitude);
-  if (updates.lastFlightId !== undefined) properties['Last Flight ID'] = wText(updates.lastFlightId);
+  if (updates.lastFlightId !== undefined) properties['Flight ID'] = wText(updates.lastFlightId);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await client.pages.update({ page_id: notionId, properties: properties as any });
