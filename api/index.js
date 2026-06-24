@@ -106943,7 +106943,7 @@ app.post("/api/flight/takeoff", async (req, res) => {
 });
 app.post("/api/flight/land", async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = "formal_captain" } = req.body;
+    const { passengerId, broadcastStyle = "formal_captain", simulatedDurationMinutes } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
@@ -106954,8 +106954,9 @@ app.post("/api/flight/land", async (req, res) => {
       res.status(404).json({ error: "no_active_flight", message: "\u627E\u4E0D\u5230\u9032\u884C\u4E2D\u7684\u822A\u73ED\u3002" });
       return;
     }
-    const landingTime = (/* @__PURE__ */ new Date()).toISOString();
-    const durationMinutes = Math.round(
+    const simMinutes = typeof simulatedDurationMinutes === "number" && simulatedDurationMinutes > 0 ? Math.round(simulatedDurationMinutes) : null;
+    const landingTime = simMinutes ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 6e4).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+    const durationMinutes = simMinutes ?? Math.round(
       (new Date(landingTime).getTime() - new Date(activeFlight.takeoffTime).getTime()) / 6e4
     );
     const distanceKm = calculateFlightDistance(durationMinutes);

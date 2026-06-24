@@ -81,7 +81,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
 
 app.post('/api/flight/land', async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = 'formal_captain' } = req.body;
+    const { passengerId, broadcastStyle = 'formal_captain', simulatedDurationMinutes } = req.body;
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
     const { passenger } = await getOrCreatePassenger(passengerId, '', '', 'web');
@@ -92,8 +92,13 @@ app.post('/api/flight/land', async (req, res) => {
       return;
     }
 
-    const landingTime = new Date().toISOString();
-    const durationMinutes = Math.round(
+    const simMinutes = typeof simulatedDurationMinutes === 'number' && simulatedDurationMinutes > 0
+      ? Math.round(simulatedDurationMinutes)
+      : null;
+    const landingTime = simMinutes
+      ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 60000).toISOString()
+      : new Date().toISOString();
+    const durationMinutes = simMinutes ?? Math.round(
       (new Date(landingTime).getTime() - new Date(activeFlight.takeoffTime).getTime()) / 60000
     );
     const distanceKm = calculateFlightDistance(durationMinutes);
