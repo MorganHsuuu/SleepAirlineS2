@@ -474,6 +474,7 @@ function generateFlightId(passengerId) {
 }
 async function createFlight(params) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
+  const takeoffTime = params.takeoffTime ?? now;
   const flightId = generateFlightId(params.passengerId);
   if (!isNotionConfigured()) {
     for (let i = mem2.length - 1; i >= 0; i--) {
@@ -495,7 +496,7 @@ async function createFlight(params) {
       arrivalLocation: null,
       arrivalLatitude: null,
       arrivalLongitude: null,
-      takeoffTime: now,
+      takeoffTime,
       landingTime: null,
       flightDurationMinutes: null,
       estimatedFlightDistanceKm: null,
@@ -540,7 +541,7 @@ async function createFlight(params) {
       "Arrival Location": wText(null),
       "Arrival Latitude": wNumber(null),
       "Arrival Longitude": wNumber(null),
-      "Takeoff Time": wDate(now),
+      "Takeoff Time": wDate(takeoffTime),
       "Landing Time": wDate(null),
       "Flight Duration Minutes": wNumber(null),
       "Estimated Flight Distance KM": wNumber(null),
@@ -606,6 +607,7 @@ async function updateFlight(notionId, updates) {
   if (updates.arrivalLocation !== void 0) properties["Arrival Location"] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== void 0) properties["Arrival Latitude"] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== void 0) properties["Arrival Longitude"] = wNumber(updates.arrivalLongitude);
+  if (updates.takeoffTime !== void 0) properties["Takeoff Time"] = wDate(updates.takeoffTime);
   if (updates.landingTime !== void 0) properties["Landing Time"] = wDate(updates.landingTime);
   if (updates.flightDurationMinutes !== void 0) properties["Flight Duration Minutes"] = wNumber(updates.flightDurationMinutes);
   if (updates.estimatedFlightDistanceKm !== void 0) properties["Estimated Flight Distance KM"] = wNumber(updates.estimatedFlightDistanceKm);
@@ -106946,7 +106948,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
       routeDirection = "auto",
       directionSource = "system_auto",
       directionNote = null,
-      broadcastStyle = "formal_captain"
+      broadcastStyle = "formal_captain",
+      simulatedTakeoffTime
     } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
@@ -106958,6 +106961,7 @@ app.post("/api/flight/takeoff", async (req, res) => {
       res.status(409).json({ error: "already_in_flight", message: "\u4F60\u5DF2\u6709\u4E00\u8D9F\u5C1A\u672A\u964D\u843D\u7684\u822A\u73ED\uFF0C\u8ACB\u5148\u964D\u843D\u6216\u53D6\u6D88\u3002" });
       return;
     }
+    const takeoffTime = typeof simulatedTakeoffTime === "string" && simulatedTakeoffTime ? simulatedTakeoffTime : void 0;
     const flight = await createFlight({
       passengerId,
       passengerName: passenger.name,
@@ -106968,7 +106972,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
       departureLongitude: passenger.currentLongitude,
       routeDirection,
       directionSource,
-      directionNote
+      directionNote,
+      takeoffTime
     });
     const groupFlights = await getGroupFlights(passenger.groupId);
     const socialCue = calculateGroupSocialCue(
@@ -107016,7 +107021,7 @@ app.post("/api/flight/takeoff", async (req, res) => {
 });
 app.post("/api/flight/land", async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = "formal_captain", simulatedDurationMinutes } = req.body;
+    const { passengerId, broadcastStyle = "formal_captain", simulatedDurationMinutes, simulatedLandingTime } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
@@ -107028,12 +107033,12 @@ app.post("/api/flight/land", async (req, res) => {
       return;
     }
     const simMinutes = typeof simulatedDurationMinutes === "number" && simulatedDurationMinutes > 0 ? Math.round(simulatedDurationMinutes) : null;
-    const landingTime = simMinutes ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 6e4).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
-    const durationMinutes = simMinutes ?? Math.round(
+    const landingTime = typeof simulatedLandingTime === "string" && simulatedLandingTime ? simulatedLandingTime : simMinutes ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 6e4).toISOString() : (/* @__PURE__ */ new Date()).toISOString();
+    const durationMinutes = Math.max(1, Math.round(
       (new Date(landingTime).getTime() - new Date(activeFlight.takeoffTime).getTime()) / 6e4
-    );
+    ));
     const distanceKm = calculateFlightDistance(durationMinutes);
-    const progress = calculateFlightProgress(activeFlight.takeoffTime);
+    const progress = 100;
     const region = getNarrativeRegion(progress);
     const destinations = await getAvailableDestinations();
     const arrival = findArrivalDestination(

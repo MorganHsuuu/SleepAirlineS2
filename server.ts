@@ -47,6 +47,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       directionSource = 'system_auto',
       directionNote = null,
       broadcastStyle = 'formal_captain',
+      simulatedTakeoffTime,
     } = req.body;
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
@@ -59,6 +60,10 @@ app.post('/api/flight/takeoff', async (req, res) => {
       return;
     }
 
+    const takeoffTime = typeof simulatedTakeoffTime === 'string' && simulatedTakeoffTime
+      ? simulatedTakeoffTime
+      : undefined;
+
     const flight = await createFlight({
       passengerId,
       passengerName: passenger.name,
@@ -70,6 +75,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection: routeDirection as RouteDirection,
       directionSource: directionSource as DirectionSource,
       directionNote,
+      takeoffTime,
     });
 
     const groupFlights = await getGroupFlights(passenger.groupId);
@@ -124,7 +130,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
 
 app.post('/api/flight/land', async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = 'formal_captain', simulatedDurationMinutes } = req.body;
+    const { passengerId, broadcastStyle = 'formal_captain', simulatedDurationMinutes, simulatedLandingTime } = req.body;
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
     const { passenger } = await getOrCreatePassenger(passengerId, '', '', 'web');
@@ -138,14 +144,16 @@ app.post('/api/flight/land', async (req, res) => {
     const simMinutes = typeof simulatedDurationMinutes === 'number' && simulatedDurationMinutes > 0
       ? Math.round(simulatedDurationMinutes)
       : null;
-    const landingTime = simMinutes
-      ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 60000).toISOString()
-      : new Date().toISOString();
-    const durationMinutes = simMinutes ?? Math.round(
+    const landingTime = typeof simulatedLandingTime === 'string' && simulatedLandingTime
+      ? simulatedLandingTime
+      : simMinutes
+        ? new Date(new Date(activeFlight.takeoffTime).getTime() + simMinutes * 60000).toISOString()
+        : new Date().toISOString();
+    const durationMinutes = Math.max(1, Math.round(
       (new Date(landingTime).getTime() - new Date(activeFlight.takeoffTime).getTime()) / 60000
-    );
+    ));
     const distanceKm = calculateFlightDistance(durationMinutes);
-    const progress = calculateFlightProgress(activeFlight.takeoffTime);
+    const progress = 100;
     const region = getNarrativeRegion(progress);
 
     const destinations = await getAvailableDestinations();

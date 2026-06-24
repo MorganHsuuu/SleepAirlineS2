@@ -72,8 +72,10 @@ export async function createFlight(params: {
   routeDirection: RouteDirection;
   directionSource: DirectionSource;
   directionNote: string | null;
+  takeoffTime?: string;
 }): Promise<Flight> {
   const now = new Date().toISOString();
+  const takeoffTime = params.takeoffTime ?? now;
   const flightId = generateFlightId(params.passengerId);
 
   if (!isNotionConfigured()) {
@@ -94,7 +96,7 @@ export async function createFlight(params: {
       departureLatitude: params.departureLatitude,
       departureLongitude: params.departureLongitude,
       arrivalLocation: null, arrivalLatitude: null, arrivalLongitude: null,
-      takeoffTime: now, landingTime: null,
+      takeoffTime, landingTime: null,
       flightDurationMinutes: null, estimatedFlightDistanceKm: null,
       flightProgress: 0,
       narrativeRegion: 'departure_clouds',
@@ -134,7 +136,7 @@ export async function createFlight(params: {
       'Arrival Location': wText(null),
       'Arrival Latitude': wNumber(null),
       'Arrival Longitude': wNumber(null),
-      'Takeoff Time': wDate(now),
+      'Takeoff Time': wDate(takeoffTime),
       'Landing Time': wDate(null),
       'Flight Duration Minutes': wNumber(null),
       'Estimated Flight Distance KM': wNumber(null),
@@ -188,6 +190,7 @@ export async function updateFlight(
     arrivalLocation: string;
     arrivalLatitude: number;
     arrivalLongitude: number;
+    takeoffTime: string;
     landingTime: string;
     flightDurationMinutes: number;
     estimatedFlightDistanceKm: number;
@@ -228,6 +231,7 @@ export async function updateFlight(
   if (updates.arrivalLocation !== undefined) properties['Arrival Location'] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== undefined) properties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== undefined) properties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
+  if (updates.takeoffTime !== undefined) properties['Takeoff Time'] = wDate(updates.takeoffTime);
   if (updates.landingTime !== undefined) properties['Landing Time'] = wDate(updates.landingTime);
   if (updates.flightDurationMinutes !== undefined) properties['Flight Duration Minutes'] = wNumber(updates.flightDurationMinutes);
   if (updates.estimatedFlightDistanceKm !== undefined) properties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
