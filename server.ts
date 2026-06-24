@@ -24,12 +24,12 @@ app.use(express.static(join(process.cwd(), 'public')));
 
 app.post('/api/passenger', async (req, res) => {
   try {
-    const { passengerId, name, groupId, deviceId } = req.body;
+    const { passengerId, name, groupId } = req.body;
     if (!passengerId || !name || !groupId) {
       res.status(400).json({ error: '請填寫乘客 ID、姓名和小隊 ID。' });
       return;
     }
-    const result = await getOrCreatePassenger(passengerId, name, groupId, deviceId ?? 'web');
+    const result = await getOrCreatePassenger(passengerId, name, groupId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
@@ -42,7 +42,6 @@ app.post('/api/flight/takeoff', async (req, res) => {
   try {
     const {
       passengerId,
-      deviceId = 'web',
       routeDirection = 'auto',
       directionSource = 'system_auto',
       directionNote = null,
@@ -52,7 +51,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
-    const { passenger } = await getOrCreatePassenger(passengerId, '', '', deviceId);
+    const { passenger } = await getOrCreatePassenger(passengerId, '', '');
 
     const existing = await getActiveFlight(passengerId);
     if (existing) {
@@ -68,7 +67,6 @@ app.post('/api/flight/takeoff', async (req, res) => {
       passengerId,
       passengerName: passenger.name,
       groupId: passenger.groupId,
-      deviceId,
       departureLocation: passenger.currentLocation,
       departureLatitude: passenger.currentLatitude,
       departureLongitude: passenger.currentLongitude,
@@ -133,7 +131,7 @@ app.post('/api/flight/land', async (req, res) => {
     const { passengerId, broadcastStyle = 'formal_captain', simulatedDurationMinutes, simulatedLandingTime } = req.body;
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
-    const { passenger } = await getOrCreatePassenger(passengerId, '', '', 'web');
+    const { passenger } = await getOrCreatePassenger(passengerId, '', '');
     const activeFlight = await getActiveFlight(passengerId);
 
     if (!activeFlight) {
@@ -199,8 +197,6 @@ app.post('/api/flight/land', async (req, res) => {
       arrivalLocation: arrival.displayName,
       arrivalLatitude: arrival.latitude,
       arrivalLongitude: arrival.longitude,
-      flightProgress: 100,
-      narrativeRegion: 'arrival_harbor',
       captainBroadcastStyle: broadcastStyle as BroadcastStyle,
       captainBroadcast,
       socialCueType: socialCue.cueType,

@@ -15,14 +15,6 @@ const STATUS_OPTIONS = [
   { name: 'landed', color: 'green' as const },
 ];
 
-const NARRATIVE_REGION_OPTIONS = [
-  { name: 'departure_clouds', color: 'gray' as const },
-  { name: 'pacific_drift', color: 'blue' as const },
-  { name: 'deep_night_current', color: 'purple' as const },
-  { name: 'dawn_corridor', color: 'orange' as const },
-  { name: 'arrival_harbor', color: 'green' as const },
-];
-
 const ROUTE_DIRECTION_OPTIONS = [
   'auto', 'eastbound', 'westbound', 'northbound', 'southbound',
   'northeast', 'northwest', 'southeast', 'southwest', 'circular', 'unknown',
@@ -42,36 +34,74 @@ const SOCIAL_CUE_OPTIONS = [
   'early_landing', 'late_landing', 'solo',
 ].map((name, i) => ({ name, color: (['blue', 'purple', 'green', 'orange', 'yellow', 'pink', 'gray'] as const)[i] }));
 
+/** Notion 表格建議欄位順序（既有表請在 UI 依此拖曳；API 無法自動排序） */
+export const DASHBOARD_PROPERTY_ORDER = [
+  // 識別
+  'Flight ID',
+  'Passenger ID',
+  'Name',
+  'Group ID',
+  'Status',
+  // 起飛
+  'Departure Location',
+  'Departure Latitude',
+  'Departure Longitude',
+  'Takeoff Time',
+  'Takeoff Broadcast Style',
+  'Takeoff Broadcast',
+  'Route Direction',
+  'Direction Source',
+  'Direction Note',
+  // 降落
+  'Landing Time',
+  'Flight Duration Minutes',
+  'Estimated Flight Distance KM',
+  'Arrival Location',
+  'Arrival Latitude',
+  'Arrival Longitude',
+  'Captain Broadcast Style',
+  'Captain Broadcast',
+  // 社交
+  'Social Cue Type',
+  'Social Cue Text',
+  'Related Passenger',
+  // 系統
+  'Created At',
+  'Updated At',
+] as const;
+
 export function getDashboardProperties() {
   return {
+    // ── 識別 ──
     'Flight ID': { title: {} },
     'Passenger ID': { rich_text: {} },
     'Name': { rich_text: {} },
     'Group ID': { select: { options: GROUP_OPTIONS } },
-    'Device ID': { rich_text: {} },
     'Status': { select: { options: STATUS_OPTIONS } },
+    // ── 起飛 ──
     'Departure Location': { rich_text: {} },
     'Departure Latitude': { number: { format: 'number' } },
     'Departure Longitude': { number: { format: 'number' } },
-    'Arrival Location': { rich_text: {} },
-    'Arrival Latitude': { number: { format: 'number' } },
-    'Arrival Longitude': { number: { format: 'number' } },
     'Takeoff Time': { date: {} },
-    'Landing Time': { date: {} },
-    'Flight Duration Minutes': { number: { format: 'number' } },
-    'Estimated Flight Distance KM': { number: { format: 'number' } },
-    'Flight Progress': { number: { format: 'number' } },
-    'Narrative Region': { select: { options: NARRATIVE_REGION_OPTIONS } },
+    'Takeoff Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
+    'Takeoff Broadcast': { rich_text: {} },
     'Route Direction': { select: { options: ROUTE_DIRECTION_OPTIONS } },
     'Direction Source': { select: { options: DIRECTION_SOURCE_OPTIONS } },
     'Direction Note': { rich_text: {} },
-    'Takeoff Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
-    'Takeoff Broadcast': { rich_text: {} },
+    // ── 降落 ──
+    'Landing Time': { date: {} },
+    'Flight Duration Minutes': { number: { format: 'number' } },
+    'Estimated Flight Distance KM': { number: { format: 'number' } },
+    'Arrival Location': { rich_text: {} },
+    'Arrival Latitude': { number: { format: 'number' } },
+    'Arrival Longitude': { number: { format: 'number' } },
     'Captain Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
     'Captain Broadcast': { rich_text: {} },
+    // ── 社交 ──
     'Social Cue Type': { select: { options: SOCIAL_CUE_OPTIONS } },
     'Social Cue Text': { rich_text: {} },
     'Related Passenger': { rich_text: {} },
+    // ── 系統 ──
     'Created At': { date: {} },
     'Updated At': { date: {} },
   };

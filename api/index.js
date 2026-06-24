@@ -104,13 +104,6 @@ var STATUS_OPTIONS = [
   { name: "in_flight", color: "yellow" },
   { name: "landed", color: "green" }
 ];
-var NARRATIVE_REGION_OPTIONS = [
-  { name: "departure_clouds", color: "gray" },
-  { name: "pacific_drift", color: "blue" },
-  { name: "deep_night_current", color: "purple" },
-  { name: "dawn_corridor", color: "orange" },
-  { name: "arrival_harbor", color: "green" }
-];
 var ROUTE_DIRECTION_OPTIONS = [
   "auto",
   "eastbound",
@@ -153,34 +146,36 @@ var SOCIAL_CUE_OPTIONS = [
 ].map((name, i) => ({ name, color: ["blue", "purple", "green", "orange", "yellow", "pink", "gray"][i] }));
 function getDashboardProperties() {
   return {
+    // ── 識別 ──
     "Flight ID": { title: {} },
     "Passenger ID": { rich_text: {} },
     "Name": { rich_text: {} },
     "Group ID": { select: { options: GROUP_OPTIONS } },
-    "Device ID": { rich_text: {} },
     "Status": { select: { options: STATUS_OPTIONS } },
+    // ── 起飛 ──
     "Departure Location": { rich_text: {} },
     "Departure Latitude": { number: { format: "number" } },
     "Departure Longitude": { number: { format: "number" } },
-    "Arrival Location": { rich_text: {} },
-    "Arrival Latitude": { number: { format: "number" } },
-    "Arrival Longitude": { number: { format: "number" } },
     "Takeoff Time": { date: {} },
-    "Landing Time": { date: {} },
-    "Flight Duration Minutes": { number: { format: "number" } },
-    "Estimated Flight Distance KM": { number: { format: "number" } },
-    "Flight Progress": { number: { format: "number" } },
-    "Narrative Region": { select: { options: NARRATIVE_REGION_OPTIONS } },
+    "Takeoff Broadcast Style": { select: { options: BROADCAST_STYLE_OPTIONS } },
+    "Takeoff Broadcast": { rich_text: {} },
     "Route Direction": { select: { options: ROUTE_DIRECTION_OPTIONS } },
     "Direction Source": { select: { options: DIRECTION_SOURCE_OPTIONS } },
     "Direction Note": { rich_text: {} },
-    "Takeoff Broadcast Style": { select: { options: BROADCAST_STYLE_OPTIONS } },
-    "Takeoff Broadcast": { rich_text: {} },
+    // ── 降落 ──
+    "Landing Time": { date: {} },
+    "Flight Duration Minutes": { number: { format: "number" } },
+    "Estimated Flight Distance KM": { number: { format: "number" } },
+    "Arrival Location": { rich_text: {} },
+    "Arrival Latitude": { number: { format: "number" } },
+    "Arrival Longitude": { number: { format: "number" } },
     "Captain Broadcast Style": { select: { options: BROADCAST_STYLE_OPTIONS } },
     "Captain Broadcast": { rich_text: {} },
+    // ── 社交 ──
     "Social Cue Type": { select: { options: SOCIAL_CUE_OPTIONS } },
     "Social Cue Text": { rich_text: {} },
     "Related Passenger": { rich_text: {} },
+    // ── 系統 ──
     "Created At": { date: {} },
     "Updated At": { date: {} }
   };
@@ -282,12 +277,11 @@ var DEFAULT_LAT = 25.033;
 var DEFAULT_LNG = 121.5654;
 var mem = /* @__PURE__ */ new Map();
 var profileCache = /* @__PURE__ */ new Map();
-function resolveProfile(passengerId, name, groupId, deviceId) {
+function resolveProfile(passengerId, name, groupId) {
   const cached = profileCache.get(passengerId);
   const resolved = {
     name: name || cached?.name || "",
-    groupId: groupId || cached?.groupId || "",
-    deviceId: deviceId || cached?.deviceId || "web"
+    groupId: groupId || cached?.groupId || ""
   };
   if (resolved.name || resolved.groupId) {
     profileCache.set(passengerId, resolved);
@@ -321,7 +315,6 @@ function parsePassengerFromFlightRow(page, overrides) {
     passengerId,
     name: overrides?.name || readText(props, "Name"),
     groupId: overrides?.groupId || (readSelect(props, "Group ID") ?? ""),
-    deviceId: overrides?.deviceId || readText(props, "Device ID") || "web",
     currentLocation,
     currentLatitude,
     currentLongitude,
@@ -331,14 +324,13 @@ function parsePassengerFromFlightRow(page, overrides) {
     updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function defaultPassenger(passengerId, name, groupId, deviceId) {
+function defaultPassenger(passengerId, name, groupId) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   return {
     notionId: `pending_${passengerId}`,
     passengerId,
     name,
     groupId,
-    deviceId,
     currentLocation: DEFAULT_LOCATION,
     currentLatitude: DEFAULT_LAT,
     currentLongitude: DEFAULT_LNG,
@@ -348,8 +340,8 @@ function defaultPassenger(passengerId, name, groupId, deviceId) {
     updatedAt: now
   };
 }
-async function getOrCreatePassenger(passengerId, name, groupId, deviceId = "web") {
-  const profile = resolveProfile(passengerId, name, groupId, deviceId);
+async function getOrCreatePassenger(passengerId, name, groupId) {
+  const profile = resolveProfile(passengerId, name, groupId);
   if (!isNotionConfigured()) {
     const existing = mem.get(passengerId);
     if (existing) {
@@ -358,7 +350,7 @@ async function getOrCreatePassenger(passengerId, name, groupId, deviceId = "web"
       existing.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
       return { passenger: existing, created: false };
     }
-    const p = defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId);
+    const p = defaultPassenger(passengerId, profile.name, profile.groupId);
     p.notionId = `mem_${passengerId}`;
     mem.set(passengerId, p);
     return { passenger: p, created: true };
@@ -380,8 +372,7 @@ async function getOrCreatePassenger(passengerId, name, groupId, deviceId = "web"
     return {
       passenger: parsePassengerFromFlightRow(page, {
         name: profile.name || void 0,
-        groupId: profile.groupId || void 0,
-        deviceId: profile.deviceId
+        groupId: profile.groupId || void 0
       }),
       created: false
     };
@@ -396,8 +387,7 @@ async function getOrCreatePassenger(passengerId, name, groupId, deviceId = "web"
     const page = history.results[0];
     const passenger = parsePassengerFromFlightRow(page, {
       name: profile.name || void 0,
-      groupId: profile.groupId || void 0,
-      deviceId: profile.deviceId
+      groupId: profile.groupId || void 0
     });
     if (passenger.status === "landed") {
       passenger.status = "not_started";
@@ -405,7 +395,7 @@ async function getOrCreatePassenger(passengerId, name, groupId, deviceId = "web"
     return { passenger, created: false };
   }
   return {
-    passenger: defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId),
+    passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
     created: true
   };
 }
@@ -422,8 +412,53 @@ function syncMemPassenger(passengerId, updates) {
   p.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
 }
 
+// src/lib/flight/progress.ts
+var REFERENCE_MINUTES = 480;
+function calculateFlightProgress(takeoffTime) {
+  const now = Date.now();
+  const takeoff = new Date(takeoffTime).getTime();
+  const elapsedMinutes = (now - takeoff) / 6e4;
+  const progress = elapsedMinutes / REFERENCE_MINUTES * 100;
+  return Math.min(100, Math.max(0, progress));
+}
+
+// src/lib/flight/region.ts
+var REGION_ORDER = [
+  "departure_clouds",
+  "pacific_drift",
+  "deep_night_current",
+  "dawn_corridor",
+  "arrival_harbor"
+];
+var REGION_DISPLAY = {
+  departure_clouds: "\u767B\u6A5F\u96F2\u5C64",
+  pacific_drift: "\u592A\u5E73\u6D0B\u6F02\u6D41\u5E36",
+  deep_night_current: "\u6DF1\u591C\u6D0B\u6D41",
+  dawn_corridor: "\u9ECE\u660E\u822A\u5ECA",
+  arrival_harbor: "\u62B5\u9054\u6E2F\u7063"
+};
+function getNarrativeRegion(progress) {
+  if (progress < 20) return "departure_clouds";
+  if (progress < 40) return "pacific_drift";
+  if (progress < 60) return "deep_night_current";
+  if (progress < 80) return "dawn_corridor";
+  return "arrival_harbor";
+}
+function areAdjacentRegions(a, b) {
+  const indexA = REGION_ORDER.indexOf(a);
+  const indexB = REGION_ORDER.indexOf(b);
+  return Math.abs(indexA - indexB) === 1;
+}
+
 // src/lib/notion/flights.ts
 var mem2 = [];
+function liveFlightState(status, takeoffTime) {
+  if (status === "landed") {
+    return { flightProgress: 100, narrativeRegion: "arrival_harbor" };
+  }
+  const flightProgress = calculateFlightProgress(takeoffTime);
+  return { flightProgress, narrativeRegion: getNarrativeRegion(flightProgress) };
+}
 function readPassengerId2(props) {
   return readText(props, "Passenger ID") || readTitle(props, "Passenger ID");
 }
@@ -433,26 +468,28 @@ function readFlightId2(props) {
 function parseFlight(page) {
   const props = page.properties;
   const takeoffTime = readDate(props, "Takeoff Time");
+  const status = readSelect(props, "Status") ?? "not_started";
+  const resolvedTakeoff = takeoffTime ?? (/* @__PURE__ */ new Date()).toISOString();
+  const live = liveFlightState(status === "in_flight" ? "in_flight" : status === "landed" ? "landed" : "in_flight", resolvedTakeoff);
   return {
     notionId: page.id,
     flightId: readFlightId2(props),
     passengerId: readPassengerId2(props),
     passengerName: readText(props, "Name"),
     groupId: readSelect(props, "Group ID") ?? "",
-    deviceId: readText(props, "Device ID"),
-    status: readSelect(props, "Status") ?? "not_started",
+    status,
     departureLocation: readText(props, "Departure Location"),
     departureLatitude: readNumber(props, "Departure Latitude") ?? 0,
     departureLongitude: readNumber(props, "Departure Longitude") ?? 0,
     arrivalLocation: readText(props, "Arrival Location") || null,
     arrivalLatitude: readNumber(props, "Arrival Latitude"),
     arrivalLongitude: readNumber(props, "Arrival Longitude"),
-    takeoffTime: takeoffTime ?? (/* @__PURE__ */ new Date()).toISOString(),
+    takeoffTime: resolvedTakeoff,
     landingTime: readDate(props, "Landing Time"),
     flightDurationMinutes: readNumber(props, "Flight Duration Minutes"),
     estimatedFlightDistanceKm: readNumber(props, "Estimated Flight Distance KM"),
-    flightProgress: readNumber(props, "Flight Progress") ?? 0,
-    narrativeRegion: readSelect(props, "Narrative Region") ?? "departure_clouds",
+    flightProgress: status === "landed" ? 100 : status === "in_flight" ? live.flightProgress : 0,
+    narrativeRegion: status === "landed" ? "arrival_harbor" : status === "in_flight" ? live.narrativeRegion : "departure_clouds",
     routeDirection: readSelect(props, "Route Direction") ?? "auto",
     directionSource: readSelect(props, "Direction Source") ?? "system_auto",
     directionNote: readText(props, "Direction Note") || null,
@@ -488,7 +525,6 @@ async function createFlight(params) {
       passengerId: params.passengerId,
       passengerName: params.passengerName,
       groupId: params.groupId,
-      deviceId: params.deviceId,
       status: "in_flight",
       departureLocation: params.departureLocation,
       departureLatitude: params.departureLatitude,
@@ -533,7 +569,6 @@ async function createFlight(params) {
       "Passenger ID": wText(params.passengerId),
       "Name": wText(params.passengerName),
       "Group ID": wSelect(params.groupId),
-      "Device ID": wText(params.deviceId),
       "Status": wSelect("in_flight"),
       "Departure Location": wText(params.departureLocation),
       "Departure Latitude": wNumber(params.departureLatitude),
@@ -545,8 +580,6 @@ async function createFlight(params) {
       "Landing Time": wDate(null),
       "Flight Duration Minutes": wNumber(null),
       "Estimated Flight Distance KM": wNumber(null),
-      "Flight Progress": wNumber(0),
-      "Narrative Region": wSelect("departure_clouds"),
       "Route Direction": wSelect(params.routeDirection),
       "Direction Source": wSelect(params.directionSource),
       "Direction Note": wText(params.directionNote),
@@ -611,8 +644,6 @@ async function updateFlight(notionId, updates) {
   if (updates.landingTime !== void 0) properties["Landing Time"] = wDate(updates.landingTime);
   if (updates.flightDurationMinutes !== void 0) properties["Flight Duration Minutes"] = wNumber(updates.flightDurationMinutes);
   if (updates.estimatedFlightDistanceKm !== void 0) properties["Estimated Flight Distance KM"] = wNumber(updates.estimatedFlightDistanceKm);
-  if (updates.flightProgress !== void 0) properties["Flight Progress"] = wNumber(updates.flightProgress);
-  if (updates.narrativeRegion !== void 0) properties["Narrative Region"] = wSelect(updates.narrativeRegion);
   if (updates.takeoffBroadcastStyle !== void 0) properties["Takeoff Broadcast Style"] = wSelect(updates.takeoffBroadcastStyle);
   if (updates.takeoffBroadcast !== void 0) properties["Takeoff Broadcast"] = wText(updates.takeoffBroadcast);
   if (updates.captainBroadcastStyle !== void 0) properties["Captain Broadcast Style"] = wSelect(updates.captainBroadcastStyle);
@@ -106694,44 +106725,6 @@ function calculateFlightDistance(durationMinutes) {
   return durationMinutes * KM_PER_MINUTE;
 }
 
-// src/lib/flight/progress.ts
-var REFERENCE_MINUTES = 480;
-function calculateFlightProgress(takeoffTime) {
-  const now = Date.now();
-  const takeoff = new Date(takeoffTime).getTime();
-  const elapsedMinutes = (now - takeoff) / 6e4;
-  const progress = elapsedMinutes / REFERENCE_MINUTES * 100;
-  return Math.min(100, Math.max(0, progress));
-}
-
-// src/lib/flight/region.ts
-var REGION_ORDER = [
-  "departure_clouds",
-  "pacific_drift",
-  "deep_night_current",
-  "dawn_corridor",
-  "arrival_harbor"
-];
-var REGION_DISPLAY = {
-  departure_clouds: "\u767B\u6A5F\u96F2\u5C64",
-  pacific_drift: "\u592A\u5E73\u6D0B\u6F02\u6D41\u5E36",
-  deep_night_current: "\u6DF1\u591C\u6D0B\u6D41",
-  dawn_corridor: "\u9ECE\u660E\u822A\u5ECA",
-  arrival_harbor: "\u62B5\u9054\u6E2F\u7063"
-};
-function getNarrativeRegion(progress) {
-  if (progress < 20) return "departure_clouds";
-  if (progress < 40) return "pacific_drift";
-  if (progress < 60) return "deep_night_current";
-  if (progress < 80) return "dawn_corridor";
-  return "arrival_harbor";
-}
-function areAdjacentRegions(a, b) {
-  const indexA = REGION_ORDER.indexOf(a);
-  const indexB = REGION_ORDER.indexOf(b);
-  return Math.abs(indexA - indexB) === 1;
-}
-
 // src/lib/utils/haversine.ts
 var EARTH_RADIUS_KM = 6371;
 function toRad(deg) {
@@ -106929,12 +106922,12 @@ app.use(import_express.default.json());
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
 app.post("/api/passenger", async (req, res) => {
   try {
-    const { passengerId, name, groupId, deviceId } = req.body;
+    const { passengerId, name, groupId } = req.body;
     if (!passengerId || !name || !groupId) {
       res.status(400).json({ error: "\u8ACB\u586B\u5BEB\u4E58\u5BA2 ID\u3001\u59D3\u540D\u548C\u5C0F\u968A ID\u3002" });
       return;
     }
-    const result = await getOrCreatePassenger(passengerId, name, groupId, deviceId ?? "web");
+    const result = await getOrCreatePassenger(passengerId, name, groupId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
@@ -106944,7 +106937,6 @@ app.post("/api/flight/takeoff", async (req, res) => {
   try {
     const {
       passengerId,
-      deviceId = "web",
       routeDirection = "auto",
       directionSource = "system_auto",
       directionNote = null,
@@ -106955,7 +106947,7 @@ app.post("/api/flight/takeoff", async (req, res) => {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
     }
-    const { passenger } = await getOrCreatePassenger(passengerId, "", "", deviceId);
+    const { passenger } = await getOrCreatePassenger(passengerId, "", "");
     const existing = await getActiveFlight(passengerId);
     if (existing) {
       res.status(409).json({ error: "already_in_flight", message: "\u4F60\u5DF2\u6709\u4E00\u8D9F\u5C1A\u672A\u964D\u843D\u7684\u822A\u73ED\uFF0C\u8ACB\u5148\u964D\u843D\u6216\u53D6\u6D88\u3002" });
@@ -106966,7 +106958,6 @@ app.post("/api/flight/takeoff", async (req, res) => {
       passengerId,
       passengerName: passenger.name,
       groupId: passenger.groupId,
-      deviceId,
       departureLocation: passenger.currentLocation,
       departureLatitude: passenger.currentLatitude,
       departureLongitude: passenger.currentLongitude,
@@ -107026,7 +107017,7 @@ app.post("/api/flight/land", async (req, res) => {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
     }
-    const { passenger } = await getOrCreatePassenger(passengerId, "", "", "web");
+    const { passenger } = await getOrCreatePassenger(passengerId, "", "");
     const activeFlight = await getActiveFlight(passengerId);
     if (!activeFlight) {
       res.status(404).json({ error: "no_active_flight", message: "\u627E\u4E0D\u5230\u9032\u884C\u4E2D\u7684\u822A\u73ED\u3002" });
@@ -107080,8 +107071,6 @@ app.post("/api/flight/land", async (req, res) => {
       arrivalLocation: arrival.displayName,
       arrivalLatitude: arrival.latitude,
       arrivalLongitude: arrival.longitude,
-      flightProgress: 100,
-      narrativeRegion: "arrival_harbor",
       captainBroadcastStyle: broadcastStyle,
       captainBroadcast,
       socialCueType: socialCue.cueType,

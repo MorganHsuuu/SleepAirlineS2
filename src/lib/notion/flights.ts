@@ -6,8 +6,21 @@ import {
 } from './client';
 import { resolveDashboardDbId } from './ensure-dashboard';
 import { syncMemPassenger } from './passengers';
+import { calculateFlightProgress } from '../flight/progress';
+import { getNarrativeRegion } from '../flight/region';
 
 const mem: Flight[] = [];
+
+function liveFlightState(
+  status: FlightStatus,
+  takeoffTime: string
+): { flightProgress: number; narrativeRegion: NarrativeRegion } {
+  if (status === 'landed') {
+    return { flightProgress: 100, narrativeRegion: 'arrival_harbor' };
+  }
+  const flightProgress = calculateFlightProgress(takeoffTime);
+  return { flightProgress, narrativeRegion: getNarrativeRegion(flightProgress) };
+}
 
 function readPassengerId(props: Record<string, unknown>): string {
   return readText(props, 'Passenger ID') || readTitle(props, 'Passenger ID');
@@ -20,26 +33,28 @@ function readFlightId(props: Record<string, unknown>): string {
 function parseFlight(page: Record<string, unknown>): Flight {
   const props = page.properties as Record<string, unknown>;
   const takeoffTime = readDate(props, 'Takeoff Time');
+  const status = (readSelect(props, 'Status') ?? 'not_started') as FlightStatus;
+  const resolvedTakeoff = takeoffTime ?? new Date().toISOString();
+  const live = liveFlightState(status === 'in_flight' ? 'in_flight' : status === 'landed' ? 'landed' : 'in_flight', resolvedTakeoff);
   return {
     notionId: page.id as string,
     flightId: readFlightId(props),
     passengerId: readPassengerId(props),
     passengerName: readText(props, 'Name'),
     groupId: readSelect(props, 'Group ID') ?? '',
-    deviceId: readText(props, 'Device ID'),
-    status: (readSelect(props, 'Status') ?? 'not_started') as FlightStatus,
+    status,
     departureLocation: readText(props, 'Departure Location'),
     departureLatitude: readNumber(props, 'Departure Latitude') ?? 0,
     departureLongitude: readNumber(props, 'Departure Longitude') ?? 0,
     arrivalLocation: readText(props, 'Arrival Location') || null,
     arrivalLatitude: readNumber(props, 'Arrival Latitude'),
     arrivalLongitude: readNumber(props, 'Arrival Longitude'),
-    takeoffTime: takeoffTime ?? new Date().toISOString(),
+    takeoffTime: resolvedTakeoff,
     landingTime: readDate(props, 'Landing Time'),
     flightDurationMinutes: readNumber(props, 'Flight Duration Minutes'),
     estimatedFlightDistanceKm: readNumber(props, 'Estimated Flight Distance KM'),
-    flightProgress: readNumber(props, 'Flight Progress') ?? 0,
-    narrativeRegion: (readSelect(props, 'Narrative Region') ?? 'departure_clouds') as NarrativeRegion,
+    flightProgress: status === 'landed' ? 100 : status === 'in_flight' ? live.flightProgress : 0,
+    narrativeRegion: status === 'landed' ? 'arrival_harbor' : status === 'in_flight' ? live.narrativeRegion : 'departure_clouds',
     routeDirection: (readSelect(props, 'Route Direction') ?? 'auto') as RouteDirection,
     directionSource: (readSelect(props, 'Direction Source') ?? 'system_auto') as DirectionSource,
     directionNote: readText(props, 'Direction Note') || null,
@@ -65,7 +80,6 @@ export async function createFlight(params: {
   passengerId: string;
   passengerName: string;
   groupId: string;
-  deviceId: string;
   departureLocation: string;
   departureLatitude: number;
   departureLongitude: number;
@@ -90,7 +104,6 @@ export async function createFlight(params: {
       passengerId: params.passengerId,
       passengerName: params.passengerName,
       groupId: params.groupId,
-      deviceId: params.deviceId,
       status: 'in_flight',
       departureLocation: params.departureLocation,
       departureLatitude: params.departureLatitude,
@@ -128,7 +141,6 @@ export async function createFlight(params: {
       'Passenger ID': wText(params.passengerId),
       'Name': wText(params.passengerName),
       'Group ID': wSelect(params.groupId),
-      'Device ID': wText(params.deviceId),
       'Status': wSelect('in_flight'),
       'Departure Location': wText(params.departureLocation),
       'Departure Latitude': wNumber(params.departureLatitude),
@@ -140,8 +152,6 @@ export async function createFlight(params: {
       'Landing Time': wDate(null),
       'Flight Duration Minutes': wNumber(null),
       'Estimated Flight Distance KM': wNumber(null),
-      'Flight Progress': wNumber(0),
-      'Narrative Region': wSelect('departure_clouds'),
       'Route Direction': wSelect(params.routeDirection),
       'Direction Source': wSelect(params.directionSource),
       'Direction Note': wText(params.directionNote),
@@ -194,8 +204,6 @@ export async function updateFlight(
     landingTime: string;
     flightDurationMinutes: number;
     estimatedFlightDistanceKm: number;
-    flightProgress: number;
-    narrativeRegion: NarrativeRegion;
     takeoffBroadcastStyle: BroadcastStyle;
     takeoffBroadcast: string;
     captainBroadcastStyle: BroadcastStyle;
@@ -235,8 +243,6 @@ export async function updateFlight(
   if (updates.landingTime !== undefined) properties['Landing Time'] = wDate(updates.landingTime);
   if (updates.flightDurationMinutes !== undefined) properties['Flight Duration Minutes'] = wNumber(updates.flightDurationMinutes);
   if (updates.estimatedFlightDistanceKm !== undefined) properties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
-  if (updates.flightProgress !== undefined) properties['Flight Progress'] = wNumber(updates.flightProgress);
-  if (updates.narrativeRegion !== undefined) properties['Narrative Region'] = wSelect(updates.narrativeRegion);
   if (updates.takeoffBroadcastStyle !== undefined) properties['Takeoff Broadcast Style'] = wSelect(updates.takeoffBroadcastStyle);
   if (updates.takeoffBroadcast !== undefined) properties['Takeoff Broadcast'] = wText(updates.takeoffBroadcast);
   if (updates.captainBroadcastStyle !== undefined) properties['Captain Broadcast Style'] = wSelect(updates.captainBroadcastStyle);

@@ -277,6 +277,9 @@ async function doTakeoff() {
     updateUI();
     await fetchBoard();
     startAutoRefresh();
+    if (activeFlight.takeoffBroadcast && window.BroadcastAudio) {
+      BroadcastAudio.playCaptainBroadcast(activeFlight.takeoffBroadcast);
+    }
   } catch (err) {
     showMsg('main', 'error', err.message);
   } finally {
@@ -302,6 +305,9 @@ async function doLand() {
     showMsg('main', 'success', '✓ 已降落於 ' + landed.arrivalLocation);
     updateUI();
     await fetchBoard();
+    if (landed.captainBroadcast && window.BroadcastAudio) {
+      BroadcastAudio.playCaptainBroadcast(landed.captainBroadcast);
+    }
   } catch (err) {
     showMsg('main', 'error', err.message);
   } finally {

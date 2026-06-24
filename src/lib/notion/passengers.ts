@@ -12,19 +12,17 @@ const DEFAULT_LNG = 121.5654;
 const mem = new Map<string, Passenger>();
 
 /** Notion 模式下登入不寫表，起飛前暫存姓名／小隊。 */
-const profileCache = new Map<string, { name: string; groupId: string; deviceId: string }>();
+const profileCache = new Map<string, { name: string; groupId: string }>();
 
 function resolveProfile(
   passengerId: string,
   name: string,
-  groupId: string,
-  deviceId: string
-): { name: string; groupId: string; deviceId: string } {
+  groupId: string
+): { name: string; groupId: string } {
   const cached = profileCache.get(passengerId);
   const resolved = {
     name: name || cached?.name || '',
     groupId: groupId || cached?.groupId || '',
-    deviceId: deviceId || cached?.deviceId || 'web',
   };
   if (resolved.name || resolved.groupId) {
     profileCache.set(passengerId, resolved);
@@ -43,7 +41,7 @@ function readFlightId(props: Record<string, unknown>): string {
 /** 從航班列推導乘客目前狀態（登入不寫 Notion，僅讀最新／進行中航班）。 */
 function parsePassengerFromFlightRow(
   page: Record<string, unknown>,
-  overrides?: { name?: string; groupId?: string; deviceId?: string }
+  overrides?: { name?: string; groupId?: string }
 ): Passenger {
   const props = page.properties as Record<string, unknown>;
   const status = (readSelect(props, 'Status') ?? 'not_started') as PassengerStatus;
@@ -68,7 +66,6 @@ function parsePassengerFromFlightRow(
     passengerId,
     name: overrides?.name || readText(props, 'Name'),
     groupId: overrides?.groupId || (readSelect(props, 'Group ID') ?? ''),
-    deviceId: overrides?.deviceId || readText(props, 'Device ID') || 'web',
     currentLocation,
     currentLatitude,
     currentLongitude,
@@ -82,8 +79,7 @@ function parsePassengerFromFlightRow(
 function defaultPassenger(
   passengerId: string,
   name: string,
-  groupId: string,
-  deviceId: string
+  groupId: string
 ): Passenger {
   const now = new Date().toISOString();
   return {
@@ -91,7 +87,6 @@ function defaultPassenger(
     passengerId,
     name,
     groupId,
-    deviceId,
     currentLocation: DEFAULT_LOCATION,
     currentLatitude: DEFAULT_LAT,
     currentLongitude: DEFAULT_LNG,
@@ -105,10 +100,9 @@ function defaultPassenger(
 export async function getOrCreatePassenger(
   passengerId: string,
   name: string,
-  groupId: string,
-  deviceId: string = 'web'
+  groupId: string
 ): Promise<{ passenger: Passenger; created: boolean }> {
-  const profile = resolveProfile(passengerId, name, groupId, deviceId);
+  const profile = resolveProfile(passengerId, name, groupId);
 
   if (!isNotionConfigured()) {
     const existing = mem.get(passengerId);
@@ -118,7 +112,7 @@ export async function getOrCreatePassenger(
       existing.updatedAt = new Date().toISOString();
       return { passenger: existing, created: false };
     }
-    const p = defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId);
+    const p = defaultPassenger(passengerId, profile.name, profile.groupId);
     p.notionId = `mem_${passengerId}`;
     mem.set(passengerId, p);
     return { passenger: p, created: true };
@@ -144,7 +138,6 @@ export async function getOrCreatePassenger(
       passenger: parsePassengerFromFlightRow(page, {
         name: profile.name || undefined,
         groupId: profile.groupId || undefined,
-        deviceId: profile.deviceId,
       }),
       created: false,
     };
@@ -162,7 +155,6 @@ export async function getOrCreatePassenger(
     const passenger = parsePassengerFromFlightRow(page, {
       name: profile.name || undefined,
       groupId: profile.groupId || undefined,
-      deviceId: profile.deviceId,
     });
     if (passenger.status === 'landed') {
       passenger.status = 'not_started';
@@ -171,7 +163,7 @@ export async function getOrCreatePassenger(
   }
 
   return {
-    passenger: defaultPassenger(passengerId, profile.name, profile.groupId, profile.deviceId),
+    passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
     created: true,
   };
 }

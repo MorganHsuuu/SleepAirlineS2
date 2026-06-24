@@ -48,7 +48,6 @@ export interface Passenger {
   passengerId: string;
   name: string;
   groupId: string;
-  deviceId: string;
   currentLocation: string;
   currentLatitude: number;
   currentLongitude: number;
@@ -64,7 +63,6 @@ export interface Flight {
   passengerId: string;
   passengerName: string;
   groupId: string;
-  deviceId: string;
   status: FlightStatus;
   departureLocation: string;
   departureLatitude: number;

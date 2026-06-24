@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveDashboardDbId } from '../src/lib/notion/ensure-dashboard';
+import { DASHBOARD_PROPERTY_ORDER } from '../src/lib/notion/dashboard-schema';
 
 function loadEnv() {
   const envPath = path.join(process.cwd(), '.env.local');
@@ -48,6 +49,8 @@ async function main() {
     const dashboardId = await resolveDashboardDbId();
     writeEnvUpdate(dashboardId);
     console.log(`\n✅ Dashboard 就緒：${dashboardId}`);
+    console.log('\n建議 Notion 欄位順序（在表格 Properties 依序拖曳）：');
+    DASHBOARD_PROPERTY_ORDER.forEach((name, i) => console.log(`  ${String(i + 1).padStart(2, '0')}. ${name}`));
     console.log('\nVercel 只需設定：');
     console.log('  NOTION_API_KEY');
     console.log('  NOTION_PARENT_PAGE_ID（選填，預設為 Sleep Airline 頁面）\n');
