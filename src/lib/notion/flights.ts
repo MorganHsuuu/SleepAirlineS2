@@ -43,6 +43,8 @@ function parseFlight(page: Record<string, unknown>): Flight {
     routeDirection: (readSelect(props, 'Route Direction') ?? 'auto') as RouteDirection,
     directionSource: (readSelect(props, 'Direction Source') ?? 'system_auto') as DirectionSource,
     directionNote: readText(props, 'Direction Note') || null,
+    takeoffBroadcastStyle: readSelect(props, 'Takeoff Broadcast Style') as BroadcastStyle | null,
+    takeoffBroadcast: readText(props, 'Takeoff Broadcast') || null,
     captainBroadcastStyle: readSelect(props, 'Captain Broadcast Style') as BroadcastStyle | null,
     captainBroadcast: readText(props, 'Captain Broadcast') || null,
     socialCueType: readSelect(props, 'Social Cue Type') as SocialCueType | null,
@@ -99,6 +101,7 @@ export async function createFlight(params: {
       routeDirection: params.routeDirection,
       directionSource: params.directionSource,
       directionNote: params.directionNote,
+      takeoffBroadcastStyle: null, takeoffBroadcast: null,
       captainBroadcastStyle: null, captainBroadcast: null,
       socialCueType: null, socialCueText: null, relatedPassenger: null,
       createdAt: now, updatedAt: now,
@@ -140,6 +143,8 @@ export async function createFlight(params: {
       'Route Direction': wSelect(params.routeDirection),
       'Direction Source': wSelect(params.directionSource),
       'Direction Note': wText(params.directionNote),
+      'Takeoff Broadcast Style': wSelect(null),
+      'Takeoff Broadcast': wText(null),
       'Captain Broadcast Style': wSelect(null),
       'Captain Broadcast': wText(null),
       'Social Cue Type': wSelect(null),
@@ -188,6 +193,8 @@ export async function updateFlight(
     estimatedFlightDistanceKm: number;
     flightProgress: number;
     narrativeRegion: NarrativeRegion;
+    takeoffBroadcastStyle: BroadcastStyle;
+    takeoffBroadcast: string;
     captainBroadcastStyle: BroadcastStyle;
     captainBroadcast: string;
     socialCueType: SocialCueType;
@@ -226,6 +233,8 @@ export async function updateFlight(
   if (updates.estimatedFlightDistanceKm !== undefined) properties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
   if (updates.flightProgress !== undefined) properties['Flight Progress'] = wNumber(updates.flightProgress);
   if (updates.narrativeRegion !== undefined) properties['Narrative Region'] = wSelect(updates.narrativeRegion);
+  if (updates.takeoffBroadcastStyle !== undefined) properties['Takeoff Broadcast Style'] = wSelect(updates.takeoffBroadcastStyle);
+  if (updates.takeoffBroadcast !== undefined) properties['Takeoff Broadcast'] = wText(updates.takeoffBroadcast);
   if (updates.captainBroadcastStyle !== undefined) properties['Captain Broadcast Style'] = wSelect(updates.captainBroadcastStyle);
   if (updates.captainBroadcast !== undefined) properties['Captain Broadcast'] = wText(updates.captainBroadcast);
   if (updates.socialCueType !== undefined) properties['Social Cue Type'] = wSelect(updates.socialCueType);

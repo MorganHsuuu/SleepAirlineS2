@@ -134,6 +134,17 @@
               <div class="label">備註（選填）</div>
               <input class="input" id="tk-note" placeholder="方向的來源說明...">
             </div>
+            <div class="form-group">
+              <div class="label">起飛廣播風格</div>
+              <select class="select" id="tk-style">
+                <option value="formal_captain">正式機長</option>
+                <option value="poetic">詩意</option>
+                <option value="playful">輕鬆</option>
+                <option value="flight_attendant">空服員</option>
+                <option value="radio_host">電台主持</option>
+                <option value="custom">自訂</option>
+              </select>
+            </div>
             <button class="btn btn-amber" id="btn-takeoff">✈  起飛</button>
           </div>
 
@@ -165,8 +176,11 @@
               <div class="progress-labels"><span>登機雲層</span><span>抵達港灣</span></div>
             </div>
             <hr class="divider">
+            <div class="section-title" style="font-size:13px;margin-bottom:8px">起飛廣播</div>
+            <div class="broadcast-box hidden" id="fl-takeoff-broadcast"></div>
+            <hr class="divider">
             <div class="form-group">
-              <div class="label">機長廣播風格</div>
+              <div class="label">降落廣播風格</div>
               <select class="select" id="fl-style">
                 <option value="formal_captain">正式機長</option>
                 <option value="poetic">詩意</option>
@@ -181,7 +195,7 @@
 
           <!-- Captain Broadcast -->
           <div class="card hidden" id="broadcast-card">
-            <div class="section-title">機長廣播</div>
+            <div class="section-title">降落廣播</div>
             <div class="broadcast-box" id="bc-text"></div>
             <div class="social-cue-box hidden" id="bc-cue"></div>
             <div class="flight-summary">

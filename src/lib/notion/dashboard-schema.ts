@@ -65,6 +65,8 @@ export function getDashboardProperties() {
     'Route Direction': { select: { options: ROUTE_DIRECTION_OPTIONS } },
     'Direction Source': { select: { options: DIRECTION_SOURCE_OPTIONS } },
     'Direction Note': { rich_text: {} },
+    'Takeoff Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
+    'Takeoff Broadcast': { rich_text: {} },
     'Captain Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
     'Captain Broadcast': { rich_text: {} },
     'Social Cue Type': { select: { options: SOCIAL_CUE_OPTIONS } },

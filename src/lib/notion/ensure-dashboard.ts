@@ -48,22 +48,44 @@ async function createDashboard(client: Client, parentPageId: string): Promise<st
   return db.id;
 }
 
+async function syncDashboardSchema(client: Client, databaseId: string): Promise<void> {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  const existing = Object.keys((db as { properties?: Record<string, unknown> }).properties ?? {});
+  const wanted = getDashboardProperties();
+  const missing: Record<string, unknown> = {};
+  for (const [key, def] of Object.entries(wanted)) {
+    if (!existing.includes(key)) missing[key] = def;
+  }
+  if (Object.keys(missing).length === 0) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await client.databases.update({ database_id: databaseId, properties: missing as any });
+}
+
 async function findOrCreateDashboard(): Promise<string> {
+  const client = getNotionClient();
+
   if (process.env.NOTION_DASHBOARD_DB_ID) {
-    return normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
+    const id = normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
+    await syncDashboardSchema(client, id);
+    return id;
   }
 
-  const client = getNotionClient();
   const parentPageId = getParentPageId();
 
   const existing = await findDashboardOnPage(client, parentPageId);
-  if (existing) return existing;
+  if (existing) {
+    await syncDashboardSchema(client, existing);
+    return existing;
+  }
 
   try {
     return await createDashboard(client, parentPageId);
   } catch {
     const retry = await findDashboardOnPage(client, parentPageId);
-    if (retry) return retry;
+    if (retry) {
+      await syncDashboardSchema(client, retry);
+      return retry;
+    }
     throw new Error('無法在 Notion 父頁面建立 Dashboard，請確認 Integration 已 Connect。');
   }
 }

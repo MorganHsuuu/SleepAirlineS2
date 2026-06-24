@@ -174,6 +174,8 @@ function getDashboardProperties() {
     "Route Direction": { select: { options: ROUTE_DIRECTION_OPTIONS } },
     "Direction Source": { select: { options: DIRECTION_SOURCE_OPTIONS } },
     "Direction Note": { rich_text: {} },
+    "Takeoff Broadcast Style": { select: { options: BROADCAST_STYLE_OPTIONS } },
+    "Takeoff Broadcast": { rich_text: {} },
     "Captain Broadcast Style": { select: { options: BROADCAST_STYLE_OPTIONS } },
     "Captain Broadcast": { rich_text: {} },
     "Social Cue Type": { select: { options: SOCIAL_CUE_OPTIONS } },
@@ -226,19 +228,38 @@ async function createDashboard(client, parentPageId) {
   });
   return db.id;
 }
-async function findOrCreateDashboard() {
-  if (process.env.NOTION_DASHBOARD_DB_ID) {
-    return normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
+async function syncDashboardSchema(client, databaseId) {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  const existing = Object.keys(db.properties ?? {});
+  const wanted = getDashboardProperties();
+  const missing = {};
+  for (const [key, def] of Object.entries(wanted)) {
+    if (!existing.includes(key)) missing[key] = def;
   }
+  if (Object.keys(missing).length === 0) return;
+  await client.databases.update({ database_id: databaseId, properties: missing });
+}
+async function findOrCreateDashboard() {
   const client = getNotionClient();
+  if (process.env.NOTION_DASHBOARD_DB_ID) {
+    const id = normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
+    await syncDashboardSchema(client, id);
+    return id;
+  }
   const parentPageId = getParentPageId();
   const existing = await findDashboardOnPage(client, parentPageId);
-  if (existing) return existing;
+  if (existing) {
+    await syncDashboardSchema(client, existing);
+    return existing;
+  }
   try {
     return await createDashboard(client, parentPageId);
   } catch {
     const retry = await findDashboardOnPage(client, parentPageId);
-    if (retry) return retry;
+    if (retry) {
+      await syncDashboardSchema(client, retry);
+      return retry;
+    }
     throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Dashboard\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
   }
 }
@@ -435,6 +456,8 @@ function parseFlight(page) {
     routeDirection: readSelect(props, "Route Direction") ?? "auto",
     directionSource: readSelect(props, "Direction Source") ?? "system_auto",
     directionNote: readText(props, "Direction Note") || null,
+    takeoffBroadcastStyle: readSelect(props, "Takeoff Broadcast Style"),
+    takeoffBroadcast: readText(props, "Takeoff Broadcast") || null,
     captainBroadcastStyle: readSelect(props, "Captain Broadcast Style"),
     captainBroadcast: readText(props, "Captain Broadcast") || null,
     socialCueType: readSelect(props, "Social Cue Type"),
@@ -481,6 +504,8 @@ async function createFlight(params) {
       routeDirection: params.routeDirection,
       directionSource: params.directionSource,
       directionNote: params.directionNote,
+      takeoffBroadcastStyle: null,
+      takeoffBroadcast: null,
       captainBroadcastStyle: null,
       captainBroadcast: null,
       socialCueType: null,
@@ -524,6 +549,8 @@ async function createFlight(params) {
       "Route Direction": wSelect(params.routeDirection),
       "Direction Source": wSelect(params.directionSource),
       "Direction Note": wText(params.directionNote),
+      "Takeoff Broadcast Style": wSelect(null),
+      "Takeoff Broadcast": wText(null),
       "Captain Broadcast Style": wSelect(null),
       "Captain Broadcast": wText(null),
       "Social Cue Type": wSelect(null),
@@ -584,6 +611,8 @@ async function updateFlight(notionId, updates) {
   if (updates.estimatedFlightDistanceKm !== void 0) properties["Estimated Flight Distance KM"] = wNumber(updates.estimatedFlightDistanceKm);
   if (updates.flightProgress !== void 0) properties["Flight Progress"] = wNumber(updates.flightProgress);
   if (updates.narrativeRegion !== void 0) properties["Narrative Region"] = wSelect(updates.narrativeRegion);
+  if (updates.takeoffBroadcastStyle !== void 0) properties["Takeoff Broadcast Style"] = wSelect(updates.takeoffBroadcastStyle);
+  if (updates.takeoffBroadcast !== void 0) properties["Takeoff Broadcast"] = wText(updates.takeoffBroadcast);
   if (updates.captainBroadcastStyle !== void 0) properties["Captain Broadcast Style"] = wSelect(updates.captainBroadcastStyle);
   if (updates.captainBroadcast !== void 0) properties["Captain Broadcast"] = wText(updates.captainBroadcast);
   if (updates.socialCueType !== void 0) properties["Social Cue Type"] = wSelect(updates.socialCueType);
@@ -106856,23 +106885,27 @@ async function generateCaptainBroadcast(input) {
   }
   const client = new import_openai.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const isTakeoff = input.phase === "takeoff";
   const arrivalText = input.arrivalLocation ? `\u5DF2\u62B5\u9054\uFF1A${input.arrivalLocation}` : `\u76EE\u524D\u7A7A\u57DF\uFF1A${REGION_DISPLAY[input.narrativeRegion]}\uFF08\u98DB\u884C\u9032\u5EA6 ${Math.round(input.flightProgress)}%\uFF09`;
-  const durationText = input.flightDurationMinutes ? `${input.flightDurationMinutes} \u5206\u9418\uFF08\u7D04 ${Math.floor(input.flightDurationMinutes / 60)} \u5C0F\u6642 ${input.flightDurationMinutes % 60} \u5206\u9418\uFF09` : `\u9032\u5EA6 ${Math.round(input.flightProgress)}%`;
+  const durationText = input.flightDurationMinutes ? `${input.flightDurationMinutes} \u5206\u9418\uFF08\u7D04 ${Math.floor(input.flightDurationMinutes / 60)} \u5C0F\u6642 ${input.flightDurationMinutes % 60} \u5206\u9418\uFF09` : isTakeoff ? "\u525B\u8D77\u98DB\uFF0C\u591C\u9593\u822A\u7A0B\u958B\u59CB" : `\u9032\u5EA6 ${Math.round(input.flightProgress)}%`;
+  const phaseHint = isTakeoff ? "\u9019\u662F\u8D77\u98DB\u5EE3\u64AD\uFF1A\u6B61\u8FCE\u767B\u6A5F\u3001\u5BA3\u5E03\u81EA\u51FA\u767C\u5730\u555F\u822A\u3001\u8AAA\u660E\u822A\u7DDA\u65B9\u5411\u8207\u5373\u5C07\u9032\u5165\u7684\u7A7A\u57DF\uFF0C\u8A9E\u6C23\u6EAB\u6696\u4E14\u4EE4\u4EBA\u5B89\u5FC3\u3002\u4E0D\u5F97\u63D0\u53CA\u62B5\u9054\u5730\uFF08\u5C1A\u672A\u964D\u843D\uFF09\u3002" : "\u9019\u662F\u964D\u843D\u5EE3\u64AD\uFF1A\u6B61\u8FCE\u62B5\u9054\u3001\u7E3D\u7D50\u98DB\u884C\u6642\u9577\u8207\u822A\u7A0B\uFF0C\u8A9E\u6C23\u6EAB\u6696\u4E14\u4EE4\u4EBA\u5B89\u5FC3\u3002";
   const systemPrompt = `\u4F60\u662F\u7526\u9192\u822A\u73ED\u7684\u5EE3\u64AD\u7CFB\u7D71\u3002${STYLE_DESCRIPTIONS[input.style]}
+
+${phaseHint}
 
 \u898F\u5247\uFF1A
 - \u4F7F\u7528\u7E41\u9AD4\u4E2D\u6587
 - \u5EE3\u64AD\u9577\u5EA6\u63A7\u5236\u5728 100-150 \u5B57
-- \u5FC5\u9808\u5305\u542B\uFF1A\u4E58\u5BA2\u59D3\u540D\u3001\u51FA\u767C\u5730\u3001\u62B5\u9054\u5730\u6216\u76EE\u524D\u7A7A\u57DF\u3001\u98DB\u884C\u6642\u9577\u3001\u822A\u7DDA\u65B9\u5411\u3001\u793E\u4EA4\u63D0\u793A
+- \u5FC5\u9808\u5305\u542B\uFF1A\u4E58\u5BA2\u59D3\u540D\u3001\u51FA\u767C\u5730${isTakeoff ? "" : "\u3001\u62B5\u9054\u5730\u6216\u76EE\u524D\u7A7A\u57DF"}\u3001${isTakeoff ? "\u822A\u7DDA\u65B9\u5411\u8207\u76EE\u524D\u7A7A\u57DF" : "\u98DB\u884C\u6642\u9577"}\u3001\u822A\u7DDA\u65B9\u5411\u3001\u793E\u4EA4\u63D0\u793A
 - \u4E0D\u5F97\u81EA\u884C\u7DE8\u9020\u7CFB\u7D71\u672A\u63D0\u4F9B\u7684\u76EE\u7684\u5730\u3001\u6642\u9577\u6216\u4EBA\u969B\u95DC\u4FC2
 - \u76F4\u63A5\u8F38\u51FA\u5EE3\u64AD\u5167\u5BB9\uFF0C\u4E0D\u52A0\u4EFB\u4F55\u524D\u7DB4\u6216\u8AAA\u660E`;
-  const userPrompt = `\u8ACB\u6839\u64DA\u4EE5\u4E0B\u8CC7\u6599\u751F\u6210\u6A5F\u9577\u5EE3\u64AD\uFF1A
+  const userPrompt = `\u8ACB\u6839\u64DA\u4EE5\u4E0B\u8CC7\u6599\u751F\u6210${isTakeoff ? "\u8D77\u98DB" : "\u964D\u843D"}\u6A5F\u9577\u5EE3\u64AD\uFF1A
 
 \u4E58\u5BA2\u59D3\u540D\uFF1A${input.passengerName}
 \u51FA\u767C\u5730\uFF1A${input.departureLocation}
-${arrivalText}
-\u98DB\u884C\u6642\u9577\uFF1A${durationText}
-\u4F30\u7B97\u8DDD\u96E2\uFF1A${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} km` : "\u8A08\u7B97\u4E2D"}
+${isTakeoff ? `\u76EE\u524D\u7A7A\u57DF\uFF1A${REGION_DISPLAY[input.narrativeRegion]}` : arrivalText}
+${isTakeoff ? "" : `\u98DB\u884C\u6642\u9577\uFF1A${durationText}
+\u4F30\u7B97\u8DDD\u96E2\uFF1A${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} km` : "\u8A08\u7B97\u4E2D"}`}
 \u822A\u7DDA\u65B9\u5411\uFF1A${input.routeDirection}
 \u793E\u4EA4\u63D0\u793A\uFF08\u5FC5\u9808\u5BEB\u5165\u5EE3\u64AD\uFF09\uFF1A${input.socialCue.cueText}`;
   const completion = await client.chat.completions.create({
@@ -106912,7 +106945,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
       deviceId = "web",
       routeDirection = "auto",
       directionSource = "system_auto",
-      directionNote = null
+      directionNote = null,
+      broadcastStyle = "formal_captain"
     } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
@@ -106936,7 +106970,46 @@ app.post("/api/flight/takeoff", async (req, res) => {
       directionSource,
       directionNote
     });
-    res.json({ flight });
+    const groupFlights = await getGroupFlights(passenger.groupId);
+    const socialCue = calculateGroupSocialCue(
+      { passengerId, narrativeRegion: "departure_clouds", landingTime: flight.takeoffTime },
+      groupFlights
+    );
+    let takeoffBroadcast = "";
+    try {
+      takeoffBroadcast = await generateCaptainBroadcast({
+        phase: "takeoff",
+        passengerName: passenger.name,
+        departureLocation: flight.departureLocation,
+        arrivalLocation: null,
+        narrativeRegion: "departure_clouds",
+        flightDurationMinutes: null,
+        flightProgress: 0,
+        estimatedDistanceKm: null,
+        routeDirection: flight.routeDirection,
+        socialCue,
+        style: broadcastStyle
+      });
+    } catch {
+      takeoffBroadcast = `\u6B61\u8FCE\u767B\u6A5F\uFF0C${passenger.name}\u3002\u672C\u6B21\u822A\u73ED\u81EA ${flight.departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411 ${flight.routeDirection}\u3002${socialCue.cueText}`;
+    }
+    await updateFlight(flight.notionId, {
+      takeoffBroadcastStyle: broadcastStyle,
+      takeoffBroadcast,
+      socialCueType: socialCue.cueType,
+      socialCueText: socialCue.cueText,
+      relatedPassenger: socialCue.relatedPassenger ?? ""
+    });
+    res.json({
+      flight: {
+        ...flight,
+        takeoffBroadcastStyle: broadcastStyle,
+        takeoffBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }
@@ -106979,6 +107052,7 @@ app.post("/api/flight/land", async (req, res) => {
     let captainBroadcast = "";
     try {
       captainBroadcast = await generateCaptainBroadcast({
+        phase: "landing",
         passengerName: passenger.name,
         departureLocation: activeFlight.departureLocation,
         arrivalLocation: arrival.displayName,

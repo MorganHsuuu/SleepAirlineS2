@@ -81,6 +81,8 @@ export interface Flight {
   routeDirection: RouteDirection;
   directionSource: DirectionSource;
   directionNote: string | null;
+  takeoffBroadcastStyle: BroadcastStyle | null;
+  takeoffBroadcast: string | null;
   captainBroadcastStyle: BroadcastStyle | null;
   captainBroadcast: string | null;
   socialCueType: SocialCueType | null;

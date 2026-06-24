@@ -46,6 +46,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection = 'auto',
       directionSource = 'system_auto',
       directionNote = null,
+      broadcastStyle = 'formal_captain',
     } = req.body;
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
@@ -71,7 +72,49 @@ app.post('/api/flight/takeoff', async (req, res) => {
       directionNote,
     });
 
-    res.json({ flight });
+    const groupFlights = await getGroupFlights(passenger.groupId);
+    const socialCue = calculateGroupSocialCue(
+      { passengerId, narrativeRegion: 'departure_clouds', landingTime: flight.takeoffTime },
+      groupFlights
+    );
+
+    let takeoffBroadcast = '';
+    try {
+      takeoffBroadcast = await generateCaptainBroadcast({
+        phase: 'takeoff',
+        passengerName: passenger.name,
+        departureLocation: flight.departureLocation,
+        arrivalLocation: null,
+        narrativeRegion: 'departure_clouds',
+        flightDurationMinutes: null,
+        flightProgress: 0,
+        estimatedDistanceKm: null,
+        routeDirection: flight.routeDirection,
+        socialCue,
+        style: broadcastStyle as BroadcastStyle,
+      });
+    } catch {
+      takeoffBroadcast = `歡迎登機，${passenger.name}。本次航班自 ${flight.departureLocation} 起飛，航向 ${flight.routeDirection}。${socialCue.cueText}`;
+    }
+
+    await updateFlight(flight.notionId, {
+      takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
+      takeoffBroadcast,
+      socialCueType: socialCue.cueType,
+      socialCueText: socialCue.cueText,
+      relatedPassenger: socialCue.relatedPassenger ?? '',
+    });
+
+    res.json({
+      flight: {
+        ...flight,
+        takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
+        takeoffBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
   }
@@ -124,6 +167,7 @@ app.post('/api/flight/land', async (req, res) => {
     let captainBroadcast = '';
     try {
       captainBroadcast = await generateCaptainBroadcast({
+        phase: 'landing',
         passengerName: passenger.name,
         departureLocation: activeFlight.departureLocation,
         arrivalLocation: arrival.displayName,

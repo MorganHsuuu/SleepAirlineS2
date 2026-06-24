@@ -121,6 +121,14 @@ function updateUI() {
     const pct = Math.round(activeFlight.flightProgress || 0);
     $('fl-progress-text').textContent = pct + '%';
     $('fl-progress-bar').style.width = pct + '%';
+    const tkBox = $('fl-takeoff-broadcast');
+    if (activeFlight.takeoffBroadcast) {
+      tkBox.classList.remove('hidden');
+      tkBox.textContent = activeFlight.takeoffBroadcast;
+    } else {
+      tkBox.classList.add('hidden');
+      tkBox.textContent = '';
+    }
   }
 
   // Broadcast card
@@ -200,15 +208,21 @@ function renderBoard() {
   }
 
   // Broadcasts
-  const broadcasts = groupFlights.filter((f) => f.captainBroadcast);
+  const broadcasts = groupFlights.filter((f) => f.takeoffBroadcast || f.captainBroadcast);
   if (broadcasts.length > 0) {
     $('bd-broadcasts').classList.remove('hidden');
-    $('bd-broadcasts-list').innerHTML = broadcasts.map((f) =>
-      `<div class="board-sub-item board-broadcast-item">
-        <div class="board-broadcast-meta">${f.passengerName} — ${f.departureLocation} → ${f.arrivalLocation || '?'}</div>
-        <div class="board-broadcast-text">${f.captainBroadcast}</div>
-      </div>`
-    ).join('');
+    $('bd-broadcasts-list').innerHTML = broadcasts.map((f) => {
+      const parts = [];
+      if (f.takeoffBroadcast) {
+        parts.push(`<div class="board-broadcast-meta">${f.passengerName} — 起飛 · ${f.departureLocation}</div>
+        <div class="board-broadcast-text">${f.takeoffBroadcast}</div>`);
+      }
+      if (f.captainBroadcast) {
+        parts.push(`<div class="board-broadcast-meta">${f.passengerName} — 降落 · ${f.departureLocation} → ${f.arrivalLocation || '?'}</div>
+        <div class="board-broadcast-text">${f.captainBroadcast}</div>`);
+      }
+      return `<div class="board-sub-item board-broadcast-item">${parts.join('')}</div>`;
+    }).join('');
   } else {
     $('bd-broadcasts').classList.add('hidden');
   }
@@ -252,11 +266,14 @@ async function doTakeoff() {
       routeDirection: $('tk-direction').value,
       directionSource: $('tk-source').value,
       directionNote: $('tk-note').value || null,
+      broadcastStyle: $('tk-style').value,
     });
     activeFlight = data.flight;
     passenger.status = 'in_flight';
     lastLandedFlight = null;
-    showMsg('main', 'success', '✈ 起飛成功！晚安，旅途愉快。');
+    showMsg('main', 'success', activeFlight.takeoffBroadcast
+      ? '✈ 起飛成功！機長廣播已生成。'
+      : '✈ 起飛成功！晚安，旅途愉快。');
     updateUI();
     await fetchBoard();
     startAutoRefresh();
