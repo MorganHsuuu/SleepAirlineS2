@@ -4,17 +4,17 @@ dotenv.config({ path: '.env.local' });
 import express from 'express';
 import { join } from 'path';
 
-import { getOrCreatePassenger, updatePassengerStatus } from '@/lib/notion/passengers';
-import { createFlight, getActiveFlight, updateFlight, getGroupFlights, getAllActiveFlights } from '@/lib/notion/flights';
-import { getAvailableDestinations, seedDestinations } from '@/lib/notion/destinations';
-import { calculateFlightDistance } from '@/lib/flight/distance';
-import { calculateFlightProgress } from '@/lib/flight/progress';
-import { getNarrativeRegion } from '@/lib/flight/region';
-import { findArrivalDestination } from '@/lib/flight/direction';
-import { calculateGroupSocialCue } from '@/lib/flight/social';
-import { generateCaptainBroadcast } from '@/lib/ai/broadcast';
+import { getOrCreatePassenger, updatePassengerStatus } from './src/lib/notion/passengers';
+import { createFlight, getActiveFlight, updateFlight, getGroupFlights, getAllActiveFlights } from './src/lib/notion/flights';
+import { getAvailableDestinations, seedDestinations } from './src/lib/notion/destinations';
+import { calculateFlightDistance } from './src/lib/flight/distance';
+import { calculateFlightProgress } from './src/lib/flight/progress';
+import { getNarrativeRegion } from './src/lib/flight/region';
+import { findArrivalDestination } from './src/lib/flight/direction';
+import { calculateGroupSocialCue } from './src/lib/flight/social';
+import { generateCaptainBroadcast } from './src/lib/ai/broadcast';
 
-import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from '@/types';
+import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 
 const app = express();
 app.use(express.json());

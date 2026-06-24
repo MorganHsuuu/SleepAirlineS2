@@ -1,4 +1,4 @@
-import type { Passenger, PassengerStatus } from '@/types';
+import type { Passenger, PassengerStatus } from '../../types';
 import {
   getNotionClient, getDbId, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
-import type { BroadcastStyle, NarrativeRegion } from '@/types';
-import type { SocialCue } from '@/types';
-import { REGION_DISPLAY } from '@/lib/flight/region';
+import type { BroadcastStyle, NarrativeRegion } from '../../types';
+import type { SocialCue } from '../../types';
+import { REGION_DISPLAY } from '../flight/region';
 
 const STYLE_DESCRIPTIONS: Record<BroadcastStyle, string> = {
   formal_captain: '你是一位沉穩、專業的航空公司機長，廣播語氣正式且令人安心。',

@@ -1,4 +1,4 @@
-import type { Flight, FlightStatus, NarrativeRegion, RouteDirection, DirectionSource, BroadcastStyle, SocialCueType } from '@/types';
+import type { Flight, FlightStatus, NarrativeRegion, RouteDirection, DirectionSource, BroadcastStyle, SocialCueType } from '../../types';
 import {
   getNotionClient, getDbId, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,

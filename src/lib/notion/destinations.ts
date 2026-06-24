@@ -1,10 +1,10 @@
-import type { Destination } from '@/types';
+import type { Destination } from '../../types';
 import {
   getNotionClient, getDbId,
   readTitle, readText, readSelect, readNumber, readCheckbox, readDate,
   wTitle, wText, wSelect, wNumber, wDate,
 } from './client';
-import { CITIES } from '@/data/cities';
+import { CITIES } from '../../data/cities';
 
 function parseDestination(page: Record<string, unknown>): Destination {
   const props = page.properties as Record<string, unknown>;

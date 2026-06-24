@@ -1,5 +1,5 @@
-import type { Destination, DestinationResult, RouteDirection } from '@/types';
-import { haversineDistance, calculateBearing } from '@/lib/utils/haversine';
+import type { Destination, DestinationResult, RouteDirection } from '../../types';
+import { haversineDistance, calculateBearing } from '../utils/haversine';
 
 // Bearing ranges for each direction (0° = north, clockwise)
 function isInDirection(bearing: number, direction: RouteDirection): boolean {

@@ -1,4 +1,4 @@
-import type { Destination } from '@/types';
+import type { Destination } from '../types';
 
 export const CITIES: Destination[] = [
   // --- East Asia (15) ---

@@ -1,4 +1,4 @@
-import type { NarrativeRegion } from '@/types';
+import type { NarrativeRegion } from '../../types';
 
 export const REGION_ORDER: NarrativeRegion[] = [
   'departure_clouds',

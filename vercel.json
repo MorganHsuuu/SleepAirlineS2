@@ -1,13 +1,9 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "server.ts",
-      "use": "@vercel/node"
+  "framework": null,
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "src/**"
     }
-  ],
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "server.ts" }
-  ]
+  }
 }

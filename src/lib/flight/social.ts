@@ -1,5 +1,5 @@
-import type { Flight, SocialCue, SocialCueType, NarrativeRegion } from '@/types';
-import { areAdjacentRegions, REGION_DISPLAY } from '@/lib/flight/region';
+import type { Flight, SocialCue, SocialCueType, NarrativeRegion } from '../../types';
+import { areAdjacentRegions, REGION_DISPLAY } from './region';
 
 interface CurrentFlightSnapshot {
   passengerId: string;
