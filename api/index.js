@@ -369,10 +369,13 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
   });
   if (inFlight.results.length > 0) {
     const page = inFlight.results[0];
+    const props = page.properties;
+    const rowName = readText(props, "Name");
+    const rowGroup = readSelect(props, "Group ID") ?? "";
     return {
       passenger: parsePassengerFromFlightRow(page, {
-        name: profile.name || void 0,
-        groupId: profile.groupId || void 0
+        name: profile.name || rowName || void 0,
+        groupId: profile.groupId || rowGroup || void 0
       }),
       created: false
     };
@@ -637,6 +640,8 @@ async function updateFlight(notionId, updates) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const properties = { "Updated At": wDate(now) };
   if (updates.status !== void 0) properties["Status"] = wSelect(updates.status);
+  if (updates.passengerName !== void 0) properties["Name"] = wText(updates.passengerName);
+  if (updates.groupId !== void 0) properties["Group ID"] = wSelect(updates.groupId);
   if (updates.arrivalLocation !== void 0) properties["Arrival Location"] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== void 0) properties["Arrival Latitude"] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== void 0) properties["Arrival Longitude"] = wNumber(updates.arrivalLongitude);
@@ -107015,6 +107020,19 @@ app.post("/api/passenger", async (req, res) => {
       return;
     }
     const result = await getOrCreatePassenger(passengerId, name, groupId);
+    if (result.passenger.status === "in_flight") {
+      const active = await getActiveFlight(passengerId);
+      if (active) {
+        const patch = {};
+        if (name && name !== active.passengerName) patch.passengerName = name;
+        if (groupId && groupId !== active.groupId) patch.groupId = groupId;
+        if (Object.keys(patch).length > 0) {
+          await updateFlight(active.notionId, patch);
+          if (patch.passengerName) result.passenger.name = patch.passengerName;
+          if (patch.groupId) result.passenger.groupId = patch.groupId;
+        }
+      }
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
@@ -107024,6 +107042,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
   try {
     const {
       passengerId,
+      name = "",
+      groupId = "",
       routeDirection = "auto",
       directionSource = "system_auto",
       directionNote = null,
@@ -107034,7 +107054,14 @@ app.post("/api/flight/takeoff", async (req, res) => {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
     }
-    const { passenger } = await getOrCreatePassenger(passengerId, "", "");
+    const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
+    if (!passenger.name || !passenger.groupId) {
+      res.status(400).json({
+        error: "missing_profile",
+        message: "\u627E\u4E0D\u5230\u4E58\u5BA2\u59D3\u540D\u6216\u5C0F\u968A\uFF0C\u8ACB\u91CD\u65B0\u767B\u5165\u5F8C\u518D\u8D77\u98DB\u3002"
+      });
+      return;
+    }
     const existing = await getActiveFlight(passengerId);
     if (existing) {
       res.status(409).json({ error: "already_in_flight", message: "\u4F60\u5DF2\u6709\u4E00\u8D9F\u5C1A\u672A\u964D\u843D\u7684\u822A\u73ED\uFF0C\u8ACB\u5148\u964D\u843D\u6216\u53D6\u6D88\u3002" });
@@ -107107,12 +107134,19 @@ app.post("/api/flight/takeoff", async (req, res) => {
 });
 app.post("/api/flight/land", async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = "formal_captain", simulatedDurationMinutes, simulatedLandingTime } = req.body;
+    const {
+      passengerId,
+      name = "",
+      groupId = "",
+      broadcastStyle = "formal_captain",
+      simulatedDurationMinutes,
+      simulatedLandingTime
+    } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
       return;
     }
-    const { passenger } = await getOrCreatePassenger(passengerId, "", "");
+    const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
     const activeFlight = await getActiveFlight(passengerId);
     if (!activeFlight) {
       res.status(404).json({ error: "no_active_flight", message: "\u627E\u4E0D\u5230\u9032\u884C\u4E2D\u7684\u822A\u73ED\u3002" });

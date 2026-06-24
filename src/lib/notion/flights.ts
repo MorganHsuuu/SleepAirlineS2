@@ -197,6 +197,8 @@ export async function updateFlight(
   notionId: string,
   updates: Partial<{
     status: FlightStatus;
+    passengerName: string;
+    groupId: string;
     arrivalLocation: string;
     arrivalLatitude: number;
     arrivalLongitude: number;
@@ -236,6 +238,8 @@ export async function updateFlight(
 
   const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
   if (updates.status !== undefined) properties['Status'] = wSelect(updates.status);
+  if (updates.passengerName !== undefined) properties['Name'] = wText(updates.passengerName);
+  if (updates.groupId !== undefined) properties['Group ID'] = wSelect(updates.groupId);
   if (updates.arrivalLocation !== undefined) properties['Arrival Location'] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== undefined) properties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== undefined) properties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);

@@ -291,6 +291,8 @@ async function doTakeoff() {
   try {
     const data = await api('POST', '/api/flight/takeoff', {
       passengerId: passenger.passengerId,
+      name: passenger.name,
+      groupId: passenger.groupId,
       routeDirection: $('tk-direction').value,
       directionSource: $('tk-source').value,
       directionNote: $('tk-note').value || null,
@@ -326,6 +328,8 @@ async function doLand() {
   try {
     const data = await api('POST', '/api/flight/land', {
       passengerId: passenger.passengerId,
+      name: passenger.name,
+      groupId: passenger.groupId,
       broadcastStyle: $('fl-style').value,
     });
     const landed = data.flight;

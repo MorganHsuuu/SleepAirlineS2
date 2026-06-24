@@ -134,10 +134,13 @@ export async function getOrCreatePassenger(
 
   if (inFlight.results.length > 0) {
     const page = inFlight.results[0] as Record<string, unknown>;
+    const props = page.properties as Record<string, unknown>;
+    const rowName = readText(props, 'Name');
+    const rowGroup = readSelect(props, 'Group ID') ?? '';
     return {
       passenger: parsePassengerFromFlightRow(page, {
-        name: profile.name || undefined,
-        groupId: profile.groupId || undefined,
+        name: profile.name || rowName || undefined,
+        groupId: profile.groupId || rowGroup || undefined,
       }),
       created: false,
     };

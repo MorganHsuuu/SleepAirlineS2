@@ -31,6 +31,19 @@ app.post('/api/passenger', async (req, res) => {
       return;
     }
     const result = await getOrCreatePassenger(passengerId, name, groupId);
+    if (result.passenger.status === 'in_flight') {
+      const active = await getActiveFlight(passengerId);
+      if (active) {
+        const patch: { passengerName?: string; groupId?: string } = {};
+        if (name && name !== active.passengerName) patch.passengerName = name;
+        if (groupId && groupId !== active.groupId) patch.groupId = groupId;
+        if (Object.keys(patch).length > 0) {
+          await updateFlight(active.notionId, patch);
+          if (patch.passengerName) result.passenger.name = patch.passengerName;
+          if (patch.groupId) result.passenger.groupId = patch.groupId;
+        }
+      }
+    }
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
@@ -43,6 +56,8 @@ app.post('/api/flight/takeoff', async (req, res) => {
   try {
     const {
       passengerId,
+      name = '',
+      groupId = '',
       routeDirection = 'auto',
       directionSource = 'system_auto',
       directionNote = null,
@@ -52,7 +67,14 @@ app.post('/api/flight/takeoff', async (req, res) => {
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
-    const { passenger } = await getOrCreatePassenger(passengerId, '', '');
+    const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
+    if (!passenger.name || !passenger.groupId) {
+      res.status(400).json({
+        error: 'missing_profile',
+        message: '找不到乘客姓名或小隊，請重新登入後再起飛。',
+      });
+      return;
+    }
 
     const existing = await getActiveFlight(passengerId);
     if (existing) {
@@ -137,10 +159,17 @@ app.post('/api/flight/takeoff', async (req, res) => {
 
 app.post('/api/flight/land', async (req, res) => {
   try {
-    const { passengerId, broadcastStyle = 'formal_captain', simulatedDurationMinutes, simulatedLandingTime } = req.body;
+    const {
+      passengerId,
+      name = '',
+      groupId = '',
+      broadcastStyle = 'formal_captain',
+      simulatedDurationMinutes,
+      simulatedLandingTime,
+    } = req.body;
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
-    const { passenger } = await getOrCreatePassenger(passengerId, '', '');
+    const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
     const activeFlight = await getActiveFlight(passengerId);
 
     if (!activeFlight) {
