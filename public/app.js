@@ -34,8 +34,18 @@ async function api(method, url, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
-  const data = await res.json();
-  if (!res.ok && data.error) throw new Error(data.message || data.error);
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      res.ok
+        ? '伺服器回應格式錯誤，請稍後再試。'
+        : (text.slice(0, 120) || `伺服器錯誤 (${res.status})`)
+    );
+  }
+  if (!res.ok) throw new Error(data.message || data.error || `伺服器錯誤 (${res.status})`);
   return data;
 }
 
