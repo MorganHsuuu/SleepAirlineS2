@@ -1,0 +1,85 @@
+import { Client } from '@notionhq/client';
+
+let _client: Client | null = null;
+
+export function isNotionConfigured(): boolean {
+  return !!(process.env.NOTION_API_KEY && process.env.NOTION_PASSENGERS_DB_ID);
+}
+
+export function getNotionClient(): Client {
+  if (!process.env.NOTION_API_KEY) {
+    throw new Error('NOTION_API_KEY 尚未設定。請在 .env.local 中加入 Notion API Key。');
+  }
+  if (!_client) {
+    _client = new Client({ auth: process.env.NOTION_API_KEY });
+  }
+  return _client;
+}
+
+export function getDbId(name: 'passengers' | 'flights' | 'destinations'): string {
+  const map = {
+    passengers: 'NOTION_PASSENGERS_DB_ID',
+    flights: 'NOTION_FLIGHTS_DB_ID',
+    destinations: 'NOTION_DESTINATIONS_DB_ID',
+  } as const;
+  const key = map[name];
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`${key} 尚未設定。請在 .env.local 中加入 Database ID。`);
+  }
+  return value;
+}
+
+// ---- Property helpers: read ----
+
+export function readTitle(props: Record<string, unknown>, key: string): string {
+  const p = props[key] as { title?: { plain_text: string }[] } | undefined;
+  return p?.title?.[0]?.plain_text ?? '';
+}
+
+export function readText(props: Record<string, unknown>, key: string): string {
+  const p = props[key] as { rich_text?: { plain_text: string }[] } | undefined;
+  return p?.rich_text?.[0]?.plain_text ?? '';
+}
+
+export function readSelect(props: Record<string, unknown>, key: string): string | null {
+  const p = props[key] as { select?: { name: string } | null } | undefined;
+  return p?.select?.name ?? null;
+}
+
+export function readNumber(props: Record<string, unknown>, key: string): number | null {
+  const p = props[key] as { number?: number | null } | undefined;
+  return p?.number ?? null;
+}
+
+export function readDate(props: Record<string, unknown>, key: string): string | null {
+  const p = props[key] as { date?: { start: string } | null } | undefined;
+  return p?.date?.start ?? null;
+}
+
+export function readCheckbox(props: Record<string, unknown>, key: string): boolean {
+  const p = props[key] as { checkbox?: boolean } | undefined;
+  return p?.checkbox ?? false;
+}
+
+// ---- Property helpers: write ----
+
+export function wTitle(value: string) {
+  return { title: [{ text: { content: value } }] };
+}
+
+export function wText(value: string | null) {
+  return { rich_text: value ? [{ text: { content: value } }] : [] };
+}
+
+export function wSelect(value: string | null) {
+  return value ? { select: { name: value } } : { select: null };
+}
+
+export function wNumber(value: number | null) {
+  return { number: value };
+}
+
+export function wDate(value: string | null) {
+  return value ? { date: { start: value } } : { date: null };
+}
