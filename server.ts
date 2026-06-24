@@ -12,7 +12,7 @@ import { calculateFlightProgress } from './src/lib/flight/progress';
 import { getNarrativeRegion } from './src/lib/flight/region';
 import { findArrivalDestination } from './src/lib/flight/direction';
 import { calculateGroupSocialCue } from './src/lib/flight/social';
-import { generateCaptainBroadcast } from './src/lib/ai/broadcast';
+import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 
@@ -98,7 +98,15 @@ app.post('/api/flight/takeoff', async (req, res) => {
         style: broadcastStyle as BroadcastStyle,
       });
     } catch {
-      takeoffBroadcast = `歡迎登機，${passenger.name}。本次航班自 ${flight.departureLocation} 起飛，航向 ${flight.routeDirection}。${socialCue.cueText}`;
+      takeoffBroadcast = fallbackCaptainBroadcast(
+        'takeoff',
+        passenger.name,
+        flight.departureLocation,
+        null,
+        flight.routeDirection,
+        null,
+        socialCue.cueText
+      );
     }
 
     await updateFlight(flight.notionId, {
@@ -186,7 +194,15 @@ app.post('/api/flight/land', async (req, res) => {
         style: broadcastStyle as BroadcastStyle,
       });
     } catch {
-      captainBroadcast = `歡迎抵達 ${arrival.displayName}。本次航班自 ${activeFlight.departureLocation} 出發，飛行時長 ${durationMinutes} 分鐘。${socialCue.cueText}`;
+      captainBroadcast = fallbackCaptainBroadcast(
+        'landing',
+        passenger.name,
+        activeFlight.departureLocation,
+        arrival.displayName,
+        activeFlight.routeDirection,
+        durationMinutes,
+        socialCue.cueText
+      );
     }
 
     await updateFlight(activeFlight.notionId, {

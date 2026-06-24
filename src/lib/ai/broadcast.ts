@@ -4,12 +4,26 @@ import type { SocialCue } from '../../types';
 import { REGION_DISPLAY } from '../flight/region';
 
 const STYLE_DESCRIPTIONS: Record<BroadcastStyle, string> = {
-  formal_captain: '你是一位沉穩、專業的航空公司機長，廣播語氣正式且令人安心。',
-  poetic: '你是一位充滿詩意的機長，廣播語言如散文詩，充滿意象與哲思。',
-  playful: '你是一位幽默、輕鬆的機長，廣播充滿溫暖的玩笑與親切感。',
-  flight_attendant: '你是一位親切的空服員，廣播語氣溫柔、體貼，充滿關懷。',
-  radio_host: '你是一位深夜電台主持人，廣播如同夜間節目，娓娓道來旅客的夜行故事。',
-  custom: '你是甦醒航班的廣播員，以你認為最適合的語氣傳達這趟飛行的故事。',
+  formal_captain: '語氣沉穩、簡潔，像深夜航班的真正機長，不說套話。',
+  poetic: '語氣詩意、意象清楚，一兩個畫面即可，不堆砌形容。',
+  playful: '語氣輕鬆、帶一點幽默，但仍像機長在廣播，不過度玩笑。',
+  flight_attendant: '語氣溫柔、簡短，像夜航廣播，不是客服稿。',
+  radio_host: '語氣像深夜電台，但你是機長，不是主持人本人。',
+  custom: '語氣由你拿捏，仍須符合甦醒航班夜航機長身分。',
+};
+
+const DIRECTION_LABEL: Record<string, string> = {
+  auto: '自動航線',
+  eastbound: '向東',
+  westbound: '向西',
+  northbound: '向北',
+  southbound: '向南',
+  northeast: '東北',
+  northwest: '西北',
+  southeast: '東南',
+  southwest: '西南',
+  circular: '環形',
+  unknown: '未定',
 };
 
 export type BroadcastPhase = 'takeoff' | 'landing';
@@ -28,6 +42,28 @@ interface BroadcastInput {
   style: BroadcastStyle;
 }
 
+function passengerLabel(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '這位乘客';
+  if (/先生|女士|小姐/.test(trimmed)) return trimmed;
+  return `${trimmed}先生／女士`;
+}
+
+function formatDuration(minutes: number | null): string {
+  if (!minutes || minutes <= 0) return '';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h} 小時 ${m} 分鐘`;
+  if (h > 0) return `${h} 小時`;
+  return `${m} 分鐘`;
+}
+
+function buildSocialBlock(cue: SocialCue): string {
+  const lines = [`類型：${cue.cueType}`, `系統提示：${cue.cueText}`];
+  if (cue.relatedPassenger) lines.push(`相關乘客：${cue.relatedPassenger}`);
+  return lines.join('\n');
+}
+
 export async function generateCaptainBroadcast(input: BroadcastInput): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY 尚未設定。');
@@ -35,50 +71,80 @@ export async function generateCaptainBroadcast(input: BroadcastInput): Promise<s
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
-
   const isTakeoff = input.phase === 'takeoff';
+  const pax = passengerLabel(input.passengerName);
+  const direction = DIRECTION_LABEL[input.routeDirection] ?? input.routeDirection;
 
-  const arrivalText = input.arrivalLocation
-    ? `已抵達：${input.arrivalLocation}`
-    : `目前空域：${REGION_DISPLAY[input.narrativeRegion]}（飛行進度 ${Math.round(input.flightProgress)}%）`;
+  const systemPrompt = `你是「甦醒航班 Sleep Airline」的機長，正在對機上乘客做夜間廣播。
+${STYLE_DESCRIPTIONS[input.style]}
 
-  const durationText = input.flightDurationMinutes
-    ? `${input.flightDurationMinutes} 分鐘（約 ${Math.floor(input.flightDurationMinutes / 60)} 小時 ${input.flightDurationMinutes % 60} 分鐘）`
-    : isTakeoff ? '剛起飛，夜間航程開始' : `進度 ${Math.round(input.flightProgress)}%`;
+身分（非常重要）：
+- 你是機長，在對「乘客」說話；乘客姓名只是對象，不是你的名字
+- 禁止寫「我是機長〇〇」若〇〇是乘客姓名
+- 禁止冒充乘客、禁止用第一人稱代替乘客說話
+- 用「各位乘客」或「${pax}」稱呼對方
 
-  const phaseHint = isTakeoff
-    ? '這是起飛廣播：歡迎登機、宣布自出發地啟航、說明航線方向與即將進入的空域，語氣溫暖且令人安心。不得提及抵達地（尚未降落）。'
-    : '這是降落廣播：歡迎抵達、總結飛行時長與航程，語氣溫暖且令人安心。';
+寫作：
+- 繁體中文，60–90 字，最多不超過 100 字
+- 一句一重點，刪掉「有任何需求」「感謝選搭本航空」「祝您旅途愉快」等空泛套話
+- 甦醒航班語境：這是一趟「睡著飛行、醒來抵達」的夜航體驗
+- 社交資訊要改寫成自然、有趣的一兩句，融入廣播，不要整段照搬系統提示
+- 不得編造未提供的地名、時間、人名；相關乘客只能使用系統提供的名字
+- 直接輸出廣播正文，不加標題、引號或說明`;
 
-  const systemPrompt = `你是甦醒航班的廣播系統。${STYLE_DESCRIPTIONS[input.style]}
-
-${phaseHint}
-
-規則：
-- 使用繁體中文
-- 廣播長度控制在 100-150 字
-- 必須包含：乘客姓名、出發地${isTakeoff ? '' : '、抵達地或目前空域'}、${isTakeoff ? '航線方向與目前空域' : '飛行時長'}、航線方向、社交提示
-- 不得自行編造系統未提供的目的地、時長或人際關係
-- 直接輸出廣播內容，不加任何前綴或說明`;
-
-  const userPrompt = `請根據以下資料生成${isTakeoff ? '起飛' : '降落'}機長廣播：
-
-乘客姓名：${input.passengerName}
+  const takeoffUser = `【起飛廣播】
+乘客：${pax}
 出發地：${input.departureLocation}
-${isTakeoff ? `目前空域：${REGION_DISPLAY[input.narrativeRegion]}` : arrivalText}
-${isTakeoff ? '' : `飛行時長：${durationText}\n估算距離：${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} km` : '計算中'}`}
-航線方向：${input.routeDirection}
-社交提示（必須寫入廣播）：${input.socialCue.cueText}`;
+航線方向：${direction}
+進入空域：${REGION_DISPLAY[input.narrativeRegion]}
+
+【同組社交】
+${buildSocialBlock(input.socialCue)}
+
+請宣布：夜航啟程、出發地、航向，並自然帶入社交情境（若為 solo 可寫成「今夜天幕上只有你一人」之類，勿照搬）。`;
+
+  const duration = formatDuration(input.flightDurationMinutes);
+  const landingUser = `【降落廣播】
+乘客：${pax}
+出發地：${input.departureLocation}
+抵達地：${input.arrivalLocation ?? '未知'}
+飛行時長：${duration || '未知'}
+航程：${input.estimatedFlightDistanceKm ? `${Math.round(input.estimatedFlightDistanceKm)} 公里` : '未知'}
+航線方向：${direction}
+
+【同組社交】
+${buildSocialBlock(input.socialCue)}
+
+請宣布：醒來抵達、飛了多久、從哪到哪，並用一句話點出社交情境（改寫，勿照搬）。`;
 
   const completion = await client.chat.completions.create({
     model,
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
+      { role: 'user', content: isTakeoff ? takeoffUser : landingUser },
     ],
-    max_tokens: 300,
-    temperature: 0.8,
+    max_tokens: 200,
+    temperature: 0.65,
   });
 
   return completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
+}
+
+/** OpenAI 不可用時的簡短 fallback */
+export function fallbackCaptainBroadcast(
+  phase: BroadcastPhase,
+  passengerName: string,
+  departureLocation: string,
+  arrivalLocation: string | null,
+  routeDirection: string,
+  durationMinutes: number | null,
+  socialCueText: string
+): string {
+  const pax = passengerLabel(passengerName);
+  const direction = DIRECTION_LABEL[routeDirection] ?? routeDirection;
+  if (phase === 'takeoff') {
+    return `各位乘客，甦醒航班即將自 ${departureLocation} 起飛，航向${direction}。${pax}，請準備進入夜航。${socialCueText}`;
+  }
+  const dur = formatDuration(durationMinutes);
+  return `各位乘客，甦醒航班已抵達 ${arrivalLocation ?? '目的地'}。${pax} 自 ${departureLocation} 出發，飛行 ${dur || '一段'}。${socialCueText}`;
 }
