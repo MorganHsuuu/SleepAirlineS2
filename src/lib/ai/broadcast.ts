@@ -109,7 +109,7 @@ ${buildSocialBlock(input.socialCue)}
 出發地：${input.departureLocation}
 抵達地：${input.arrivalLocation ?? '未知'}
 飛行時長：${duration || '未知'}
-航程：${input.estimatedFlightDistanceKm ? `${Math.round(input.estimatedFlightDistanceKm)} 公里` : '未知'}
+航程：${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} 公里` : '未知'}
 航線方向：${direction}
 
 【同組社交】

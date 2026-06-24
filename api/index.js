@@ -106947,7 +106947,7 @@ ${buildSocialBlock(input.socialCue)}
 \u51FA\u767C\u5730\uFF1A${input.departureLocation}
 \u62B5\u9054\u5730\uFF1A${input.arrivalLocation ?? "\u672A\u77E5"}
 \u98DB\u884C\u6642\u9577\uFF1A${duration || "\u672A\u77E5"}
-\u822A\u7A0B\uFF1A${input.estimatedFlightDistanceKm ? `${Math.round(input.estimatedFlightDistanceKm)} \u516C\u91CC` : "\u672A\u77E5"}
+\u822A\u7A0B\uFF1A${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} \u516C\u91CC` : "\u672A\u77E5"}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
 
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
