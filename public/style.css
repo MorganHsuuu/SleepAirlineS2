@@ -67,6 +67,9 @@ body::before {
 }
 .header-brand { color: var(--sky); font-size: 18px; font-weight: 600; letter-spacing: 3px; }
 .header-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.brand-link { color: inherit; text-decoration: none; display: inline-block; }
+.brand-link:hover .header-brand { color: var(--amber); }
+.brand-link:hover .header-sub { color: var(--text); }
 .header-right { display: flex; align-items: center; gap: 12px; }
 
 /* ── Card ──────────────────────────────────────────────────────────────────── */
