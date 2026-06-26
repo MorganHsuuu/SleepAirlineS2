@@ -146,22 +146,25 @@ export async function getOrCreatePassenger(
     };
   }
 
-  const history = await client.databases.query({
+  const lastLanded = await client.databases.query({
     database_id: dbId,
-    filter: { property: 'Passenger ID', rich_text: { equals: passengerId } },
-    sorts: [{ property: 'Updated At', direction: 'descending' }],
+    filter: {
+      and: [
+        { property: 'Passenger ID', rich_text: { equals: passengerId } },
+        { property: 'Status', select: { equals: 'landed' } },
+      ],
+    },
+    sorts: [{ property: 'Landing Time', direction: 'descending' }],
     page_size: 1,
   });
 
-  if (history.results.length > 0) {
-    const page = history.results[0] as Record<string, unknown>;
+  if (lastLanded.results.length > 0) {
+    const page = lastLanded.results[0] as Record<string, unknown>;
     const passenger = parsePassengerFromFlightRow(page, {
       name: profile.name || undefined,
       groupId: profile.groupId || undefined,
     });
-    if (passenger.status === 'landed') {
-      passenger.status = 'not_started';
-    }
+    passenger.status = 'not_started';
     return { passenger, created: false };
   }
 

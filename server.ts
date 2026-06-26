@@ -5,7 +5,10 @@ import express from 'express';
 import { join } from 'path';
 
 import { getOrCreatePassenger } from './src/lib/notion/passengers';
-import { createFlight, getActiveFlight, updateFlight, getGroupFlights, getAllActiveFlights } from './src/lib/notion/flights';
+import {
+  createFlight, getActiveFlight, updateFlight, getGroupFlights, getGroupBoardFlights,
+  getLastLandedFlight, getAllActiveFlights,
+} from './src/lib/notion/flights';
 import { getAvailableDestinations, seedDestinations } from './src/lib/notion/destinations';
 import { calculateFlightDistance } from './src/lib/flight/distance';
 import { calculateFlightProgress } from './src/lib/flight/progress';
@@ -44,7 +47,10 @@ app.post('/api/passenger', async (req, res) => {
         }
       }
     }
-    res.json(result);
+    const lastLandedFlight = result.passenger.status !== 'in_flight'
+      ? await getLastLandedFlight(passengerId)
+      : null;
+    res.json({ ...result, lastLandedFlight });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
   }
@@ -298,7 +304,7 @@ app.get('/api/board', async (req, res) => {
     const groupId = req.query.groupId as string;
     if (!groupId) { res.status(400).json({ error: '請提供 groupId。' }); return; }
 
-    const flights = await getGroupFlights(groupId);
+    const flights = await getGroupBoardFlights(groupId);
     const enriched = flights.map((f) => {
       if (f.status !== 'in_flight') return f;
       const progress = calculateFlightProgress(f.takeoffTime);

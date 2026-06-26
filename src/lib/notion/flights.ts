@@ -259,6 +259,94 @@ export async function updateFlight(
   await client.pages.update({ page_id: notionId, properties: properties as any });
 }
 
+function flightActivityTime(f: Flight): number {
+  const t = f.status === 'landed' && f.landingTime ? f.landingTime : f.takeoffTime;
+  return new Date(t).getTime();
+}
+
+/** 小隊看板：進行中航班 + 每位乘客最近一次降落（不限時間）。 */
+export function buildGroupBoardFlights(flights: Flight[]): Flight[] {
+  const inFlight = flights.filter((f) => f.status === 'in_flight');
+  const flyingIds = new Set(inFlight.map((f) => f.passengerId));
+
+  const latestLanded = new Map<string, Flight>();
+  for (const f of flights) {
+    if (f.status !== 'landed' || flyingIds.has(f.passengerId)) continue;
+    const prev = latestLanded.get(f.passengerId);
+    if (!prev || flightActivityTime(f) > flightActivityTime(prev)) {
+      latestLanded.set(f.passengerId, f);
+    }
+  }
+
+  return [...inFlight, ...latestLanded.values()].sort(
+    (a, b) => flightActivityTime(b) - flightActivityTime(a)
+  );
+}
+
+async function queryGroupFlightsByStatus(
+  groupId: string,
+  statuses: FlightStatus[]
+): Promise<Flight[]> {
+  if (!isNotionConfigured()) {
+    return mem.filter((f) => f.groupId === groupId && statuses.includes(f.status));
+  }
+
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+
+  const result = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: 'Group ID', select: { equals: groupId } },
+        {
+          or: statuses.map((status) => ({
+            property: 'Status',
+            select: { equals: status },
+          })),
+        },
+      ],
+    },
+    sorts: [{ property: 'Takeoff Time', direction: 'descending' }],
+    page_size: 100,
+  });
+
+  return result.results.map((p) => parseFlight(p as unknown as Record<string, unknown>));
+}
+
+export async function getLastLandedFlight(passengerId: string): Promise<Flight | null> {
+  if (!isNotionConfigured()) {
+    const landed = mem
+      .filter((f) => f.passengerId === passengerId && f.status === 'landed')
+      .sort((a, b) => flightActivityTime(b) - flightActivityTime(a));
+    return landed[0] ?? null;
+  }
+
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+
+  const result = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: 'Passenger ID', rich_text: { equals: passengerId } },
+        { property: 'Status', select: { equals: 'landed' } },
+      ],
+    },
+    sorts: [{ property: 'Landing Time', direction: 'descending' }],
+    page_size: 1,
+  });
+
+  if (result.results.length === 0) return null;
+  return parseFlight(result.results[0] as unknown as Record<string, unknown>);
+}
+
+export async function getGroupBoardFlights(groupId: string): Promise<Flight[]> {
+  const flights = await queryGroupFlightsByStatus(groupId, ['in_flight', 'landed']);
+  return buildGroupBoardFlights(flights);
+}
+
+/** 同組近期航班（社交提示用，預設 24 小時內）。 */
 export async function getGroupFlights(
   groupId: string,
   sinceHours: number = 24
