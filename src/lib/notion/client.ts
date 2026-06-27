@@ -1,9 +1,11 @@
 import { Client } from '@notionhq/client';
+import { getDataMode, isLiveDataMode } from '../data-mode';
 
 let _client: Client | null = null;
 
+/** live 模式且有 NOTION_API_KEY 時才走 Notion；preview 一律用記憶體。 */
 export function isNotionConfigured(): boolean {
-  return !!process.env.NOTION_API_KEY;
+  return isLiveDataMode() && !!process.env.NOTION_API_KEY;
 }
 
 export function getNotionClient(): Client {

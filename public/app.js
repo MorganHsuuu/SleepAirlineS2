@@ -24,6 +24,8 @@ let groupFlights = [];
 let lastLandedFlight = null;
 let landingScenery = null;
 let refreshTimer = null;
+let appConfig = null;
+let uiPreviewMode = false;
 
 // ── DOM Refs ──────────────────────────────────────────────────────────────────
 
@@ -289,6 +291,10 @@ async function doLogin(e) {
   $('btn-login').disabled = true;
   $('btn-login').textContent = '登入中...';
   try {
+    if (appConfig?.dataMode === 'preview') {
+      showMsg('login', 'error', '目前為預覽模式，請用「UI 預覽」看主畫面，或接上 Notion 後再登入。');
+      return;
+    }
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
     passenger = data.passenger;
     lastLandedFlight = data.lastLandedFlight || null;
@@ -308,6 +314,10 @@ async function doLogin(e) {
 }
 
 async function doTakeoff() {
+  if (uiPreviewMode) {
+    showMsg('main', 'error', 'UI 預覽模式無法起飛，請接上 Notion 後測試完整流程。');
+    return;
+  }
   clearMsg('main');
   $('btn-takeoff').disabled = true;
   $('btn-takeoff').textContent = '起飛中...';
@@ -346,6 +356,10 @@ async function doTakeoff() {
 }
 
 async function doLand() {
+  if (uiPreviewMode) {
+    showMsg('main', 'error', 'UI 預覽模式無法降落，請接上 Notion 後測試完整流程。');
+    return;
+  }
   clearMsg('main');
   $('btn-land').disabled = true;
   $('btn-land').textContent = '降落中，請稍候...';
@@ -389,15 +403,61 @@ function doLogout() {
   groupFlights = [];
   lastLandedFlight = null;
   landingScenery = null;
+  uiPreviewMode = false;
   stopAutoRefresh();
   clearMsg('main');
   updateUI();
 }
 
+function enterUiPreview() {
+  uiPreviewMode = true;
+  passenger = {
+    passengerId: 'preview_user',
+    name: '預覽乘客',
+    groupId: 'group_02',
+    status: 'in_flight',
+    currentLocation: 'Taipei, Taiwan',
+  };
+  activeFlight = {
+    flightId: 'FL-PREVIEW-DEMO01',
+    passengerName: '預覽乘客',
+    status: 'in_flight',
+    departureLocation: 'Taipei, Taiwan',
+    takeoffTime: new Date(Date.now() - 45 * 60000).toISOString(),
+    routeDirection: 'auto',
+    flightProgress: 42,
+    narrativeRegion: 'deep_night_current',
+    takeoffBroadcast: '這是 UI 預覽用的假廣播，不會寫入 Notion。',
+  };
+  groupFlights = [activeFlight];
+  lastLandedFlight = null;
+  landingScenery = null;
+  updateUI();
+  renderBoard();
+  showMsg('login', 'success', 'UI 預覽模式：可調整主畫面樣式，資料不會保存。');
+}
+
+async function loadAppConfig() {
+  try {
+    appConfig = await api('GET', '/api/config');
+  } catch {
+    appConfig = { dataMode: 'preview', hint: '無法讀取設定，請確認 API 已部署。' };
+  }
+  const banner = $('mode-banner');
+  if (banner && appConfig.dataMode === 'preview') {
+    banner.innerHTML = `<strong>預覽模式</strong> — ${appConfig.hint || '尚未連接 Notion 主庫。'}`;
+    banner.classList.remove('hidden');
+    $('btn-ui-preview')?.classList.remove('hidden');
+  } else if (banner) {
+    banner.classList.add('hidden');
+    $('btn-ui-preview')?.classList.add('hidden');
+  }
+}
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function fetchBoard() {
-  if (!passenger) return;
+  if (!passenger || uiPreviewMode) return;
   try {
     const data = await api('GET', '/api/board?groupId=' + encodeURIComponent(passenger.groupId));
     if (data.flights) groupFlights = data.flights;
@@ -406,7 +466,7 @@ async function fetchBoard() {
 }
 
 async function refreshProgress() {
-  if (!passenger) return;
+  if (!passenger || uiPreviewMode) return;
   try {
     const data = await api('GET', '/api/flight/progress?passengerId=' + encodeURIComponent(passenger.passengerId));
     if (data.activeFlight) {
@@ -455,6 +515,7 @@ async function seedCities() {
 // ── Event Listeners ───────────────────────────────────────────────────────────
 
 $('login-form').addEventListener('submit', doLogin);
+$('btn-ui-preview')?.addEventListener('click', enterUiPreview);
 $('btn-takeoff').addEventListener('click', doTakeoff);
 $('btn-land').addEventListener('click', doLand);
 $('btn-logout').addEventListener('click', doLogout);
@@ -472,4 +533,4 @@ function toggleSection(contentId, headerEl) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 fillLoginForm(loadLoginProfile());
-updateUI();
+loadAppConfig().then(() => updateUI());

@@ -342,3 +342,16 @@ body::before {
 .mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }
 .overflow-x { overflow-x: auto; }
+
+.mode-banner {
+  position: relative;
+  z-index: 2;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.12), rgba(245, 185, 66, 0.12));
+  border-bottom: 1px solid var(--border);
+}
+.mode-banner strong { color: var(--amber); }

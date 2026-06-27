@@ -41,9 +41,40 @@ var import_path = require("path");
 
 // src/lib/notion/client.ts
 var import_client = require("@notionhq/client");
+
+// src/lib/data-mode.ts
+function getDataMode() {
+  const raw = process.env.SLEEP_AIRLINE_DATA_MODE?.trim().toLowerCase();
+  if (raw === "preview") return "preview";
+  if (raw === "live") return "live";
+  return process.env.NOTION_API_KEY ? "live" : "preview";
+}
+function isLiveDataMode() {
+  return getDataMode() === "live";
+}
+function getDataModeStatus() {
+  const dataMode = getDataMode();
+  const hasKey = !!process.env.NOTION_API_KEY;
+  const hasDashboardId = !!process.env.NOTION_DASHBOARD_DB_ID;
+  const notionConfigured = dataMode === "live" && hasKey;
+  const notionReady = notionConfigured && hasDashboardId;
+  let hint;
+  if (dataMode === "preview") {
+    hint = "\u9810\u89BD\u6A21\u5F0F\uFF1A\u53EF\u6539 UI\uFF0F\u8D70\u5047\u8CC7\u6599\u9810\u89BD\uFF0C\u8CC7\u6599\u4E0D\u6703\u5BEB\u5165 Notion\u3002\u63A5\u4E0A\u4E3B\u5EAB\u5F8C\u8A2D SLEEP_AIRLINE_DATA_MODE=live \u4E26 redeploy\u3002";
+  } else if (!hasKey) {
+    hint = "live \u6A21\u5F0F\u4F46\u672A\u8A2D\u5B9A NOTION_API_KEY\uFF0C\u8ACB\u5728 Vercel \u88DC\u4E0A\u74B0\u5883\u8B8A\u6578\u3002";
+  } else if (!hasDashboardId) {
+    hint = "\u5DF2\u8A2D\u5B9A API Key\uFF1B\u5EFA\u8B70\u4E00\u4F75\u8A2D\u5B9A NOTION_DASHBOARD_DB_ID \u6307\u5411\u4E3B\u8FA6\u4E3B\u5EAB\uFF0C\u907F\u514D\u81EA\u52D5\u5EFA\u8868\u3002";
+  } else {
+    hint = "\u5DF2\u9023\u7DDA\u4E3B\u5EAB\uFF0C\u8D77\u98DB\uFF0F\u964D\u843D\u6703\u5BEB\u5165 Notion\u3002";
+  }
+  return { dataMode, notionConfigured, notionReady, hint };
+}
+
+// src/lib/notion/client.ts
 var _client = null;
 function isNotionConfigured() {
-  return !!process.env.NOTION_API_KEY;
+  return isLiveDataMode() && !!process.env.NOTION_API_KEY;
 }
 function getNotionClient() {
   if (!process.env.NOTION_API_KEY) {
@@ -107536,6 +107567,9 @@ import_dotenv.default.config({ path: ".env.local" });
 var app = (0, import_express.default)();
 app.use(import_express.default.json());
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
+app.get("/api/config", (_req, res) => {
+  res.json(getDataModeStatus());
+});
 app.post("/api/passenger", async (req, res) => {
   try {
     const { passengerId, name, groupId } = req.body;

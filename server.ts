@@ -22,10 +22,17 @@ import { saveLandingScenery, getLandscapeByFlightId } from './src/lib/notion/lan
 import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
+import { getDataModeStatus } from './src/lib/data-mode';
 
 const app = express();
 app.use(express.json());
 app.use(express.static(join(process.cwd(), 'public')));
+
+// ── GET /api/config ───────────────────────────────────────────────────────────
+
+app.get('/api/config', (_req, res) => {
+  res.json(getDataModeStatus());
+});
 
 // ── POST /api/passenger ───────────────────────────────────────────────────────
 
