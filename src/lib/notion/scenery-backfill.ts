@@ -10,7 +10,10 @@ function parseCityCountry(arrivalLocation: string): { city: string; country: str
   return { city: arrivalLocation, country: arrivalLocation };
 }
 
-export async function backfillSceneryForFlight(flightId: string): Promise<{
+export async function backfillSceneryForFlight(
+  flightId: string,
+  options?: { force?: boolean }
+): Promise<{
   flightId: string;
   skipped?: boolean;
   error?: string;
@@ -18,7 +21,7 @@ export async function backfillSceneryForFlight(flightId: string): Promise<{
   arrivalLocation?: string;
 }> {
   const existing = await getLandscapeByFlightId(flightId);
-  if (existing?.imageUrl) {
+  if (!options?.force && existing?.imageUrl) {
     return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
   }
 
@@ -48,11 +51,11 @@ export async function backfillSceneryForFlight(flightId: string): Promise<{
   return { flightId, imageUrl: saved.imageUrl, arrivalLocation: saved.arrivalLocation };
 }
 
-export async function backfillSceneryForFlights(flightIds: string[]) {
+export async function backfillSceneryForFlights(flightIds: string[], options?: { force?: boolean }) {
   const results = [];
   for (const flightId of flightIds) {
     try {
-      results.push(await backfillSceneryForFlight(flightId));
+      results.push(await backfillSceneryForFlight(flightId, options));
     } catch (err) {
       results.push({ flightId, error: err instanceof Error ? err.message : '未知錯誤' });
     }

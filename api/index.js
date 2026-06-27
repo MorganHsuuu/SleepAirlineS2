@@ -107098,12 +107098,17 @@ var import_openai3 = __toESM(require("openai"));
 function buildSceneryPrompt(city, country, displayName) {
   const place = displayName || `${city}, ${country}`;
   return [
-    `A breathtaking scenic photograph of a famous landmark or natural landscape in ${country},`,
-    `representing the region around ${city}.`,
-    "Golden hour light, cinematic travel photography, wide angle, atmospheric,",
-    "no people, no text, no watermark, no logos."
+    `View through an airplane cabin window on a quiet night flight,`,
+    `gazing at the landscape near ${place}.`,
+    `Dreamy and poetic mood: deep midnight navy sky, soft starlight,`,
+    `gentle moonlit mist over terrain typical of ${country} \u2014`,
+    `rolling hills, coastline, or valley silhouettes, not a tourist postcard or famous monument.`,
+    `Cinematic, half-awake memory feel; subtle amber reflection on the window glass,`,
+    `cool blue-teal atmosphere like a long night journey before dawn.`,
+    `Soft atmospheric perspective, no people, no text, no watermark, no logos.`
   ].join(" ");
 }
+var SCENERY_IMAGE_SIZE = "1536x1024";
 function safeFilename(city, flightId) {
   const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
   return `landing-${slug2}-${flightId.slice(-8)}.png`;
@@ -107120,14 +107125,14 @@ async function generateLandingScenery(city, country, displayName, flightId) {
     isGptImageModel(model) ? {
       model,
       prompt: imagePrompt,
-      size: "1024x1024",
+      size: SCENERY_IMAGE_SIZE,
       quality: "medium",
       output_format: "png",
       n: 1
     } : {
       model,
       prompt: imagePrompt,
-      size: "1024x1024",
+      size: SCENERY_IMAGE_SIZE,
       quality: "standard",
       n: 1
     }
@@ -107487,9 +107492,9 @@ function parseCityCountry(arrivalLocation) {
   }
   return { city: arrivalLocation, country: arrivalLocation };
 }
-async function backfillSceneryForFlight(flightId) {
+async function backfillSceneryForFlight(flightId, options) {
   const existing = await getLandscapeByFlightId(flightId);
-  if (existing?.imageUrl) {
+  if (!options?.force && existing?.imageUrl) {
     return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
   }
   const flight = await getFlightByFlightId(flightId);
@@ -107514,11 +107519,11 @@ async function backfillSceneryForFlight(flightId) {
   if (!saved?.imageUrl) return { flightId, error: "\u5B58\u5165 Notion \u5931\u6557" };
   return { flightId, imageUrl: saved.imageUrl, arrivalLocation: saved.arrivalLocation };
 }
-async function backfillSceneryForFlights(flightIds) {
+async function backfillSceneryForFlights(flightIds, options) {
   const results = [];
   for (const flightId of flightIds) {
     try {
-      results.push(await backfillSceneryForFlight(flightId));
+      results.push(await backfillSceneryForFlight(flightId, options));
     } catch (err) {
       results.push({ flightId, error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
     }
@@ -107862,7 +107867,7 @@ app.post("/api/broadcast/speech", async (req, res) => {
 });
 app.post("/api/scenery/backfill", async (req, res) => {
   try {
-    const { flightIds } = req.body;
+    const { flightIds, force } = req.body;
     if (!Array.isArray(flightIds) || flightIds.length === 0) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B flightIds \u9663\u5217\u3002" });
       return;
@@ -107871,7 +107876,7 @@ app.post("/api/scenery/backfill", async (req, res) => {
       res.status(400).json({ error: "\u4E00\u6B21\u6700\u591A 10 \u7B46\u3002" });
       return;
     }
-    const results = await backfillSceneryForFlights(flightIds);
+    const results = await backfillSceneryForFlights(flightIds, { force: !!force });
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });

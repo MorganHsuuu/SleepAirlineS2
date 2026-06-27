@@ -10,12 +10,19 @@ export interface SceneryGenerationResult {
 export function buildSceneryPrompt(city: string, country: string, displayName: string): string {
   const place = displayName || `${city}, ${country}`;
   return [
-    `A breathtaking scenic photograph of a famous landmark or natural landscape in ${country},`,
-    `representing the region around ${city}.`,
-    'Golden hour light, cinematic travel photography, wide angle, atmospheric,',
-    'no people, no text, no watermark, no logos.',
+    `View through an airplane cabin window on a quiet night flight,`,
+    `gazing at the landscape near ${place}.`,
+    `Dreamy and poetic mood: deep midnight navy sky, soft starlight,`,
+    `gentle moonlit mist over terrain typical of ${country} —`,
+    `rolling hills, coastline, or valley silhouettes, not a tourist postcard or famous monument.`,
+    `Cinematic, half-awake memory feel; subtle amber reflection on the window glass,`,
+    `cool blue-teal atmosphere like a long night journey before dawn.`,
+    `Soft atmospheric perspective, no people, no text, no watermark, no logos.`,
   ].join(' ');
 }
+
+/** Landscape aspect ratio suits the night-window composition. */
+export const SCENERY_IMAGE_SIZE = '1536x1024';
 
 function safeFilename(city: string, flightId: string): string {
   const slug = city.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'landing';
@@ -43,7 +50,7 @@ export async function generateLandingScenery(
       ? {
           model,
           prompt: imagePrompt,
-          size: '1024x1024',
+          size: SCENERY_IMAGE_SIZE,
           quality: 'medium',
           output_format: 'png',
           n: 1,
@@ -51,7 +58,7 @@ export async function generateLandingScenery(
       : {
           model,
           prompt: imagePrompt,
-          size: '1024x1024',
+          size: SCENERY_IMAGE_SIZE,
           quality: 'standard',
           n: 1,
         }

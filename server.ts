@@ -403,7 +403,7 @@ app.post('/api/broadcast/speech', async (req, res) => {
 
 app.post('/api/scenery/backfill', async (req, res) => {
   try {
-    const { flightIds } = req.body as { flightIds?: string[] };
+    const { flightIds, force } = req.body as { flightIds?: string[]; force?: boolean };
     if (!Array.isArray(flightIds) || flightIds.length === 0) {
       res.status(400).json({ error: '請提供 flightIds 陣列。' });
       return;
@@ -412,7 +412,7 @@ app.post('/api/scenery/backfill', async (req, res) => {
       res.status(400).json({ error: '一次最多 10 筆。' });
       return;
     }
-    const results = await backfillSceneryForFlights(flightIds);
+    const results = await backfillSceneryForFlights(flightIds, { force: !!force });
     res.json({ results });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
