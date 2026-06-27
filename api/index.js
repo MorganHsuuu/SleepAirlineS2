@@ -64,7 +64,7 @@ function getDataModeStatus() {
   } else if (!hasKey) {
     hint = "live \u6A21\u5F0F\u4F46\u672A\u8A2D\u5B9A NOTION_API_KEY\uFF0C\u8ACB\u5728 Vercel \u88DC\u4E0A\u74B0\u5883\u8B8A\u6578\u3002";
   } else if (!hasDashboardId) {
-    hint = "\u5DF2\u8A2D\u5B9A API Key\uFF1B\u5EFA\u8B70\u4E00\u4F75\u8A2D\u5B9A NOTION_DASHBOARD_DB_ID \u6307\u5411\u4E3B\u8FA6\u4E3B\u5EAB\uFF0C\u907F\u514D\u81EA\u52D5\u5EFA\u8868\u3002";
+    hint = "\u5DF2\u8A2D\u5B9A API Key\uFF1B\u8ACB\u5411\u4E3B\u8FA6\u53D6\u5F97 NOTION_DASHBOARD_DB_ID \u8207 NOTION_LANDSCAPE_DB_ID \u4E26\u8CBC\u5230 Vercel\u3002";
   } else {
     hint = "\u5DF2\u9023\u7DDA\u4E3B\u5EAB\uFF0C\u8D77\u98DB\uFF0F\u964D\u843D\u6703\u5BEB\u5165 Notion\u3002";
   }
@@ -269,38 +269,30 @@ async function createDashboard(client, parentPageId) {
   });
   return db.id;
 }
-async function syncDashboardSchema(client, databaseId) {
-  const db = await client.databases.retrieve({ database_id: databaseId });
-  const existing = Object.keys(db.properties ?? {});
-  const wanted = getDashboardProperties();
-  const missing = {};
-  for (const [key, def] of Object.entries(wanted)) {
-    if (!existing.includes(key)) missing[key] = def;
-  }
-  if (Object.keys(missing).length === 0) return;
-  await client.databases.update({ database_id: databaseId, properties: missing });
+function isOwnWorkspace() {
+  return getParentPageId() !== normalizeNotionId(DEFAULT_PARENT_PAGE_ID);
+}
+function canWriteSchema() {
+  return process.env.NOTION_ALLOW_SCHEMA_WRITE === "true" || isOwnWorkspace();
 }
 async function findOrCreateDashboard() {
   const client = getNotionClient();
   if (process.env.NOTION_DASHBOARD_DB_ID) {
-    const id = normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
-    await syncDashboardSchema(client, id);
-    return id;
+    return normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
   }
   const parentPageId = getParentPageId();
   const existing = await findDashboardOnPage(client, parentPageId);
-  if (existing) {
-    await syncDashboardSchema(client, existing);
-    return existing;
+  if (existing) return existing;
+  if (!canWriteSchema()) {
+    throw new Error(
+      "\u627E\u4E0D\u5230\u5171\u7528\u4E3B\u8CC7\u6599\u5EAB\u300CSleep Airline Flight Log\u300D\u3002\u5B78\u751F\u90E8\u7F72\u4E0D\u61C9\u81EA\u52D5\u5EFA\u8868\uFF1B\u8ACB\u78BA\u8A8D NOTION_API_KEY \u8207\u7236\u9801\u9762\u8A2D\u5B9A\u6B63\u78BA\u3002"
+    );
   }
   try {
     return await createDashboard(client, parentPageId);
   } catch {
     const retry = await findDashboardOnPage(client, parentPageId);
-    if (retry) {
-      await syncDashboardSchema(client, retry);
-      return retry;
-    }
+    if (retry) return retry;
     throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Dashboard\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
   }
 }
@@ -107223,6 +107215,12 @@ function getParentPageId2() {
   const raw = process.env.NOTION_PARENT_PAGE_ID ?? DEFAULT_PARENT_PAGE_ID;
   return normalizeNotionId(raw);
 }
+function isOwnWorkspace2() {
+  return getParentPageId2() !== normalizeNotionId(DEFAULT_PARENT_PAGE_ID);
+}
+function canWriteSchema2() {
+  return process.env.NOTION_ALLOW_SCHEMA_WRITE === "true" || isOwnWorkspace2();
+}
 async function readDatabaseTitle2(client, databaseId) {
   const db = await client.databases.retrieve({ database_id: databaseId });
   const title = db.title;
@@ -107254,38 +107252,24 @@ async function createLandscapeDb(client, parentPageId) {
   });
   return db.id;
 }
-async function syncLandscapeSchema(client, databaseId) {
-  const db = await client.databases.retrieve({ database_id: databaseId });
-  const existing = Object.keys(db.properties ?? {});
-  const wanted = getLandscapeProperties();
-  const missing = {};
-  for (const [key, def] of Object.entries(wanted)) {
-    if (!existing.includes(key)) missing[key] = def;
-  }
-  if (Object.keys(missing).length === 0) return;
-  await client.databases.update({ database_id: databaseId, properties: missing });
-}
 async function findOrCreateLandscapeDb() {
   const client = getNotionClient();
   if (process.env.NOTION_LANDSCAPE_DB_ID) {
-    const id = normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
-    await syncLandscapeSchema(client, id);
-    return id;
+    return normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
   }
   const parentPageId = getParentPageId2();
   const existing = await findLandscapeOnPage(client, parentPageId);
-  if (existing) {
-    await syncLandscapeSchema(client, existing);
-    return existing;
+  if (existing) return existing;
+  if (!canWriteSchema2()) {
+    throw new Error(
+      "\u627E\u4E0D\u5230\u5171\u7528\u8CC7\u6599\u5EAB\u300CSleep Airline Landing Scenery\u300D\u3002\u5B78\u751F\u90E8\u7F72\u4E0D\u61C9\u5728\u4E3B\u8FA6\u9801\u9762\u5EFA\u8868\uFF1B\u8ACB\u78BA\u8A8D Notion \u8A2D\u5B9A\u6B63\u78BA\u3002"
+    );
   }
   try {
     return await createLandscapeDb(client, parentPageId);
   } catch {
     const retry = await findLandscapeOnPage(client, parentPageId);
-    if (retry) {
-      await syncLandscapeSchema(client, retry);
-      return retry;
-    }
+    if (retry) return retry;
     throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Landing Scenery \u8CC7\u6599\u5EAB\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
   }
 }

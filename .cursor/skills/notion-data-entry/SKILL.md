@@ -27,87 +27,90 @@ Workshop 預期流程：
 
 ---
 
-## 兩階段流程（fork 參與者必讀）
+## 兩階段流程（學員標準流程）
 
-避免「還沒接 Notion 就卡在登入／送不出資料」：
+**一律使用主辦的 Notion 總表**，不自行建 Notion、不填自己的 key。
 
-### 階段 A — 空殼改風格（先不用 Notion）
+### 階段 1 — 空殼改風格（先不用 Notion）
 
 ```
 - [ ] Fork → 部署 Vercel
-- [ ] Vercel **不要** 設 NOTION_API_KEY（或設 SLEEP_AIRLINE_DATA_MODE=preview）
+- [ ] Vercel **不要** 設任何 Notion 變數
 - [ ] 只改 public/（HTML、CSS、文案）
-- [ ] 開網站 → 頂部會顯示「預覽模式」橫幅
-- [ ] 按「進入 UI 預覽（假資料）」→ 可看到主畫面調樣式
-- [ ] 此階段登入／起飛／降落 **不會** 寫 Notion（也避免 Vercel 無狀態記憶體問題）
+- [ ] 開網站 →「預覽模式」橫幅 → 按「UI 預覽」看主畫面
 ```
 
-本地完整互動測試（仍不寫 Notion）：`npm run dev`，不建 `.env.local` 或設 `SLEEP_AIRLINE_DATA_MODE=preview`。
+### 階段 2 — 接上主辦總表（workshop 正式用）
 
-### 階段 B — 接上主辦主庫（workshop 正式用）
+向主辦索取 **3 個值**，貼到 Vercel → Redeploy：
 
-```
-- [ ] 向主辦取得 NOTION_API_KEY、NOTION_DASHBOARD_DB_ID、NOTION_LANDSCAPE_DB_ID
-- [ ] Vercel 填入上述變數，設 SLEEP_AIRLINE_DATA_MODE=live（或不設，有 key 即 live）
-- [ ] Redeploy
-- [ ] 確認 GET /api/config 回傳 dataMode: "live"
-- [ ] 實測登入 → 起飛 → 降落 → 主庫有新列
+```bash
+NOTION_API_KEY=ntn_...           # 主辦提供
+NOTION_DASHBOARD_DB_ID=...       # Flight Log 總表
+NOTION_LANDSCAPE_DB_ID=...       # 風景圖庫（要生圖時）
 ```
 
-### 主辦現有部署（不會被改壞）
+```
+- [ ] 確認 GET /api/config → dataMode: "live"、notionReady: true
+- [ ] 登入 → 起飛 → 降落 → 主辦 Notion 總表出現新列
+```
 
-| 條件 | 行為 |
-|---|---|
-| 已有 `NOTION_API_KEY` | 預設 **live**，與現在完全相同 |
-| 未設 `SLEEP_AIRLINE_DATA_MODE` | 自動判斷，不需改 Vercel |
-| 設 `SLEEP_AIRLINE_DATA_MODE=preview` | 即使有 key 也不寫 Notion（僅主辦測 UI 時用） |
+**不要**設定 `NOTION_PARENT_PAGE_ID` 或 `NOTION_ALLOW_SCHEMA_WRITE`。
 
 ---
 
-## Fork 部署 checklist（給各組工程師）
+## 學生設定卡（可直接複製發給學員）
+
+```text
+【甦醒航班 · Vercel 設定】
+
+Phase 1 — 改 UI（現在）
+  · 部署 Vercel，Notion 變數全部留空
+  · 改 public/ 風格，用「UI 預覽」看主畫面
+
+Phase 2 — 接總表（主辦發 key 後）
+  · Vercel → Environment Variables 新增：
+      NOTION_API_KEY
+      NOTION_DASHBOARD_DB_ID
+      NOTION_LANDSCAPE_DB_ID
+  · Redeploy → 登入測試起飛降落
+  · 資料會寫進主辦共用總表，請勿自建 Notion
+```
+
+---
+
+## Fork checklist（給各組）
 
 ```
-- [ ] Fork repo → 部署到自己的 Vercel（網址各組不同，OK）
-- [ ] 向主辦取得：NOTION_DASHBOARD_DB_ID、NOTION_LANDSCAPE_DB_ID
-- [ ] 向主辦取得：Notion Integration 已加入主庫的 NOTION_API_KEY（或共用 integration）
-- [ ] Vercel Environment Variables 設定（見下方）
-- [ ] 不要改 `src/lib/notion/dashboard-schema.ts` 的欄位名稱（除非只改本地 UI、仍寫同一 schema）
-- [ ] 改完 UI 後，實際走一輪：登入 → 起飛 → 降落 → 確認主庫有新列
-- [ ] Group ID 用 `group_0X`，與主辦編號一致
+- [ ] Fork → 部署 Vercel
+- [ ] 階段 1：Notion 變數留空，改 public/
+- [ ] 階段 2：向主辦要 3 個 Notion 值，貼 Vercel → Redeploy
+- [ ] 不要改 dashboard-schema.ts 等主庫相關檔案
+- [ ] Group ID 用 group_0X
 ```
 
 ### Vercel 環境變數
 
-**階段 A（預覽）— 全部留空即可**
+**階段 1** — 全部留空（自動 preview）
+
+**階段 2** — 主辦總表（必填前三項）
 
 ```bash
-# 不設 NOTION_API_KEY → 自動 preview
-# 或明確指定：
-# SLEEP_AIRLINE_DATA_MODE=preview
-```
-
-**階段 B（live）— 接上主庫**
-
-```bash
-SLEEP_AIRLINE_DATA_MODE=live          # 選填；有 NOTION_API_KEY 時預設即 live
 NOTION_API_KEY=ntn_...
-NOTION_DASHBOARD_DB_ID=...            # 主辦的 Flight Log
-NOTION_LANDSCAPE_DB_ID=...            # 主辦的 Landing Scenery（生圖時）
+NOTION_DASHBOARD_DB_ID=...
+NOTION_LANDSCAPE_DB_ID=...
 
-# 各組自管
+# 選填
 OPENAI_API_KEY=sk-...
 OPENAI_IMAGE_MODEL=gpt-image-1-mini
 ```
 
-**禁止**：fork 上設自己的 `NOTION_PARENT_PAGE_ID` 讓程式在別處 **新建** 另一套 Flight Log（會變成資料孤島，主辦看不到）。
+## 主辦方要做的事
 
-## 主辦方（資料庫擁有者）要做的事
-
-1. 在 Notion 建立／維護 **Sleep Airline Flight Log**、**Sleep Airline Landing Scenery**
-2. 把兩個 database 的 ID 發給各組
-3. 建立一個 Notion Integration，**Invite 進這兩張表**（Can edit）
-4. 把 `NOTION_API_KEY` 安全地分發給各組（或每組自建 integration 再 invite 同一批表 — 較安全）
-5. Schema 變更只由主辦決定；改 `dashboard-schema.ts` 後通知全組同步
+1. 維護 **Sleep Airline Flight Log**、**Sleep Airline Landing Scenery**
+2. 把 **NOTION_API_KEY + 兩個 DB ID** 發給各組（一次三個值）
+3. Integration 須對兩張表 **Can edit**
+4. Schema 變更只由主辦決定
 
 ---
 
@@ -203,7 +206,7 @@ npx tsx scripts/backfill-scenery.ts FL-XXX-YYYY
 | backfill「沒有抵達地點」 | `landed` 但 Arrival Location 空白 |
 | 風景圖地點怪 | Arrival Location 未用 `城市, 國家` 格式 |
 | 程式讀不到列 | 寫進舊表 Dashboard；或 fork 指到錯的 DB ID；或欄位名稱拼錯 |
-| 主辦看不到某組資料 | 該組 Vercel 指到自己的 Notion 而非主庫 ID |
+| 主辦看不到某組資料 | 學生沒填 NOTION_DASHBOARD_DB_ID，或填錯 ID |
 | fork 登入一直失敗 | 已設錯的 NOTION_API_KEY／DB ID；或 preview 模式卻按登入而非 UI 預覽 |
 | Vercel 上登入成功但起飛失敗 | 舊版無 preview 時記憶體不持久；請用 UI 預覽改樣式，或接 live |
 

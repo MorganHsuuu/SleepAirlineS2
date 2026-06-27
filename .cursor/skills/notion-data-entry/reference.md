@@ -14,16 +14,15 @@
 | **主辦** | 擁有 Flight Log + Landing Scenery；提供 DB ID；管理 schema 變更 |
 | **各組** | 自有 Vercel + 可改 `public/`；env 指向主庫 ID；不可私建第二套主表 |
 
-### 主辦分發給各組的資訊範本
+### 主辦分發給各組的資訊範本（複製貼上）
 
 ```text
+NOTION_API_KEY=ntn_...
 NOTION_DASHBOARD_DB_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 NOTION_LANDSCAPE_DB_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-NOTION_API_KEY=（由主辦或各組 integration 提供，integration 須已加入上述兩表）
 ```
 
-Integration 權限：對兩張 database **Can edit**。  
-各組 Vercel 只需 redeploy 更新 env，**不必** push 到主辦 repo 才能連 Notion。
+學員**只需這三項**，全部貼 Vercel → Redeploy。勿設定 NOTION_PARENT_PAGE_ID。
 
 ### 資料模式（SLEEP_AIRLINE_DATA_MODE）
 

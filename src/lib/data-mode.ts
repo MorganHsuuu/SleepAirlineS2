@@ -37,7 +37,7 @@ export function getDataModeStatus(): {
   } else if (!hasKey) {
     hint = 'live 模式但未設定 NOTION_API_KEY，請在 Vercel 補上環境變數。';
   } else if (!hasDashboardId) {
-    hint = '已設定 API Key；建議一併設定 NOTION_DASHBOARD_DB_ID 指向主辦主庫，避免自動建表。';
+    hint = '已設定 API Key；請向主辦取得 NOTION_DASHBOARD_DB_ID 與 NOTION_LANDSCAPE_DB_ID 並貼到 Vercel。';
   } else {
     hint = '已連線主庫，起飛／降落會寫入 Notion。';
   }
