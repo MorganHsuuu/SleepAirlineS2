@@ -48,6 +48,27 @@ export function readCheckbox(props: Record<string, unknown>, key: string): boole
   return p?.checkbox ?? false;
 }
 
+export function readUrl(props: Record<string, unknown>, key: string): string {
+  const p = props[key] as { url?: string | null } | undefined;
+  return p?.url ?? '';
+}
+
+export function readFirstFileUrl(props: Record<string, unknown>, key: string): string {
+  const p = props[key] as {
+    files?: Array<{
+      type?: string;
+      file?: { url?: string };
+      external?: { url?: string };
+    }>;
+  } | undefined;
+
+  const file = p?.files?.[0];
+  if (!file) return '';
+  if (file.type === 'file' && file.file?.url) return file.file.url;
+  if (file.type === 'external' && file.external?.url) return file.external.url;
+  return '';
+}
+
 // ---- Property helpers: write ----
 
 export function wTitle(value: string) {
@@ -68,4 +89,8 @@ export function wNumber(value: number | null) {
 
 export function wDate(value: string | null) {
   return value ? { date: { start: value } } : { date: null };
+}
+
+export function wUrl(value: string | null) {
+  return value ? { url: value } : { url: null };
 }

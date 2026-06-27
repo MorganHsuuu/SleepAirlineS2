@@ -74,6 +74,18 @@ function readDate(props, key) {
   const p = props[key];
   return p?.date?.start ?? null;
 }
+function readUrl(props, key) {
+  const p = props[key];
+  return p?.url ?? "";
+}
+function readFirstFileUrl(props, key) {
+  const p = props[key];
+  const file = p?.files?.[0];
+  if (!file) return "";
+  if (file.type === "file" && file.file?.url) return file.file.url;
+  if (file.type === "external" && file.external?.url) return file.external.url;
+  return "";
+}
 function wTitle(value) {
   return { title: [{ text: { content: value } }] };
 }
@@ -88,6 +100,9 @@ function wNumber(value) {
 }
 function wDate(value) {
   return value ? { date: { start: value } } : { date: null };
+}
+function wUrl(value) {
+  return value ? { url: value } : { url: null };
 }
 
 // src/lib/notion/dashboard-schema.ts
@@ -380,21 +395,24 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
       created: false
     };
   }
-  const history = await client.databases.query({
+  const lastLanded = await client.databases.query({
     database_id: dbId,
-    filter: { property: "Passenger ID", rich_text: { equals: passengerId } },
-    sorts: [{ property: "Updated At", direction: "descending" }],
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "landed" } }
+      ]
+    },
+    sorts: [{ property: "Landing Time", direction: "descending" }],
     page_size: 1
   });
-  if (history.results.length > 0) {
-    const page = history.results[0];
+  if (lastLanded.results.length > 0) {
+    const page = lastLanded.results[0];
     const passenger = parsePassengerFromFlightRow(page, {
       name: profile.name || void 0,
       groupId: profile.groupId || void 0
     });
-    if (passenger.status === "landed") {
-      passenger.status = "not_started";
-    }
+    passenger.status = "not_started";
     return { passenger, created: false };
   }
   return {
@@ -657,6 +675,74 @@ async function updateFlight(notionId, updates) {
   if (updates.socialCueText !== void 0) properties["Social Cue Text"] = wText(updates.socialCueText);
   if (updates.relatedPassenger !== void 0) properties["Related Passenger"] = wText(updates.relatedPassenger);
   await client.pages.update({ page_id: notionId, properties });
+}
+function flightActivityTime(f) {
+  const t = f.status === "landed" && f.landingTime ? f.landingTime : f.takeoffTime;
+  return new Date(t).getTime();
+}
+function buildGroupBoardFlights(flights) {
+  const inFlight = flights.filter((f) => f.status === "in_flight");
+  const flyingIds = new Set(inFlight.map((f) => f.passengerId));
+  const latestLanded = /* @__PURE__ */ new Map();
+  for (const f of flights) {
+    if (f.status !== "landed" || flyingIds.has(f.passengerId)) continue;
+    const prev = latestLanded.get(f.passengerId);
+    if (!prev || flightActivityTime(f) > flightActivityTime(prev)) {
+      latestLanded.set(f.passengerId, f);
+    }
+  }
+  return [...inFlight, ...latestLanded.values()].sort(
+    (a, b) => flightActivityTime(b) - flightActivityTime(a)
+  );
+}
+async function queryGroupFlightsByStatus(groupId, statuses) {
+  if (!isNotionConfigured()) {
+    return mem2.filter((f) => f.groupId === groupId && statuses.includes(f.status));
+  }
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  const result = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Group ID", select: { equals: groupId } },
+        {
+          or: statuses.map((status) => ({
+            property: "Status",
+            select: { equals: status }
+          }))
+        }
+      ]
+    },
+    sorts: [{ property: "Takeoff Time", direction: "descending" }],
+    page_size: 100
+  });
+  return result.results.map((p) => parseFlight(p));
+}
+async function getLastLandedFlight(passengerId) {
+  if (!isNotionConfigured()) {
+    const landed = mem2.filter((f) => f.passengerId === passengerId && f.status === "landed").sort((a, b) => flightActivityTime(b) - flightActivityTime(a));
+    return landed[0] ?? null;
+  }
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  const result = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "landed" } }
+      ]
+    },
+    sorts: [{ property: "Landing Time", direction: "descending" }],
+    page_size: 1
+  });
+  if (result.results.length === 0) return null;
+  return parseFlight(result.results[0]);
+}
+async function getGroupBoardFlights(groupId) {
+  const flights = await queryGroupFlightsByStatus(groupId, ["in_flight", "landed"]);
+  return buildGroupBoardFlights(flights);
 }
 async function getGroupFlights(groupId, sinceHours = 24) {
   if (!isNotionConfigured()) {
@@ -107007,6 +107093,416 @@ async function generateBroadcastSpeech(text, style) {
   return Buffer.from(await response.arrayBuffer());
 }
 
+// src/lib/ai/scenery.ts
+var import_openai3 = __toESM(require("openai"));
+function buildSceneryPrompt(city, country, displayName) {
+  const place = displayName || `${city}, ${country}`;
+  return [
+    `A breathtaking scenic photograph of a famous landmark or natural landscape in ${country},`,
+    `representing the region around ${city}.`,
+    "Golden hour light, cinematic travel photography, wide angle, atmospheric,",
+    "no people, no text, no watermark, no logos."
+  ].join(" ");
+}
+function safeFilename(city, flightId) {
+  const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
+  return `landing-${slug2}-${flightId.slice(-8)}.png`;
+}
+async function generateLandingScenery(city, country, displayName, flightId) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  const imagePrompt = buildSceneryPrompt(city, country, displayName);
+  const client = new import_openai3.default({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_IMAGE_MODEL ?? "dall-e-3";
+  const response = await client.images.generate({
+    model,
+    prompt: imagePrompt,
+    size: "1024x1024",
+    quality: "standard",
+    response_format: "b64_json",
+    n: 1
+  });
+  const b64 = response.data[0]?.b64_json;
+  if (!b64) return null;
+  return {
+    imageBuffer: Buffer.from(b64, "base64"),
+    imagePrompt,
+    contentType: "image/png",
+    filename: safeFilename(city, flightId)
+  };
+}
+
+// src/lib/notion/landscape-schema.ts
+var LANDSCAPE_DB_TITLE = "Sleep Airline Landing Scenery";
+var GROUP_OPTIONS2 = [
+  { name: "group_01", color: "blue" },
+  { name: "group_02", color: "green" },
+  { name: "group_03", color: "orange" },
+  { name: "group_04", color: "purple" },
+  { name: "group_05", color: "pink" }
+];
+function getLandscapeProperties() {
+  return {
+    "Entry ID": { title: {} },
+    "Flight ID": { rich_text: {} },
+    "Passenger ID": { rich_text: {} },
+    "Name": { rich_text: {} },
+    "Group ID": { select: { options: GROUP_OPTIONS2 } },
+    "Arrival Location": { rich_text: {} },
+    "Country": { rich_text: {} },
+    "Image": { files: {} },
+    "Image URL": { url: {} },
+    "Image Prompt": { rich_text: {} },
+    "Landing Time": { date: {} },
+    "Created At": { date: {} }
+  };
+}
+
+// src/lib/notion/ensure-landscape-db.ts
+var cachedDbId2 = null;
+var resolving2 = null;
+function getParentPageId2() {
+  const raw = process.env.NOTION_PARENT_PAGE_ID ?? DEFAULT_PARENT_PAGE_ID;
+  return normalizeNotionId(raw);
+}
+async function readDatabaseTitle2(client, databaseId) {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  const title = db.title;
+  return title?.[0]?.plain_text ?? "";
+}
+async function findLandscapeOnPage(client, parentPageId) {
+  let cursor;
+  do {
+    const response = await client.blocks.children.list({
+      block_id: parentPageId,
+      start_cursor: cursor,
+      page_size: 100
+    });
+    for (const block of response.results) {
+      const typed = block;
+      if (typed.type !== "child_database" || !typed.id) continue;
+      const title = await readDatabaseTitle2(client, typed.id);
+      if (title === LANDSCAPE_DB_TITLE) return typed.id;
+    }
+    cursor = response.has_more ? response.next_cursor ?? void 0 : void 0;
+  } while (cursor);
+  return null;
+}
+async function createLandscapeDb(client, parentPageId) {
+  const db = await client.databases.create({
+    parent: { type: "page_id", page_id: parentPageId },
+    title: [{ type: "text", text: { content: LANDSCAPE_DB_TITLE } }],
+    properties: getLandscapeProperties()
+  });
+  return db.id;
+}
+async function syncLandscapeSchema(client, databaseId) {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  const existing = Object.keys(db.properties ?? {});
+  const wanted = getLandscapeProperties();
+  const missing = {};
+  for (const [key, def] of Object.entries(wanted)) {
+    if (!existing.includes(key)) missing[key] = def;
+  }
+  if (Object.keys(missing).length === 0) return;
+  await client.databases.update({ database_id: databaseId, properties: missing });
+}
+async function findOrCreateLandscapeDb() {
+  const client = getNotionClient();
+  if (process.env.NOTION_LANDSCAPE_DB_ID) {
+    const id = normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
+    await syncLandscapeSchema(client, id);
+    return id;
+  }
+  const parentPageId = getParentPageId2();
+  const existing = await findLandscapeOnPage(client, parentPageId);
+  if (existing) {
+    await syncLandscapeSchema(client, existing);
+    return existing;
+  }
+  try {
+    return await createLandscapeDb(client, parentPageId);
+  } catch {
+    const retry = await findLandscapeOnPage(client, parentPageId);
+    if (retry) {
+      await syncLandscapeSchema(client, retry);
+      return retry;
+    }
+    throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Landing Scenery \u8CC7\u6599\u5EAB\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
+  }
+}
+async function resolveLandscapeDbId() {
+  if (cachedDbId2) return cachedDbId2;
+  if (!resolving2) {
+    resolving2 = findOrCreateLandscapeDb().then((id) => {
+      cachedDbId2 = id;
+      return id;
+    }).finally(() => {
+      resolving2 = null;
+    });
+  }
+  return resolving2;
+}
+
+// src/lib/notion/notion-file-upload.ts
+var NOTION_API_VERSION = "2025-09-03";
+function notionHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+    "Notion-Version": NOTION_API_VERSION
+  };
+}
+async function uploadImageToNotion(buffer, filename, contentType = "image/png") {
+  const createRes = await fetch("https://api.notion.com/v1/file_uploads", {
+    method: "POST",
+    headers: {
+      ...notionHeaders(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ filename, content_type: contentType })
+  });
+  if (!createRes.ok) {
+    throw new Error(`Notion file_upload create failed: ${createRes.status} ${await createRes.text()}`);
+  }
+  const created = await createRes.json();
+  const uploadId = created.id;
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(buffer)], { type: contentType }), filename);
+  const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${uploadId}/send`, {
+    method: "POST",
+    headers: notionHeaders(),
+    body: form
+  });
+  if (!sendRes.ok) {
+    throw new Error(`Notion file_upload send failed: ${sendRes.status} ${await sendRes.text()}`);
+  }
+  const sent = await sendRes.json();
+  if (sent.status !== "uploaded") {
+    throw new Error(`Notion file_upload status: ${sent.status ?? "unknown"}`);
+  }
+  return uploadId;
+}
+function wFileUpload(fileUploadId, name) {
+  return {
+    files: [{
+      type: "file_upload",
+      file_upload: { id: fileUploadId },
+      name
+    }]
+  };
+}
+
+// src/lib/notion/landscape-images.ts
+var mem3 = [];
+function resolveImageUrl(props) {
+  return readFirstFileUrl(props, "Image") || readUrl(props, "Image URL");
+}
+function parseLandscape(page) {
+  const props = page.properties;
+  return {
+    notionId: page.id,
+    entryId: readTitle(props, "Entry ID"),
+    flightId: readText(props, "Flight ID"),
+    passengerId: readText(props, "Passenger ID"),
+    passengerName: readText(props, "Name"),
+    groupId: readSelect(props, "Group ID") ?? "",
+    arrivalLocation: readText(props, "Arrival Location"),
+    country: readText(props, "Country"),
+    imageUrl: resolveImageUrl(props),
+    imagePrompt: readText(props, "Image Prompt"),
+    landingTime: readDate(props, "Landing Time"),
+    createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function saveLandingScenery(params) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const entryId = `SC-${params.flightId}`;
+  if (!isNotionConfigured()) {
+    const dataUrl = `data:${params.contentType};base64,${params.imageBuffer.toString("base64")}`;
+    const record = {
+      notionId: `mem_scenery_${params.flightId}`,
+      entryId,
+      flightId: params.flightId,
+      passengerId: params.passengerId,
+      passengerName: params.passengerName,
+      groupId: params.groupId,
+      arrivalLocation: params.arrivalLocation,
+      country: params.country,
+      imageUrl: dataUrl,
+      imagePrompt: params.imagePrompt,
+      landingTime: params.landingTime,
+      createdAt: now
+    };
+    mem3.push(record);
+    return record;
+  }
+  const fileUploadId = await uploadImageToNotion(
+    params.imageBuffer,
+    params.filename,
+    params.contentType
+  );
+  const client = getNotionClient();
+  const dbId = await resolveLandscapeDbId();
+  const page = await client.pages.create({
+    parent: { database_id: dbId },
+    properties: {
+      "Entry ID": wTitle(entryId),
+      "Flight ID": wText(params.flightId),
+      "Passenger ID": wText(params.passengerId),
+      "Name": wText(params.passengerName),
+      "Group ID": wSelect(params.groupId),
+      "Arrival Location": wText(params.arrivalLocation),
+      "Country": wText(params.country),
+      "Image": wFileUpload(fileUploadId, params.filename),
+      "Image Prompt": wText(params.imagePrompt),
+      "Landing Time": wDate(params.landingTime),
+      "Created At": wDate(now)
+    }
+  });
+  const fresh = await client.pages.retrieve({ page_id: page.id });
+  const props = fresh.properties;
+  const imageUrl = resolveImageUrl(props);
+  if (imageUrl) {
+    await client.pages.update({
+      page_id: page.id,
+      properties: { "Image URL": wUrl(imageUrl) }
+    });
+  }
+  return parseLandscape(fresh);
+}
+async function getLandscapeByFlightId(flightId) {
+  if (!flightId) return null;
+  if (!isNotionConfigured()) {
+    return mem3.find((r) => r.flightId === flightId) ?? null;
+  }
+  const client = getNotionClient();
+  const dbId = await resolveLandscapeDbId();
+  const result = await client.databases.query({
+    database_id: dbId,
+    filter: { property: "Flight ID", rich_text: { equals: flightId } },
+    sorts: [{ property: "Created At", direction: "descending" }],
+    page_size: 1
+  });
+  if (result.results.length === 0) return null;
+  const pageId = result.results[0].id;
+  const fresh = await client.pages.retrieve({ page_id: pageId });
+  return parseLandscape(fresh);
+}
+
+// src/lib/notion/flight-lookup.ts
+function readPassengerId3(props) {
+  return readText(props, "Passenger ID") || readTitle(props, "Passenger ID");
+}
+function readFlightId3(props) {
+  return readTitle(props, "Flight ID") || readText(props, "Flight ID");
+}
+function parseFlightFromPage(page) {
+  const props = page.properties;
+  const takeoffTime = readDate(props, "Takeoff Time");
+  const status = readSelect(props, "Status") ?? "not_started";
+  const resolvedTakeoff = takeoffTime ?? (/* @__PURE__ */ new Date()).toISOString();
+  const flightProgress = status === "landed" ? 100 : status === "in_flight" ? calculateFlightProgress(resolvedTakeoff) : 0;
+  const narrativeRegion = status === "landed" ? "arrival_harbor" : status === "in_flight" ? getNarrativeRegion(flightProgress) : "departure_clouds";
+  return {
+    notionId: page.id,
+    flightId: readFlightId3(props),
+    passengerId: readPassengerId3(props),
+    passengerName: readText(props, "Name"),
+    groupId: readSelect(props, "Group ID") ?? "",
+    status,
+    departureLocation: readText(props, "Departure Location"),
+    departureLatitude: readNumber(props, "Departure Latitude") ?? 0,
+    departureLongitude: readNumber(props, "Departure Longitude") ?? 0,
+    arrivalLocation: readText(props, "Arrival Location") || null,
+    arrivalLatitude: readNumber(props, "Arrival Latitude"),
+    arrivalLongitude: readNumber(props, "Arrival Longitude"),
+    takeoffTime: resolvedTakeoff,
+    landingTime: readDate(props, "Landing Time"),
+    flightDurationMinutes: readNumber(props, "Flight Duration Minutes"),
+    estimatedFlightDistanceKm: readNumber(props, "Estimated Flight Distance KM"),
+    flightProgress,
+    narrativeRegion,
+    routeDirection: readSelect(props, "Route Direction") ?? "auto",
+    directionSource: readSelect(props, "Direction Source") ?? "system_auto",
+    directionNote: readText(props, "Direction Note") || null,
+    takeoffBroadcastStyle: readSelect(props, "Takeoff Broadcast Style"),
+    takeoffBroadcast: readText(props, "Takeoff Broadcast") || null,
+    captainBroadcastStyle: readSelect(props, "Captain Broadcast Style"),
+    captainBroadcast: readText(props, "Captain Broadcast") || null,
+    socialCueType: readSelect(props, "Social Cue Type"),
+    socialCueText: readText(props, "Social Cue Text") || null,
+    relatedPassenger: readText(props, "Related Passenger") || null,
+    createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function getFlightByFlightId(flightId) {
+  if (!isNotionConfigured()) return null;
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  const byTitle = await client.databases.query({
+    database_id: dbId,
+    filter: { property: "Flight ID", title: { equals: flightId } },
+    page_size: 1
+  });
+  if (byTitle.results.length > 0) {
+    return parseFlightFromPage(byTitle.results[0]);
+  }
+  const byText = await client.databases.query({
+    database_id: dbId,
+    filter: { property: "Flight ID", rich_text: { equals: flightId } },
+    page_size: 1
+  });
+  if (byText.results.length === 0) return null;
+  return parseFlightFromPage(byText.results[0]);
+}
+
+// src/lib/notion/scenery-backfill.ts
+function parseCityCountry(arrivalLocation) {
+  const parts = arrivalLocation.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { city: parts[0], country: parts[parts.length - 1] };
+  }
+  return { city: arrivalLocation, country: arrivalLocation };
+}
+async function backfillSceneryForFlight(flightId) {
+  const existing = await getLandscapeByFlightId(flightId);
+  if (existing?.imageUrl) {
+    return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
+  }
+  const flight = await getFlightByFlightId(flightId);
+  if (!flight) return { flightId, error: "\u627E\u4E0D\u5230\u822A\u73ED" };
+  if (!flight.arrivalLocation) return { flightId, error: "\u6C92\u6709\u62B5\u9054\u5730\u9EDE" };
+  const { city, country } = parseCityCountry(flight.arrivalLocation);
+  const sceneryGen = await generateLandingScenery(city, country, flight.arrivalLocation, flight.flightId);
+  if (!sceneryGen) return { flightId, error: "\u751F\u5716\u5931\u6557\uFF08OPENAI_API_KEY\uFF09" };
+  const saved = await saveLandingScenery({
+    flightId: flight.flightId,
+    passengerId: flight.passengerId,
+    passengerName: flight.passengerName,
+    groupId: flight.groupId,
+    arrivalLocation: flight.arrivalLocation,
+    country,
+    imageBuffer: sceneryGen.imageBuffer,
+    filename: sceneryGen.filename,
+    contentType: sceneryGen.contentType,
+    imagePrompt: sceneryGen.imagePrompt,
+    landingTime: flight.landingTime ?? (/* @__PURE__ */ new Date()).toISOString()
+  });
+  if (!saved?.imageUrl) return { flightId, error: "\u5B58\u5165 Notion \u5931\u6557" };
+  return { flightId, imageUrl: saved.imageUrl, arrivalLocation: saved.arrivalLocation };
+}
+async function backfillSceneryForFlights(flightIds) {
+  const results = [];
+  for (const flightId of flightIds) {
+    try {
+      results.push(await backfillSceneryForFlight(flightId));
+    } catch (err) {
+      results.push({ flightId, error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+    }
+  }
+  return results;
+}
+
 // server.ts
 import_dotenv.default.config({ path: ".env.local" });
 var app = (0, import_express.default)();
@@ -107033,7 +107529,9 @@ app.post("/api/passenger", async (req, res) => {
         }
       }
     }
-    res.json(result);
+    const lastLandedFlight = result.passenger.status !== "in_flight" ? await getLastLandedFlight(passengerId) : null;
+    const landingScenery = lastLandedFlight?.flightId ? await getLandscapeByFlightId(lastLandedFlight.flightId) : null;
+    res.json({ ...result, lastLandedFlight, landingScenery });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }
@@ -107214,6 +107712,32 @@ app.post("/api/flight/land", async (req, res) => {
       socialCueText: socialCue.cueText,
       relatedPassenger: socialCue.relatedPassenger ?? ""
     });
+    let landingScenery = null;
+    try {
+      const sceneryGen = await generateLandingScenery(
+        arrival.city,
+        arrival.country,
+        arrival.displayName,
+        activeFlight.flightId
+      );
+      if (sceneryGen) {
+        landingScenery = await saveLandingScenery({
+          flightId: activeFlight.flightId,
+          passengerId: passenger.passengerId,
+          passengerName: passenger.name,
+          groupId: passenger.groupId,
+          arrivalLocation: arrival.displayName,
+          country: arrival.country,
+          imageBuffer: sceneryGen.imageBuffer,
+          filename: sceneryGen.filename,
+          contentType: sceneryGen.contentType,
+          imagePrompt: sceneryGen.imagePrompt,
+          landingTime
+        });
+      }
+    } catch (sceneryErr) {
+      console.error("Landing scenery generation failed:", sceneryErr);
+    }
     res.json({
       flight: {
         ...activeFlight,
@@ -107230,7 +107754,8 @@ app.post("/api/flight/land", async (req, res) => {
         socialCueType: socialCue.cueType,
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger
-      }
+      },
+      landingScenery
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
@@ -107262,7 +107787,7 @@ app.get("/api/board", async (req, res) => {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B groupId\u3002" });
       return;
     }
-    const flights = await getGroupFlights(groupId);
+    const flights = await getGroupBoardFlights(groupId);
     const enriched = flights.map((f) => {
       if (f.status !== "in_flight") return f;
       const progress = calculateFlightProgress(f.takeoffTime);
@@ -107310,6 +107835,23 @@ app.post("/api/broadcast/speech", async (req, res) => {
     res.send(audio);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u8A9E\u97F3\u751F\u6210\u5931\u6557" });
+  }
+});
+app.post("/api/scenery/backfill", async (req, res) => {
+  try {
+    const { flightIds } = req.body;
+    if (!Array.isArray(flightIds) || flightIds.length === 0) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B flightIds \u9663\u5217\u3002" });
+      return;
+    }
+    if (flightIds.length > 10) {
+      res.status(400).json({ error: "\u4E00\u6B21\u6700\u591A 10 \u7B46\u3002" });
+      return;
+    }
+    const results = await backfillSceneryForFlights(flightIds);
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }
 });
 app.post("/api/seed", async (_req, res) => {

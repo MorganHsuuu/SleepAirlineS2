@@ -22,6 +22,7 @@ let passenger = null;
 let activeFlight = null;
 let groupFlights = [];
 let lastLandedFlight = null;
+let landingScenery = null;
 let refreshTimer = null;
 
 // ── DOM Refs ──────────────────────────────────────────────────────────────────
@@ -174,9 +175,29 @@ function updateUI() {
     $('broadcast-card').classList.add('hidden');
   }
 
+  renderSceneryCard();
+
   // Board
   $('bd-group').textContent = passenger.groupId;
   renderBoard();
+}
+
+function renderSceneryCard(loading = false) {
+  const hasScenery = landingScenery?.imageUrl;
+  const showCard = loading || hasScenery;
+
+  $('scenery-card').classList.toggle('hidden', !showCard);
+  $('scenery-loading').classList.toggle('hidden', !loading);
+  $('scenery-wrap').classList.toggle('hidden', loading || !hasScenery);
+
+  if (!hasScenery) return;
+
+  $('scenery-img').src = landingScenery.imageUrl;
+  $('scenery-img').alt = landingScenery.arrivalLocation || '降落風景';
+  $('scenery-caption').textContent = '📍 ' + (landingScenery.arrivalLocation || '') +
+    (landingScenery.country ? ' · ' + landingScenery.country : '');
+  $('scenery-link').href = landingScenery.imageUrl;
+  $('scenery-link').textContent = landingScenery.imageUrl;
 }
 
 // ── Board Rendering ───────────────────────────────────────────────────────────
@@ -270,6 +291,8 @@ async function doLogin(e) {
   try {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
     passenger = data.passenger;
+    lastLandedFlight = data.lastLandedFlight || null;
+    landingScenery = data.landingScenery || null;
     saveLoginProfile({ passengerId, name, groupId });
     showMsg('login', 'success', data.created ? '乘客建立成功！' : '已找到您的乘客資料。');
     await fetchBoard();
@@ -301,6 +324,7 @@ async function doTakeoff() {
     activeFlight = data.flight;
     passenger.status = 'in_flight';
     lastLandedFlight = null;
+    landingScenery = null;
     showMsg('main', 'success', activeFlight.takeoffBroadcast
       ? '✈ 起飛成功！機長廣播已生成。'
       : '✈ 起飛成功！晚安，旅途愉快。');
@@ -325,6 +349,7 @@ async function doLand() {
   clearMsg('main');
   $('btn-land').disabled = true;
   $('btn-land').textContent = '降落中，請稍候...';
+  renderSceneryCard(true);
   try {
     const data = await api('POST', '/api/flight/land', {
       passengerId: passenger.passengerId,
@@ -334,10 +359,12 @@ async function doLand() {
     });
     const landed = data.flight;
     lastLandedFlight = landed;
+    landingScenery = data.landingScenery || null;
     activeFlight = null;
     passenger.status = 'landed';
     passenger.currentLocation = landed.arrivalLocation || passenger.currentLocation;
-    showMsg('main', 'success', '✓ 已降落於 ' + landed.arrivalLocation);
+    showMsg('main', 'success', '✓ 已降落於 ' + landed.arrivalLocation +
+      (landingScenery?.imageUrl ? ' · 風景圖已生成' : ''));
     updateUI();
     await fetchBoard();
     if (landed.captainBroadcast && window.BroadcastAudio) {
@@ -347,6 +374,8 @@ async function doLand() {
       );
     }
   } catch (err) {
+    landingScenery = null;
+    renderSceneryCard(false);
     showMsg('main', 'error', err.message);
   } finally {
     $('btn-land').disabled = false;
@@ -359,6 +388,7 @@ function doLogout() {
   activeFlight = null;
   groupFlights = [];
   lastLandedFlight = null;
+  landingScenery = null;
   stopAutoRefresh();
   clearMsg('main');
   updateUI();

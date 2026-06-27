@@ -17,6 +17,9 @@ import { findArrivalDestination } from './src/lib/flight/direction';
 import { calculateGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
+import { generateLandingScenery } from './src/lib/ai/scenery';
+import { saveLandingScenery, getLandscapeByFlightId } from './src/lib/notion/landscape-images';
+import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 
@@ -50,7 +53,10 @@ app.post('/api/passenger', async (req, res) => {
     const lastLandedFlight = result.passenger.status !== 'in_flight'
       ? await getLastLandedFlight(passengerId)
       : null;
-    res.json({ ...result, lastLandedFlight });
+    const landingScenery = lastLandedFlight?.flightId
+      ? await getLandscapeByFlightId(lastLandedFlight.flightId)
+      : null;
+    res.json({ ...result, lastLandedFlight, landingScenery });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
   }
@@ -256,6 +262,33 @@ app.post('/api/flight/land', async (req, res) => {
       relatedPassenger: socialCue.relatedPassenger ?? '',
     });
 
+    let landingScenery = null;
+    try {
+      const sceneryGen = await generateLandingScenery(
+        arrival.city,
+        arrival.country,
+        arrival.displayName,
+        activeFlight.flightId
+      );
+      if (sceneryGen) {
+        landingScenery = await saveLandingScenery({
+          flightId: activeFlight.flightId,
+          passengerId: passenger.passengerId,
+          passengerName: passenger.name,
+          groupId: passenger.groupId,
+          arrivalLocation: arrival.displayName,
+          country: arrival.country,
+          imageBuffer: sceneryGen.imageBuffer,
+          filename: sceneryGen.filename,
+          contentType: sceneryGen.contentType,
+          imagePrompt: sceneryGen.imagePrompt,
+          landingTime,
+        });
+      }
+    } catch (sceneryErr) {
+      console.error('Landing scenery generation failed:', sceneryErr);
+    }
+
     res.json({
       flight: {
         ...activeFlight,
@@ -273,6 +306,7 @@ app.post('/api/flight/land', async (req, res) => {
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger,
       },
+      landingScenery,
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
@@ -362,6 +396,26 @@ app.post('/api/broadcast/speech', async (req, res) => {
     res.send(audio);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '語音生成失敗' });
+  }
+});
+
+// ── POST /api/scenery/backfill ────────────────────────────────────────────────
+
+app.post('/api/scenery/backfill', async (req, res) => {
+  try {
+    const { flightIds } = req.body as { flightIds?: string[] };
+    if (!Array.isArray(flightIds) || flightIds.length === 0) {
+      res.status(400).json({ error: '請提供 flightIds 陣列。' });
+      return;
+    }
+    if (flightIds.length > 10) {
+      res.status(400).json({ error: '一次最多 10 筆。' });
+      return;
+    }
+    const results = await backfillSceneryForFlights(flightIds);
+    res.json({ results });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
   }
 });
 

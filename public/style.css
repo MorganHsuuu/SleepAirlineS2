@@ -231,6 +231,40 @@ body::before {
 }
 .flight-summary { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 12px; }
 
+/* ── Landing Scenery ───────────────────────────────────────────────────────── */
+.scenery-loading {
+  text-align: center;
+  padding: 32px 16px;
+  font-size: 13px;
+  color: var(--sky);
+  font-style: italic;
+}
+.scenery-wrap { margin-top: 4px; }
+.scenery-img {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: block;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: rgba(7, 17, 32, 0.8);
+}
+.scenery-caption {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.scenery-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--sky);
+  text-decoration: none;
+  word-break: break-all;
+}
+.scenery-link:hover { text-decoration: underline; }
+
 /* ── Divider ───────────────────────────────────────────────────────────────── */
 .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 

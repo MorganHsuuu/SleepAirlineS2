@@ -119,3 +119,18 @@ export interface WorkshopSummary {
   totalLandedCount: number;
   mostCommonRegion: NarrativeRegion | null;
 }
+
+export interface LandingScenery {
+  notionId: string;
+  entryId: string;
+  flightId: string;
+  passengerId: string;
+  passengerName: string;
+  groupId: string;
+  arrivalLocation: string;
+  country: string;
+  imageUrl: string;
+  imagePrompt: string;
+  landingTime: string | null;
+  createdAt: string;
+}
