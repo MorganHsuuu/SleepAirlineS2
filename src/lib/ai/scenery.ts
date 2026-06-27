@@ -22,6 +22,10 @@ function safeFilename(city: string, flightId: string): string {
   return `landing-${slug}-${flightId.slice(-8)}.png`;
 }
 
+function isGptImageModel(model: string): boolean {
+  return model.startsWith('gpt-image') || model.startsWith('chatgpt-image');
+}
+
 export async function generateLandingScenery(
   city: string,
   country: string,
@@ -32,15 +36,36 @@ export async function generateLandingScenery(
 
   const imagePrompt = buildSceneryPrompt(city, country, displayName);
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? 'dall-e-3';
+  const model = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1-mini';
 
-  const response = await client.images.generate({
-    model,
-    prompt: imagePrompt,
-    size: '1024x1024',
-    quality: 'standard',
-    n: 1,
-  });
+  const response = await client.images.generate(
+    isGptImageModel(model)
+      ? {
+          model,
+          prompt: imagePrompt,
+          size: '1024x1024',
+          quality: 'medium',
+          output_format: 'png',
+          n: 1,
+        }
+      : {
+          model,
+          prompt: imagePrompt,
+          size: '1024x1024',
+          quality: 'standard',
+          n: 1,
+        }
+  );
+
+  const b64 = response.data[0]?.b64_json;
+  if (b64) {
+    return {
+      imageBuffer: Buffer.from(b64, 'base64'),
+      imagePrompt,
+      contentType: 'image/png',
+      filename: safeFilename(city, flightId),
+    };
+  }
 
   const imageUrl = response.data[0]?.url;
   if (!imageUrl) return null;
