@@ -23,6 +23,7 @@ import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 import { getDataModeStatus } from './src/lib/data-mode';
+import { formatNotionError } from './src/lib/notion/db-access';
 
 const app = express();
 app.use(express.json());
@@ -30,8 +31,12 @@ app.use(express.static(join(process.cwd(), 'public')));
 
 // ── GET /api/config ───────────────────────────────────────────────────────────
 
-app.get('/api/config', (_req, res) => {
-  res.json(getDataModeStatus());
+app.get('/api/config', async (_req, res) => {
+  try {
+    res.json(await getDataModeStatus());
+  } catch (err) {
+    res.status(500).json({ error: formatNotionError(err) });
+  }
 });
 
 // ── POST /api/passenger ───────────────────────────────────────────────────────
@@ -65,7 +70,8 @@ app.post('/api/passenger', async (req, res) => {
       : null;
     res.json({ ...result, lastLandedFlight, landingScenery });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
   }
 });
 

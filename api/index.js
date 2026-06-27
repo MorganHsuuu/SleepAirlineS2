@@ -40,101 +40,7 @@ var import_express = __toESM(require("express"));
 var import_path = require("path");
 
 // src/lib/notion/client.ts
-var import_client = require("@notionhq/client");
-
-// src/lib/data-mode.ts
-function getDataMode() {
-  const raw = process.env.SLEEP_AIRLINE_DATA_MODE?.trim().toLowerCase();
-  if (raw === "preview") return "preview";
-  if (raw === "live") return "live";
-  return process.env.NOTION_API_KEY ? "live" : "preview";
-}
-function isLiveDataMode() {
-  return getDataMode() === "live";
-}
-function getDataModeStatus() {
-  const dataMode = getDataMode();
-  const hasKey = !!process.env.NOTION_API_KEY;
-  const hasDashboardId = !!process.env.NOTION_DASHBOARD_DB_ID;
-  const notionConfigured = dataMode === "live" && hasKey;
-  const notionReady = notionConfigured && hasDashboardId;
-  let hint;
-  if (dataMode === "preview") {
-    hint = "\u9810\u89BD\u6A21\u5F0F\uFF1A\u53EF\u6539 UI\uFF0F\u8D70\u5047\u8CC7\u6599\u9810\u89BD\uFF0C\u8CC7\u6599\u4E0D\u6703\u5BEB\u5165 Notion\u3002\u63A5\u4E0A\u4E3B\u5EAB\u5F8C\u8A2D SLEEP_AIRLINE_DATA_MODE=live \u4E26 redeploy\u3002";
-  } else if (!hasKey) {
-    hint = "live \u6A21\u5F0F\u4F46\u672A\u8A2D\u5B9A NOTION_API_KEY\uFF0C\u8ACB\u5728 Vercel \u88DC\u4E0A\u74B0\u5883\u8B8A\u6578\u3002";
-  } else if (!hasDashboardId) {
-    hint = "\u5DF2\u8A2D\u5B9A API Key\uFF1B\u8ACB\u5411\u4E3B\u8FA6\u53D6\u5F97 NOTION_DASHBOARD_DB_ID \u8207 NOTION_LANDSCAPE_DB_ID \u4E26\u8CBC\u5230 Vercel\u3002";
-  } else {
-    hint = "\u5DF2\u9023\u7DDA\u4E3B\u5EAB\uFF0C\u8D77\u98DB\uFF0F\u964D\u843D\u6703\u5BEB\u5165 Notion\u3002";
-  }
-  return { dataMode, notionConfigured, notionReady, hint };
-}
-
-// src/lib/notion/client.ts
-var _client = null;
-function isNotionConfigured() {
-  return isLiveDataMode() && !!process.env.NOTION_API_KEY;
-}
-function getNotionClient() {
-  if (!process.env.NOTION_API_KEY) {
-    throw new Error("NOTION_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002\u8ACB\u5728 Vercel \u74B0\u5883\u8B8A\u6578\u4E2D\u52A0\u5165 Notion API Key\u3002");
-  }
-  if (!_client) {
-    _client = new import_client.Client({ auth: process.env.NOTION_API_KEY });
-  }
-  return _client;
-}
-function readTitle(props, key) {
-  const p = props[key];
-  return p?.title?.[0]?.plain_text ?? "";
-}
-function readText(props, key) {
-  const p = props[key];
-  return p?.rich_text?.[0]?.plain_text ?? "";
-}
-function readSelect(props, key) {
-  const p = props[key];
-  return p?.select?.name ?? null;
-}
-function readNumber(props, key) {
-  const p = props[key];
-  return p?.number ?? null;
-}
-function readDate(props, key) {
-  const p = props[key];
-  return p?.date?.start ?? null;
-}
-function readUrl(props, key) {
-  const p = props[key];
-  return p?.url ?? "";
-}
-function readFirstFileUrl(props, key) {
-  const p = props[key];
-  const file = p?.files?.[0];
-  if (!file) return "";
-  if (file.type === "file" && file.file?.url) return file.file.url;
-  if (file.type === "external" && file.external?.url) return file.external.url;
-  return "";
-}
-function wTitle(value) {
-  return { title: [{ text: { content: value } }] };
-}
-function wText(value) {
-  return { rich_text: value ? [{ text: { content: value } }] : [] };
-}
-function wSelect(value) {
-  return value ? { select: { name: value } } : { select: null };
-}
-function wNumber(value) {
-  return { number: value };
-}
-function wDate(value) {
-  return value ? { date: { start: value } } : { date: null };
-}
-function wUrl(value) {
-  return value ? { url: value } : { url: null };
-}
+var import_client2 = require("@notionhq/client");
 
 // src/lib/notion/dashboard-schema.ts
 var DASHBOARD_TITLE = "Sleep Airline Flight Log";
@@ -231,6 +137,48 @@ function normalizeNotionId(id) {
   return id.replace(/-/g, "");
 }
 
+// src/lib/notion/db-access.ts
+async function readDatabaseTitle(client, databaseId) {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  const title = db.title;
+  return title?.[0]?.plain_text ?? "";
+}
+async function resolveDbIdWithFallback(params) {
+  const { client, envDbId, expectedTitle, findOnParentPage, parentPageId } = params;
+  if (envDbId) {
+    const configuredId = normalizeNotionId(envDbId);
+    try {
+      await readDatabaseTitle(client, configuredId);
+      return configuredId;
+    } catch (err) {
+      console.warn(
+        `[Notion] NOTION DB ID ${configuredId} \u7121\u6CD5\u5B58\u53D6\uFF08${err instanceof Error ? err.message : err}\uFF09\uFF0C\u6539\u5F9E\u7236\u9801\u9762\u5C0B\u627E\u300C${expectedTitle}\u300D\u2026`
+      );
+    }
+  }
+  const found = await findOnParentPage(client, parentPageId);
+  if (found) return found;
+  if (envDbId) {
+    throw new Error(
+      `\u627E\u4E0D\u5230\u300C${expectedTitle}\u300D\u3002\u8ACB\u5728 Notion \u6253\u958B\u8A72\u8CC7\u6599\u5EAB \u2192 \u22EF \u2192 Connections \u2192 \u52A0\u5165\u4F60\u7684 Integration\uFF1B\u6216\u4FEE\u6B63 Vercel \u7684 NOTION_DASHBOARD_DB_ID / NOTION_LANDSCAPE_DB_ID\u3002`
+    );
+  }
+  throw new Error(`\u627E\u4E0D\u5230\u300C${expectedTitle}\u300D\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect \u5230\u4E3B\u8FA6\u7236\u9801\u9762\u3002`);
+}
+function formatNotionError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/could not find database/i.test(msg)) {
+    return "\u627E\u4E0D\u5230 Notion \u8CC7\u6599\u5EAB\uFF0C\u6216 Integration \u5C1A\u672A\u52A0\u5165\u8A72\u8868\u3002\u8ACB\u5230 Notion \u6253\u958B Sleep Airline Flight Log \u2192 \u22EF \u2192 Connections \u2192 \u52A0\u5165 Integration\uFF1B\u4E26\u78BA\u8A8D Vercel \u7684 NOTION_DASHBOARD_DB_ID \u662F\u5426\u6B63\u78BA\u3002";
+  }
+  if (/Sleep Airline Flight Log|Sleep Airline Landing Scenery|NOTION_DASHBOARD|NOTION_LANDSCAPE|Integration/i.test(msg)) {
+    return msg;
+  }
+  if (/unauthorized|forbidden|invalid api token|API token is invalid/i.test(msg)) {
+    return "Notion API Key \u7121\u6548\uFF0C\u6216 Integration \u6C92\u6709\u6B0A\u9650\u3002\u8ACB\u78BA\u8A8D Vercel \u7684 NOTION_API_KEY\u3002";
+  }
+  return msg;
+}
+
 // src/lib/notion/ensure-dashboard.ts
 var cachedDbId = null;
 var resolving = null;
@@ -238,7 +186,7 @@ function getParentPageId() {
   const raw = process.env.NOTION_PARENT_PAGE_ID ?? DEFAULT_PARENT_PAGE_ID;
   return normalizeNotionId(raw);
 }
-async function readDatabaseTitle(client, databaseId) {
+async function readDatabaseTitle2(client, databaseId) {
   const db = await client.databases.retrieve({ database_id: databaseId });
   const title = db.title;
   return title?.[0]?.plain_text ?? "";
@@ -254,7 +202,7 @@ async function findDashboardOnPage(client, parentPageId) {
     for (const block of response.results) {
       const typed = block;
       if (typed.type !== "child_database" || !typed.id) continue;
-      const title = await readDatabaseTitle(client, typed.id);
+      const title = await readDatabaseTitle2(client, typed.id);
       if (title === DASHBOARD_TITLE) return typed.id;
     }
     cursor = response.has_more ? response.next_cursor ?? void 0 : void 0;
@@ -277,23 +225,24 @@ function canWriteSchema() {
 }
 async function findOrCreateDashboard() {
   const client = getNotionClient();
-  if (process.env.NOTION_DASHBOARD_DB_ID) {
-    return normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
-  }
   const parentPageId = getParentPageId();
-  const existing = await findDashboardOnPage(client, parentPageId);
-  if (existing) return existing;
-  if (!canWriteSchema()) {
-    throw new Error(
-      "\u627E\u4E0D\u5230\u5171\u7528\u4E3B\u8CC7\u6599\u5EAB\u300CSleep Airline Flight Log\u300D\u3002\u5B78\u751F\u90E8\u7F72\u4E0D\u61C9\u81EA\u52D5\u5EFA\u8868\uFF1B\u8ACB\u78BA\u8A8D NOTION_API_KEY \u8207\u7236\u9801\u9762\u8A2D\u5B9A\u6B63\u78BA\u3002"
-    );
-  }
   try {
-    return await createDashboard(client, parentPageId);
-  } catch {
-    const retry = await findDashboardOnPage(client, parentPageId);
-    if (retry) return retry;
-    throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Dashboard\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
+    return await resolveDbIdWithFallback({
+      client,
+      envDbId: process.env.NOTION_DASHBOARD_DB_ID,
+      expectedTitle: DASHBOARD_TITLE,
+      findOnParentPage: findDashboardOnPage,
+      parentPageId
+    });
+  } catch (fallbackErr) {
+    if (!canWriteSchema()) throw fallbackErr;
+    try {
+      return await createDashboard(client, parentPageId);
+    } catch {
+      const retry = await findDashboardOnPage(client, parentPageId);
+      if (retry) return retry;
+      throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Dashboard\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
+    }
   }
 }
 async function resolveDashboardDbId() {
@@ -307,6 +256,120 @@ async function resolveDashboardDbId() {
     });
   }
   return resolving;
+}
+
+// src/lib/data-mode.ts
+function getDataMode() {
+  const raw = process.env.SLEEP_AIRLINE_DATA_MODE?.trim().toLowerCase();
+  if (raw === "preview") return "preview";
+  if (raw === "live") return "live";
+  return process.env.NOTION_API_KEY ? "live" : "preview";
+}
+function isLiveDataMode() {
+  return getDataMode() === "live";
+}
+async function getDataModeStatus() {
+  const dataMode = getDataMode();
+  const hasKey = !!process.env.NOTION_API_KEY;
+  const notionConfigured = dataMode === "live" && hasKey;
+  if (dataMode === "preview") {
+    return {
+      dataMode,
+      notionConfigured: false,
+      notionReady: false,
+      hint: "\u9810\u89BD\u6A21\u5F0F\uFF1A\u53EF\u6539 UI\uFF0F\u8D70\u5047\u8CC7\u6599\u9810\u89BD\uFF0C\u8CC7\u6599\u4E0D\u6703\u5BEB\u5165 Notion\u3002"
+    };
+  }
+  if (!hasKey) {
+    return {
+      dataMode,
+      notionConfigured: false,
+      notionReady: false,
+      hint: "live \u6A21\u5F0F\u4F46\u672A\u8A2D\u5B9A NOTION_API_KEY\uFF0C\u8ACB\u5728 Vercel \u88DC\u4E0A\u74B0\u5883\u8B8A\u6578\u3002"
+    };
+  }
+  try {
+    await resolveDashboardDbId();
+    return {
+      dataMode,
+      notionConfigured: true,
+      notionReady: true,
+      hint: "\u5DF2\u9023\u7DDA\u4E3B\u5EAB\uFF0C\u8D77\u98DB\uFF0F\u964D\u843D\u6703\u5BEB\u5165 Notion\u3002"
+    };
+  } catch (err) {
+    return {
+      dataMode,
+      notionConfigured: true,
+      notionReady: false,
+      notionError: formatNotionError(err),
+      hint: formatNotionError(err)
+    };
+  }
+}
+
+// src/lib/notion/client.ts
+var _client = null;
+function isNotionConfigured() {
+  return isLiveDataMode() && !!process.env.NOTION_API_KEY;
+}
+function getNotionClient() {
+  if (!process.env.NOTION_API_KEY) {
+    throw new Error("NOTION_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002\u8ACB\u5728 Vercel \u74B0\u5883\u8B8A\u6578\u4E2D\u52A0\u5165 Notion API Key\u3002");
+  }
+  if (!_client) {
+    _client = new import_client2.Client({ auth: process.env.NOTION_API_KEY });
+  }
+  return _client;
+}
+function readTitle(props, key) {
+  const p = props[key];
+  return p?.title?.[0]?.plain_text ?? "";
+}
+function readText(props, key) {
+  const p = props[key];
+  return p?.rich_text?.[0]?.plain_text ?? "";
+}
+function readSelect(props, key) {
+  const p = props[key];
+  return p?.select?.name ?? null;
+}
+function readNumber(props, key) {
+  const p = props[key];
+  return p?.number ?? null;
+}
+function readDate(props, key) {
+  const p = props[key];
+  return p?.date?.start ?? null;
+}
+function readUrl(props, key) {
+  const p = props[key];
+  return p?.url ?? "";
+}
+function readFirstFileUrl(props, key) {
+  const p = props[key];
+  const file = p?.files?.[0];
+  if (!file) return "";
+  if (file.type === "file" && file.file?.url) return file.file.url;
+  if (file.type === "external" && file.external?.url) return file.external.url;
+  return "";
+}
+function wTitle(value) {
+  return { title: [{ text: { content: value } }] };
+}
+function wText(value) {
+  return { rich_text: value ? [{ text: { content: value } }] : [] };
+}
+function wSelect(value) {
+  return value ? { select: { name: value } } : { select: null };
+}
+function wNumber(value) {
+  return { number: value };
+}
+function wDate(value) {
+  return value ? { date: { start: value } } : { date: null };
+}
+function wUrl(value) {
+  return value ? { url: value } : { url: null };
 }
 
 // src/lib/notion/passengers.ts
@@ -107221,7 +107284,7 @@ function isOwnWorkspace2() {
 function canWriteSchema2() {
   return process.env.NOTION_ALLOW_SCHEMA_WRITE === "true" || isOwnWorkspace2();
 }
-async function readDatabaseTitle2(client, databaseId) {
+async function readDatabaseTitle3(client, databaseId) {
   const db = await client.databases.retrieve({ database_id: databaseId });
   const title = db.title;
   return title?.[0]?.plain_text ?? "";
@@ -107237,7 +107300,7 @@ async function findLandscapeOnPage(client, parentPageId) {
     for (const block of response.results) {
       const typed = block;
       if (typed.type !== "child_database" || !typed.id) continue;
-      const title = await readDatabaseTitle2(client, typed.id);
+      const title = await readDatabaseTitle3(client, typed.id);
       if (title === LANDSCAPE_DB_TITLE) return typed.id;
     }
     cursor = response.has_more ? response.next_cursor ?? void 0 : void 0;
@@ -107254,23 +107317,24 @@ async function createLandscapeDb(client, parentPageId) {
 }
 async function findOrCreateLandscapeDb() {
   const client = getNotionClient();
-  if (process.env.NOTION_LANDSCAPE_DB_ID) {
-    return normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
-  }
   const parentPageId = getParentPageId2();
-  const existing = await findLandscapeOnPage(client, parentPageId);
-  if (existing) return existing;
-  if (!canWriteSchema2()) {
-    throw new Error(
-      "\u627E\u4E0D\u5230\u5171\u7528\u8CC7\u6599\u5EAB\u300CSleep Airline Landing Scenery\u300D\u3002\u5B78\u751F\u90E8\u7F72\u4E0D\u61C9\u5728\u4E3B\u8FA6\u9801\u9762\u5EFA\u8868\uFF1B\u8ACB\u78BA\u8A8D Notion \u8A2D\u5B9A\u6B63\u78BA\u3002"
-    );
-  }
   try {
-    return await createLandscapeDb(client, parentPageId);
-  } catch {
-    const retry = await findLandscapeOnPage(client, parentPageId);
-    if (retry) return retry;
-    throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Landing Scenery \u8CC7\u6599\u5EAB\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
+    return await resolveDbIdWithFallback({
+      client,
+      envDbId: process.env.NOTION_LANDSCAPE_DB_ID,
+      expectedTitle: LANDSCAPE_DB_TITLE,
+      findOnParentPage: findLandscapeOnPage,
+      parentPageId
+    });
+  } catch (fallbackErr) {
+    if (!canWriteSchema2()) throw fallbackErr;
+    try {
+      return await createLandscapeDb(client, parentPageId);
+    } catch {
+      const retry = await findLandscapeOnPage(client, parentPageId);
+      if (retry) return retry;
+      throw new Error("\u7121\u6CD5\u5728 Notion \u7236\u9801\u9762\u5EFA\u7ACB Landing Scenery \u8CC7\u6599\u5EAB\uFF0C\u8ACB\u78BA\u8A8D Integration \u5DF2 Connect\u3002");
+    }
   }
 }
 async function resolveLandscapeDbId() {
@@ -107551,8 +107615,12 @@ import_dotenv.default.config({ path: ".env.local" });
 var app = (0, import_express.default)();
 app.use(import_express.default.json());
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
-app.get("/api/config", (_req, res) => {
-  res.json(getDataModeStatus());
+app.get("/api/config", async (_req, res) => {
+  try {
+    res.json(await getDataModeStatus());
+  } catch (err) {
+    res.status(500).json({ error: formatNotionError(err) });
+  }
 });
 app.post("/api/passenger", async (req, res) => {
   try {
@@ -107579,7 +107647,8 @@ app.post("/api/passenger", async (req, res) => {
     const landingScenery = lastLandedFlight?.flightId ? await getLandscapeByFlightId(lastLandedFlight.flightId) : null;
     res.json({ ...result, lastLandedFlight, landingScenery });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
   }
 });
 app.post("/api/flight/takeoff", async (req, res) => {
