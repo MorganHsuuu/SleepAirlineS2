@@ -39,17 +39,20 @@ export async function generateLandingScenery(
     prompt: imagePrompt,
     size: '1024x1024',
     quality: 'standard',
-    response_format: 'b64_json',
     n: 1,
   });
 
-  const b64 = response.data[0]?.b64_json;
-  if (!b64) return null;
+  const imageUrl = response.data[0]?.url;
+  if (!imageUrl) return null;
+
+  const imageRes = await fetch(imageUrl);
+  if (!imageRes.ok) return null;
+  const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
 
   return {
-    imageBuffer: Buffer.from(b64, 'base64'),
+    imageBuffer,
     imagePrompt,
-    contentType: 'image/png',
+    contentType: imageRes.headers.get('content-type') ?? 'image/png',
     filename: safeFilename(city, flightId),
   };
 }
