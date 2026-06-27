@@ -48,44 +48,47 @@ async function createDashboard(client: Client, parentPageId: string): Promise<st
   return db.id;
 }
 
-async function syncDashboardSchema(client: Client, databaseId: string): Promise<void> {
-  const db = await client.databases.retrieve({ database_id: databaseId });
-  const existing = Object.keys((db as { properties?: Record<string, unknown> }).properties ?? {});
-  const wanted = getDashboardProperties();
-  const missing: Record<string, unknown> = {};
-  for (const [key, def] of Object.entries(wanted)) {
-    if (!existing.includes(key)) missing[key] = def;
-  }
-  if (Object.keys(missing).length === 0) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await client.databases.update({ database_id: databaseId, properties: missing as any });
+/** 學生用「自己的」父頁面（非主辦預設頁面）時，視為自己的 Notion 空間。 */
+function isOwnWorkspace(): boolean {
+  return getParentPageId() !== normalizeNotionId(DEFAULT_PARENT_PAGE_ID);
+}
+
+/**
+ * 是否允許本程式建立 / 修改資料庫結構。
+ * - 主辦論文主庫（預設父頁面）：永遠鎖死；只有臨時設 NOTION_ALLOW_SCHEMA_WRITE=true 才開（主辦首建用）。
+ * - 學生用自己的父頁面：視為自己的空間，自動允許建表，學生免設任何額外旗標。
+ */
+function canWriteSchema(): boolean {
+  return process.env.NOTION_ALLOW_SCHEMA_WRITE === 'true' || isOwnWorkspace();
 }
 
 async function findOrCreateDashboard(): Promise<string> {
   const client = getNotionClient();
 
+  // 直接指定主庫 ID：只認 ID，絕不更動 schema。
   if (process.env.NOTION_DASHBOARD_DB_ID) {
-    const id = normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
-    await syncDashboardSchema(client, id);
-    return id;
+    return normalizeNotionId(process.env.NOTION_DASHBOARD_DB_ID);
   }
 
   const parentPageId = getParentPageId();
 
+  // 找到既有的共用主庫就直接用，不做任何 schema 更動。
   const existing = await findDashboardOnPage(client, parentPageId);
-  if (existing) {
-    await syncDashboardSchema(client, existing);
-    return existing;
+  if (existing) return existing;
+
+  // 找不到主庫：除非明確允許建表，否則報錯，避免學生意外建出平行表污染數據。
+  if (!canWriteSchema()) {
+    throw new Error(
+      '找不到共用主資料庫「Sleep Airline Flight Log」。' +
+      '學生部署不應自動建表；請確認 NOTION_API_KEY 與父頁面設定正確。'
+    );
   }
 
   try {
     return await createDashboard(client, parentPageId);
   } catch {
     const retry = await findDashboardOnPage(client, parentPageId);
-    if (retry) {
-      await syncDashboardSchema(client, retry);
-      return retry;
-    }
+    if (retry) return retry;
     throw new Error('無法在 Notion 父頁面建立 Dashboard，請確認 Integration 已 Connect。');
   }
 }

@@ -15,6 +15,16 @@ function getParentPageId(): string {
   return normalizeNotionId(raw);
 }
 
+/** 學生用「自己的」父頁面（非主辦預設頁面）時，視為自己的 Notion 空間。 */
+function isOwnWorkspace(): boolean {
+  return getParentPageId() !== normalizeNotionId(DEFAULT_PARENT_PAGE_ID);
+}
+
+/** 主辦預設頁面永遠鎖死（除非 NOTION_ALLOW_SCHEMA_WRITE=true）；自己的頁面自動允許建表。 */
+function canWriteSchema(): boolean {
+  return process.env.NOTION_ALLOW_SCHEMA_WRITE === 'true' || isOwnWorkspace();
+}
+
 async function readDatabaseTitle(client: Client, databaseId: string): Promise<string> {
   const db = await client.databases.retrieve({ database_id: databaseId });
   const title = (db as { title?: { plain_text: string }[] }).title;
@@ -53,43 +63,33 @@ async function createLandscapeDb(client: Client, parentPageId: string): Promise<
   return db.id;
 }
 
-async function syncLandscapeSchema(client: Client, databaseId: string): Promise<void> {
-  const db = await client.databases.retrieve({ database_id: databaseId });
-  const existing = Object.keys((db as { properties?: Record<string, unknown> }).properties ?? {});
-  const wanted = getLandscapeProperties();
-  const missing: Record<string, unknown> = {};
-  for (const [key, def] of Object.entries(wanted)) {
-    if (!existing.includes(key)) missing[key] = def;
-  }
-  if (Object.keys(missing).length === 0) return;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await client.databases.update({ database_id: databaseId, properties: missing as any });
-}
-
 async function findOrCreateLandscapeDb(): Promise<string> {
   const client = getNotionClient();
 
+  // 直接指定：只認 ID，絕不更動 schema。
   if (process.env.NOTION_LANDSCAPE_DB_ID) {
-    const id = normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
-    await syncLandscapeSchema(client, id);
-    return id;
+    return normalizeNotionId(process.env.NOTION_LANDSCAPE_DB_ID);
   }
 
   const parentPageId = getParentPageId();
+
+  // 找到既有的共用資料庫就直接用，不做任何 schema 更動。
   const existing = await findLandscapeOnPage(client, parentPageId);
-  if (existing) {
-    await syncLandscapeSchema(client, existing);
-    return existing;
+  if (existing) return existing;
+
+  // 主辦預設頁面找不到就報錯（保護論文庫）；自己的頁面則往下自動建表。
+  if (!canWriteSchema()) {
+    throw new Error(
+      '找不到共用資料庫「Sleep Airline Landing Scenery」。' +
+      '學生部署不應在主辦頁面建表；請確認 Notion 設定正確。'
+    );
   }
 
   try {
     return await createLandscapeDb(client, parentPageId);
   } catch {
     const retry = await findLandscapeOnPage(client, parentPageId);
-    if (retry) {
-      await syncLandscapeSchema(client, retry);
-      return retry;
-    }
+    if (retry) return retry;
     throw new Error('無法在 Notion 父頁面建立 Landing Scenery 資料庫，請確認 Integration 已 Connect。');
   }
 }
