@@ -7,7 +7,8 @@
 
 所有組的航班資料最終寫進**主辦同一個 Notion 主庫**（論文研究用）。主庫欄位格式固定，學員**不要自建 Notion、不要 fork 主辦 repo**。
 
-**UI 可任意改，資料契約必須保留** → 詳見 [`docs/WORKSHOP_CONTRACT.md`](docs/WORKSHOP_CONTRACT.md)，改完跑 `npm run check:contract`。
+**UI 可任意改，資料契約必須保留** → 詳見 [`docs/WORKSHOP_CONTRACT.md`](docs/WORKSHOP_CONTRACT.md)，改完跑 `npm run check:contract`。  
+**機長廣播風格、語氣**由各組自由改（`broadcast.ts`、`speech.ts`），主庫不記 `Direction Source`／`Captain Broadcast Style`。
 
 ---
 
@@ -63,7 +64,7 @@ OPENAI_IMAGE_MODEL=gpt-image-1-mini   # 降落風景圖
 
 Redeploy 後測試：
 
-- 起飛／降落 → 聽 **機長廣播**（可改 `src/lib/ai/broadcast.ts` 的 prompt 風格）
+- 起飛／降落 → 聽 **機長廣播**（**優先改** `src/lib/ai/broadcast.ts` 的 prompt；也可加 UI 送選填 `broadcastStyle`）
 - 降落 → 看 **風景圖**（可改 `src/lib/ai/scenery.ts` 的 prompt）
 - 語音 API 失敗時會自動改用瀏覽器 TTS，不會卡住流程
 
@@ -114,7 +115,7 @@ NOTION_LANDSCAPE_DB_ID=...          # Landing Scenery ID（要生風景圖時）
 | `public/style.css` | 顏色、字體、排版、動畫 |
 | `public/index.html` | 文字、介面結構 |
 | `public/app.js` | 前端互動 |
-| `src/lib/ai/broadcast.ts` | 機長廣播 prompt |
+| `src/lib/ai/broadcast.ts` | 機長廣播 prompt、人設（**各組自由發揮**） |
 | `src/lib/ai/speech.ts` | 語音設定 |
 | `src/lib/ai/scenery.ts` | 降落生圖 prompt |
 | `src/lib/flight/region.ts` | 敘事空域文案 |

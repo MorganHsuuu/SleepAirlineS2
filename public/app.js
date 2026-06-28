@@ -324,9 +324,6 @@ async function doTakeoff() {
       name: passenger.name,
       groupId: passenger.groupId,
       routeDirection: $('tk-direction').value,
-      directionSource: $('tk-source').value,
-      directionNote: $('tk-note').value || null,
-      broadcastStyle: $('tk-style').value,
     });
     activeFlight = data.flight;
     passenger.status = 'in_flight';
@@ -341,7 +338,7 @@ async function doTakeoff() {
     if (activeFlight.takeoffBroadcast && window.BroadcastAudio) {
       BroadcastAudio.playCaptainBroadcast(
         activeFlight.takeoffBroadcast,
-        activeFlight.takeoffBroadcastStyle || $('tk-style').value
+        activeFlight.takeoffBroadcastStyle || 'formal_captain'
       );
     }
   } catch (err) {
@@ -362,7 +359,6 @@ async function doLand() {
       passengerId: passenger.passengerId,
       name: passenger.name,
       groupId: passenger.groupId,
-      broadcastStyle: $('fl-style').value,
     });
     const landed = data.flight;
     lastLandedFlight = landed;
@@ -377,7 +373,7 @@ async function doLand() {
     if (landed.captainBroadcast && window.BroadcastAudio) {
       BroadcastAudio.playCaptainBroadcast(
         landed.captainBroadcast,
-        $('fl-style').value
+        landed.takeoffBroadcastStyle || 'formal_captain'
       );
     }
   } catch (err) {

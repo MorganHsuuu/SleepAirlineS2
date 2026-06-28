@@ -18,15 +18,6 @@ export type RouteDirection =
   | 'southwest'
   | 'circular'
   | 'unknown';
-export type DirectionSource =
-  | 'system_auto'
-  | 'participant_design'
-  | 'mood_input'
-  | 'weather_input'
-  | 'team_signal'
-  | 'physical_interaction'
-  | 'random_card'
-  | 'future_body_data';
 export type BroadcastStyle =
   | 'formal_captain'
   | 'poetic'
@@ -83,11 +74,8 @@ export interface Flight {
   flightProgress: number;
   narrativeRegion: NarrativeRegion;
   routeDirection: RouteDirection;
-  directionSource: DirectionSource;
-  directionNote: string | null;
   takeoffBroadcastStyle: BroadcastStyle | null;
   takeoffBroadcast: string | null;
-  captainBroadcastStyle: BroadcastStyle | null;
   captainBroadcast: string | null;
   socialCueType: SocialCueType | null;
   socialCueText: string | null;

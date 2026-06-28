@@ -94,11 +94,9 @@ group_01 … group_15
 | Departure Latitude | Number | 建議 | 小數，例：`25.033` |
 | Departure Longitude | Number | 建議 | 小數，例：`121.5654` |
 | Takeoff Time | Date | 起飛後必填 | 含時間；ISO 或 Notion date |
-| Takeoff Broadcast Style | Select | 選填 | 見「Broadcast Style」 |
+| Takeoff Broadcast Style | Select | 選填 | 程式依 AI 寫入；各組可改 prompt，不必做 UI |
 | Takeoff Broadcast | Text | 選填 | 起飛廣播全文 |
 | Route Direction | Select | 建議 | 見下方 |
-| Direction Source | Select | 建議 | 見下方 |
-| Direction Note | Text | 選填 | 方向備註 |
 
 ### Route Direction
 
@@ -116,19 +114,6 @@ circular
 unknown
 ```
 
-### Direction Source
-
-```
-system_auto
-participant_design
-mood_input
-weather_input
-team_signal
-physical_interaction
-random_card
-future_body_data
-```
-
 ---
 
 ## 降落
@@ -141,7 +126,6 @@ future_body_data
 | **Arrival Location** | Text | **landed 必填** | **`城市, 國家`** — 風景生圖與顯示用 |
 | Arrival Latitude | Number | landed 建議 | 抵達地緯度 |
 | Arrival Longitude | Number | landed 建議 | 抵達地經度 |
-| Captain Broadcast Style | Select | 選填 | 見「Broadcast Style」 |
 | Captain Broadcast | Text | 選填 | 降落廣播全文 |
 
 ### Arrival Location 格式（重要）
@@ -190,7 +174,9 @@ solo
 
 ---
 
-## Broadcast Style（起飛／降落共用）
+## Broadcast Style（API 選填，非 Notion 必填）
+
+各組改 `src/lib/ai/broadcast.ts` 即可；POST body 可選送 `broadcastStyle`：
 
 ```
 formal_captain
@@ -246,7 +232,6 @@ custom
 | Arrival Latitude | `13.619` |
 | Arrival Longitude | `123.181` |
 | Route Direction | `auto` |
-| Direction Source | `system_auto` |
 | Created At | `2026-06-26 22:00` |
 | Updated At | `2026-06-27 06:30` |
 

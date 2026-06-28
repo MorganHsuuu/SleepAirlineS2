@@ -12,23 +12,17 @@
       "id": "takeoff",
       "method": "POST",
       "path": "/api/flight/takeoff",
-      "requiredBodyFields": [
-        "passengerId",
-        "name",
-        "groupId",
-        "routeDirection",
-        "directionSource",
-        "directionNote",
-        "broadcastStyle"
-      ],
-      "description": "起飛；後端依此寫入 Flight Log 起飛欄位"
+      "requiredBodyFields": ["passengerId", "name", "groupId", "routeDirection"],
+      "optionalBodyFields": ["broadcastStyle"],
+      "description": "起飛；routeDirection 寫入 Notion；broadcastStyle 選填，僅影響 AI 廣播"
     },
     {
       "id": "land",
       "method": "POST",
       "path": "/api/flight/land",
-      "requiredBodyFields": ["passengerId", "name", "groupId", "broadcastStyle"],
-      "description": "降落；後端計算抵達地並寫入 Notion"
+      "requiredBodyFields": ["passengerId", "name", "groupId"],
+      "optionalBodyFields": ["broadcastStyle"],
+      "description": "降落；broadcastStyle 選填，僅影響 AI 廣播"
     },
     {
       "id": "board",
@@ -55,10 +49,6 @@
     "btn-takeoff",
     "btn-land",
     "tk-direction",
-    "tk-source",
-    "tk-note",
-    "tk-style",
-    "fl-style",
     "login-section",
     "main-section"
   ],
@@ -92,7 +82,8 @@
     "src/lib/flight/region.ts",
     "src/lib/flight/social.ts",
     "src/lib/flight/social-candidates.ts",
-    "src/lib/ai/social-cue.ts"
+    "src/lib/ai/social-cue.ts",
+    "機長 broadcastStyle（選填 API 欄位或改 broadcast.ts）"
   ],
   "vercelEnvPhase3": [
     "NOTION_API_KEY",

@@ -1,4 +1,4 @@
-import type { Flight, FlightStatus, NarrativeRegion, RouteDirection, DirectionSource, BroadcastStyle, SocialCueType } from '../../types';
+import type { Flight, FlightStatus, NarrativeRegion, RouteDirection, BroadcastStyle, SocialCueType } from '../../types';
 import {
   getNotionClient, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,
@@ -57,11 +57,8 @@ function parseFlight(page: Record<string, unknown>): Flight {
     flightProgress: status === 'landed' ? 100 : status === 'in_flight' ? live.flightProgress : 0,
     narrativeRegion: status === 'landed' ? 'arrival_harbor' : status === 'in_flight' ? live.narrativeRegion : 'departure_clouds',
     routeDirection: (readSelect(props, 'Route Direction') ?? 'auto') as RouteDirection,
-    directionSource: (readSelect(props, 'Direction Source') ?? 'system_auto') as DirectionSource,
-    directionNote: readText(props, 'Direction Note') || null,
     takeoffBroadcastStyle: readSelect(props, 'Takeoff Broadcast Style') as BroadcastStyle | null,
     takeoffBroadcast: readText(props, 'Takeoff Broadcast') || null,
-    captainBroadcastStyle: readSelect(props, 'Captain Broadcast Style') as BroadcastStyle | null,
     captainBroadcast: readText(props, 'Captain Broadcast') || null,
     socialCueType: readSelect(props, 'Social Cue Type') as SocialCueType | null,
     socialCueText: readText(props, 'Social Cue Text') || null,
@@ -85,8 +82,6 @@ export async function createFlight(params: {
   departureLatitude: number;
   departureLongitude: number;
   routeDirection: RouteDirection;
-  directionSource: DirectionSource;
-  directionNote: string | null;
   takeoffTime?: string;
 }): Promise<Flight> {
   const now = new Date().toISOString();
@@ -115,10 +110,8 @@ export async function createFlight(params: {
       flightProgress: 0,
       narrativeRegion: 'departure_clouds',
       routeDirection: params.routeDirection,
-      directionSource: params.directionSource,
-      directionNote: params.directionNote,
       takeoffBroadcastStyle: null, takeoffBroadcast: null,
-      captainBroadcastStyle: null, captainBroadcast: null,
+      captainBroadcast: null,
       socialCueType: null, socialCueText: null, relatedPassenger: null,
       createdAt: now, updatedAt: now,
     };
@@ -153,11 +146,8 @@ export async function createFlight(params: {
       'Flight Duration Minutes': wNumber(null),
       'Estimated Flight Distance KM': wNumber(null),
       'Route Direction': wSelect(params.routeDirection),
-      'Direction Source': wSelect(params.directionSource),
-      'Direction Note': wText(params.directionNote),
       'Takeoff Broadcast Style': wSelect(null),
       'Takeoff Broadcast': wText(null),
-      'Captain Broadcast Style': wSelect(null),
       'Captain Broadcast': wText(null),
       'Social Cue Type': wSelect(null),
       'Social Cue Text': wText(null),
@@ -213,7 +203,6 @@ export async function updateFlight(
     estimatedFlightDistanceKm: number;
     takeoffBroadcastStyle: BroadcastStyle;
     takeoffBroadcast: string;
-    captainBroadcastStyle: BroadcastStyle;
     captainBroadcast: string;
     socialCueType: SocialCueType;
     socialCueText: string;
@@ -255,7 +244,6 @@ export async function updateFlight(
   if (updates.estimatedFlightDistanceKm !== undefined) fullProperties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
   if (updates.takeoffBroadcastStyle !== undefined) fullProperties['Takeoff Broadcast Style'] = wSelect(updates.takeoffBroadcastStyle);
   if (updates.takeoffBroadcast !== undefined) fullProperties['Takeoff Broadcast'] = wText(updates.takeoffBroadcast);
-  if (updates.captainBroadcastStyle !== undefined) fullProperties['Captain Broadcast Style'] = wSelect(updates.captainBroadcastStyle);
   if (updates.captainBroadcast !== undefined) fullProperties['Captain Broadcast'] = wText(updates.captainBroadcast);
   if (updates.socialCueType !== undefined) fullProperties['Social Cue Type'] = wSelect(updates.socialCueType);
   if (updates.socialCueText !== undefined) fullProperties['Social Cue Text'] = wText(updates.socialCueText);

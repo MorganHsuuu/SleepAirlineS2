@@ -21,7 +21,7 @@ import { generateLandingScenery } from './src/lib/ai/scenery';
 import { saveLandingScenery, getLandscapeByFlightId } from './src/lib/notion/landscape-images';
 import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 
-import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
+import type { RouteDirection, BroadcastStyle, NarrativeRegion } from './src/types';
 import { getDataModeStatus } from './src/lib/data-mode';
 import { formatNotionError } from './src/lib/notion/db-access';
 import { introspectNotionSchemas } from './src/lib/notion/schema-introspect';
@@ -96,8 +96,6 @@ app.post('/api/flight/takeoff', async (req, res) => {
       name = '',
       groupId = '',
       routeDirection = 'auto',
-      directionSource = 'system_auto',
-      directionNote = null,
       broadcastStyle = 'formal_captain',
       simulatedTakeoffTime,
     } = req.body;
@@ -131,8 +129,6 @@ app.post('/api/flight/takeoff', async (req, res) => {
       departureLatitude: passenger.currentLatitude,
       departureLongitude: passenger.currentLongitude,
       routeDirection: routeDirection as RouteDirection,
-      directionSource: directionSource as DirectionSource,
-      directionNote,
       takeoffTime,
     });
 
@@ -308,7 +304,6 @@ app.post('/api/flight/land', async (req, res) => {
       arrivalLocation: arrival.displayName,
       arrivalLatitude: arrival.latitude,
       arrivalLongitude: arrival.longitude,
-      captainBroadcastStyle: broadcastStyle as BroadcastStyle,
       captainBroadcast,
       socialCueType: socialCue.cueType,
       socialCueText: socialCue.cueText,

@@ -9,16 +9,37 @@
 
 | ✅ 任意改 | 🔒 必須保留 |
 |---|---|
-| 顏色、字體、排版、文案、動畫 | 下面列出的 **API 路徑與 body 欄位名** |
+| 顏色、字體、排版、文案、動畫 | 下面列出的 **API 路徑與必填 body 欄位** |
 | `public/style.css` 整份 | 下面列出的 **HTML 元素 id** |
-| 機長廣播／生圖 **prompt**（`src/lib/ai/`） | **Group ID** 用 `group_01` … `group_15` |
+| **機長廣播風格、語氣、人設**（見下方） | **Group ID** 用 `group_01` … `group_15` |
 | 新增 UI 區塊（不刪必填 id） | Phase 3 的 **Notion 三項 env**（主辦提供） |
+
+---
+
+## ✅ 機長廣播：各組自由發揮（不進主庫鎖定欄位）
+
+主辦 **Notion 總表不記錄**「方向來源」「降落廣播風格」；機長人設由各組自己決定。
+
+| 改法 | 檔案 | 說明 |
+|---|---|---|
+| 改 prompt、語氣、人設 | `src/lib/ai/broadcast.ts` | 最直接，Phase 2 教學重點 |
+| 改 TTS 聲線 | `src/lib/ai/speech.ts` | OpenAI 語音或瀏覽器 fallback |
+| 加 UI 風格選單（選填） | `public/app.js` | 可在 POST body 加 **`broadcastStyle`**（選填）；後端預設 `formal_captain` |
+| 刪掉所有風格 UI | 允許 | 不送 `broadcastStyle` 也能正常起飛／降落 |
+
+`broadcastStyle` 可選值（僅影響 AI 生成，**不是** Notion 必填欄位）：
+
+```
+formal_captain · poetic · playful · flight_attendant · radio_host · custom
+```
+
+主庫仍會存 **廣播全文**（`Takeoff Broadcast`、`Captain Broadcast`）與選填的 `Takeoff Broadcast Style`；**沒有** `Direction Source`、`Captain Broadcast Style` 欄位。
 
 ---
 
 ## 🔒 必保留：API 契約（`public/app.js`）
 
-前端**不要改路徑、不要改 JSON 欄位名稱**（值可以照表單填）：
+前端**不要改路徑、不要改必填 JSON 欄位名稱**：
 
 ### 登入
 
@@ -37,18 +58,22 @@ POST /api/passenger
 POST /api/flight/takeoff
 {
   "passengerId", "name", "groupId",
-  "routeDirection", "directionSource", "directionNote", "broadcastStyle"
+  "routeDirection"
 }
 ```
+
+選填：`broadcastStyle`（機長 AI 風格，見上表）
 
 ### 降落
 
 ```
 POST /api/flight/land
 {
-  "passengerId", "name", "groupId", "broadcastStyle"
+  "passengerId", "name", "groupId"
 }
 ```
+
+選填：`broadcastStyle`
 
 ### 看板與進度
 
@@ -73,10 +98,6 @@ GET /api/flight/progress?passengerId=...
 | `login-form` | 登入表單 |
 | `btn-login` | 登入按鈕 |
 | `tk-direction` | 航線方向 |
-| `tk-source` | 方向來源 |
-| `tk-note` | 方向備註 |
-| `tk-style` | 起飛廣播風格 |
-| `fl-style` | 降落廣播風格 |
 | `btn-takeoff` | 起飛 |
 | `btn-land` | 降落 |
 | `login-section` / `main-section` | 登入／主畫面切換 |
@@ -92,9 +113,8 @@ GET /api/flight/progress?passengerId=...
 | **groupId** | 只能是 `group_01` … `group_15`，**不要用中文「第二組」** |
 | **passengerId** | 每人唯一，登入與 API 一致（例 `p_g02_morgan`） |
 | **routeDirection** | 用下拉既有值：`auto`、`eastbound`、`westbound`… |
-| **broadcastStyle** | 用下拉既有值：`formal_captain`、`poetic`… |
 
-後端會把這些值寫進 Notion 對應欄位；格式錯了主辦彙整會對不起來。
+後端會把這些值寫進 Notion；格式錯了主辦彙整會對不起來。
 
 ---
 
@@ -113,7 +133,8 @@ GET /api/flight/progress?passengerId=...
 
 - `public/style.css`
 - `public/index.html`（保留上表 id）
-- `src/lib/ai/broadcast.ts` — 機長廣播 prompt
+- `public/app.js`（保留 API 契約；可加選填 `broadcastStyle`）
+- `src/lib/ai/broadcast.ts` — 機長廣播 prompt **（推薦改這裡）**
 - `src/lib/ai/scenery.ts` — 降落風景 prompt
 - `src/lib/ai/speech.ts` — 語音設定
 - `src/lib/flight/region.ts` — 空域文案
@@ -153,8 +174,9 @@ npm run check:contract
 ## 給 Codex / Cursor 的提示（可貼進對話）
 
 ```
-請只改 UI（CSS、HTML 結構、文案）。保留 docs/WORKSHOP_CONTRACT.md 裡的 API 路徑、
-JSON 欄位名、以及 input-pid / input-name / input-group 等 id。
+請只改 UI（CSS、HTML 結構、文案）與機長體驗（broadcast.ts、speech.ts）。
+保留 docs/WORKSHOP_CONTRACT.md 裡的 API 路徑、必填 JSON 欄位、以及 input-pid / input-name / input-group / tk-direction 等 id。
 不要修改 src/lib/notion/ 或 server.ts。
+broadcastStyle 可選，想改機長人設請優先改 src/lib/ai/broadcast.ts。
 改完執行 npm run check:contract。
 ```

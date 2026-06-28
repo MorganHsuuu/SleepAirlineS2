@@ -23,11 +23,6 @@ const ROUTE_DIRECTION_OPTIONS = [
   'northeast', 'northwest', 'southeast', 'southwest', 'circular', 'unknown',
 ].map((name) => ({ name, color: 'default' as const }));
 
-const DIRECTION_SOURCE_OPTIONS = [
-  'system_auto', 'participant_design', 'mood_input', 'weather_input',
-  'team_signal', 'physical_interaction', 'random_card', 'future_body_data',
-].map((name, i) => ({ name, color: (['gray', 'blue', 'pink', 'purple', 'green', 'orange', 'yellow', 'red'] as const)[i] }));
-
 const BROADCAST_STYLE_OPTIONS = [
   'formal_captain', 'poetic', 'playful', 'flight_attendant', 'radio_host', 'custom',
 ].map((name, i) => ({ name, color: (['blue', 'purple', 'yellow', 'pink', 'orange', 'gray'] as const)[i] }));
@@ -60,8 +55,6 @@ export const DASHBOARD_PROPERTY_ORDER = [
   'Takeoff Broadcast Style',
   'Takeoff Broadcast',
   'Route Direction',
-  'Direction Source',
-  'Direction Note',
   // 降落
   'Landing Time',
   'Flight Duration Minutes',
@@ -69,7 +62,6 @@ export const DASHBOARD_PROPERTY_ORDER = [
   'Arrival Location',
   'Arrival Latitude',
   'Arrival Longitude',
-  'Captain Broadcast Style',
   'Captain Broadcast',
   // 社交
   'Social Cue Type',
@@ -96,8 +88,6 @@ export function getDashboardProperties() {
     'Takeoff Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
     'Takeoff Broadcast': { rich_text: {} },
     'Route Direction': { select: { options: ROUTE_DIRECTION_OPTIONS } },
-    'Direction Source': { select: { options: DIRECTION_SOURCE_OPTIONS } },
-    'Direction Note': { rich_text: {} },
     // ── 降落 ──
     'Landing Time': { date: {} },
     'Flight Duration Minutes': { number: { format: 'number' } },
@@ -105,7 +95,6 @@ export function getDashboardProperties() {
     'Arrival Location': { rich_text: {} },
     'Arrival Latitude': { number: { format: 'number' } },
     'Arrival Longitude': { number: { format: 'number' } },
-    'Captain Broadcast Style': { select: { options: BROADCAST_STYLE_OPTIONS } },
     'Captain Broadcast': { rich_text: {} },
     // ── 社交 ──
     'Social Cue Type': { select: { options: SOCIAL_CUE_OPTIONS } },
