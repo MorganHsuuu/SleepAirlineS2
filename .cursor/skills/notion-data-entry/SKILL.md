@@ -79,7 +79,8 @@ NOTION_LANDSCAPE_DB_ID=...
 
 Phase 1 — UI 改造
   · env 全留空
-  · Codex 改 public/ → push → 看 Vercel 網址
+  · Codex 改 public/ → npm run check:contract → push → 看 Vercel 網址
+  · 契約說明：docs/WORKSHOP_CONTRACT.md
 
 Phase 2 — 機長 AI
   · Vercel 加 OPENAI_API_KEY、OPENAI_TTS_MODEL=tts-1、OPENAI_IMAGE_MODEL=gpt-image-1-mini

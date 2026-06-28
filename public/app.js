@@ -1,3 +1,10 @@
+// ── WORKSHOP 資料契約 ───────────────────────────────────────────────────────
+// 改 UI 前請讀 docs/WORKSHOP_CONTRACT.md
+// 必保留：doLogin / doTakeoff / doLand 的 API 路徑與 body 欄位名（passengerId, groupId…）
+// 必保留：input-pid, input-name, input-group, btn-takeoff, btn-land 等元素 id
+// 可任意改：style.css、文案、排版；改完執行 npm run check:contract
+// ────────────────────────────────────────────────────────────────────────────
+
 // ── Display Maps ──────────────────────────────────────────────────────────────
 
 const STATUS_LABEL = {

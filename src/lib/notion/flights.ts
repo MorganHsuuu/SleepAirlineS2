@@ -8,6 +8,7 @@ import { resolveDashboardDbId } from './ensure-dashboard';
 import { syncMemPassenger } from './passengers';
 import { calculateFlightProgress } from '../flight/progress';
 import { getNarrativeRegion } from '../flight/region';
+import { getDashboardPropertyNames, pickExistingProperties } from './schema-introspect';
 
 const mem: Flight[] = [];
 
@@ -133,10 +134,9 @@ export async function createFlight(params: {
 
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
+  const allowed = await getDashboardPropertyNames();
 
-  const page = await client.pages.create({
-    parent: { database_id: dbId },
-    properties: {
+  const fullProperties = {
       'Flight ID': wTitle(flightId),
       'Passenger ID': wText(params.passengerId),
       'Name': wText(params.passengerName),
@@ -164,7 +164,12 @@ export async function createFlight(params: {
       'Related Passenger': wText(null),
       'Created At': wDate(now),
       'Updated At': wDate(now),
-    },
+  };
+
+  const page = await client.pages.create({
+    parent: { database_id: dbId },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    properties: pickExistingProperties(fullProperties, allowed) as any,
   });
 
   return parseFlight(page as unknown as Record<string, unknown>);
@@ -235,25 +240,28 @@ export async function updateFlight(
 
   const client = getNotionClient();
   const now = new Date().toISOString();
+  const allowed = await getDashboardPropertyNames();
 
-  const properties: Record<string, unknown> = { 'Updated At': wDate(now) };
-  if (updates.status !== undefined) properties['Status'] = wSelect(updates.status);
-  if (updates.passengerName !== undefined) properties['Name'] = wText(updates.passengerName);
-  if (updates.groupId !== undefined) properties['Group ID'] = wSelect(updates.groupId);
-  if (updates.arrivalLocation !== undefined) properties['Arrival Location'] = wText(updates.arrivalLocation);
-  if (updates.arrivalLatitude !== undefined) properties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
-  if (updates.arrivalLongitude !== undefined) properties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
-  if (updates.takeoffTime !== undefined) properties['Takeoff Time'] = wDate(updates.takeoffTime);
-  if (updates.landingTime !== undefined) properties['Landing Time'] = wDate(updates.landingTime);
-  if (updates.flightDurationMinutes !== undefined) properties['Flight Duration Minutes'] = wNumber(updates.flightDurationMinutes);
-  if (updates.estimatedFlightDistanceKm !== undefined) properties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
-  if (updates.takeoffBroadcastStyle !== undefined) properties['Takeoff Broadcast Style'] = wSelect(updates.takeoffBroadcastStyle);
-  if (updates.takeoffBroadcast !== undefined) properties['Takeoff Broadcast'] = wText(updates.takeoffBroadcast);
-  if (updates.captainBroadcastStyle !== undefined) properties['Captain Broadcast Style'] = wSelect(updates.captainBroadcastStyle);
-  if (updates.captainBroadcast !== undefined) properties['Captain Broadcast'] = wText(updates.captainBroadcast);
-  if (updates.socialCueType !== undefined) properties['Social Cue Type'] = wSelect(updates.socialCueType);
-  if (updates.socialCueText !== undefined) properties['Social Cue Text'] = wText(updates.socialCueText);
-  if (updates.relatedPassenger !== undefined) properties['Related Passenger'] = wText(updates.relatedPassenger);
+  const fullProperties: Record<string, unknown> = { 'Updated At': wDate(now) };
+  if (updates.status !== undefined) fullProperties['Status'] = wSelect(updates.status);
+  if (updates.passengerName !== undefined) fullProperties['Name'] = wText(updates.passengerName);
+  if (updates.groupId !== undefined) fullProperties['Group ID'] = wSelect(updates.groupId);
+  if (updates.arrivalLocation !== undefined) fullProperties['Arrival Location'] = wText(updates.arrivalLocation);
+  if (updates.arrivalLatitude !== undefined) fullProperties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
+  if (updates.arrivalLongitude !== undefined) fullProperties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
+  if (updates.takeoffTime !== undefined) fullProperties['Takeoff Time'] = wDate(updates.takeoffTime);
+  if (updates.landingTime !== undefined) fullProperties['Landing Time'] = wDate(updates.landingTime);
+  if (updates.flightDurationMinutes !== undefined) fullProperties['Flight Duration Minutes'] = wNumber(updates.flightDurationMinutes);
+  if (updates.estimatedFlightDistanceKm !== undefined) fullProperties['Estimated Flight Distance KM'] = wNumber(updates.estimatedFlightDistanceKm);
+  if (updates.takeoffBroadcastStyle !== undefined) fullProperties['Takeoff Broadcast Style'] = wSelect(updates.takeoffBroadcastStyle);
+  if (updates.takeoffBroadcast !== undefined) fullProperties['Takeoff Broadcast'] = wText(updates.takeoffBroadcast);
+  if (updates.captainBroadcastStyle !== undefined) fullProperties['Captain Broadcast Style'] = wSelect(updates.captainBroadcastStyle);
+  if (updates.captainBroadcast !== undefined) fullProperties['Captain Broadcast'] = wText(updates.captainBroadcast);
+  if (updates.socialCueType !== undefined) fullProperties['Social Cue Type'] = wSelect(updates.socialCueType);
+  if (updates.socialCueText !== undefined) fullProperties['Social Cue Text'] = wText(updates.socialCueText);
+  if (updates.relatedPassenger !== undefined) fullProperties['Related Passenger'] = wText(updates.relatedPassenger);
+
+  const properties = pickExistingProperties(fullProperties, allowed);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await client.pages.update({ page_id: notionId, properties: properties as any });

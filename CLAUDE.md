@@ -7,6 +7,8 @@
 
 所有組的航班資料最終寫進**主辦同一個 Notion 主庫**（論文研究用）。主庫欄位格式固定，學員**不要自建 Notion、不要 fork 主辦 repo**。
 
+**UI 可任意改，資料契約必須保留** → 詳見 [`docs/WORKSHOP_CONTRACT.md`](docs/WORKSHOP_CONTRACT.md)，改完跑 `npm run check:contract`。
+
 ---
 
 ## 前置準備（STEP · 做一次）
@@ -36,9 +38,10 @@ npm run dev    # http://localhost:3000
 **目標：** 用 AI 改長相，部署後看到成果。此階段 **不填 Notion、不填 OpenAI 也可以**。
 
 1. 請 AI 改 UI：配色、文字、排版、地圖、動態效果等（主要改 `public/`）
-2. `commit & push` → Vercel 自動 redeploy → 開自己的網址確認
-3. 可登入、起飛、降落測試流程（資料在伺服器記憶體，**不進主辦 Notion**）
-4. 無 OpenAI 時：機長廣播用模板文字、語音用瀏覽器預設中文 TTS
+2. 改完執行 **`npm run check:contract`**，確認 API／表單 id 仍符合契約
+3. `commit & push` → Vercel 自動 redeploy → 開自己的網址確認
+4. 可登入、起飛、降落測試流程（資料在伺服器記憶體，**不進主辦 Notion**）
+5. 無 OpenAI 時：機長廣播用模板文字、語音用瀏覽器預設中文 TTS
 
 **Vercel 環境變數：** 全部留空即可。
 

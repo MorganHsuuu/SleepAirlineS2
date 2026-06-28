@@ -16,6 +16,7 @@ import {
 } from './client';
 import { resolveLandscapeDbId } from './ensure-landscape-db';
 import { uploadImageToNotion, wFileUpload } from './notion-file-upload';
+import { getLandscapePropertyNames, pickExistingProperties } from './schema-introspect';
 
 const mem: LandingScenery[] = [];
 
@@ -85,10 +86,9 @@ export async function saveLandingScenery(params: {
 
   const client = getNotionClient();
   const dbId = await resolveLandscapeDbId();
+  const allowed = await getLandscapePropertyNames();
 
-  const page = await client.pages.create({
-    parent: { database_id: dbId },
-    properties: {
+  const fullProperties = {
       'Entry ID': wTitle(entryId),
       'Flight ID': wText(params.flightId),
       'Passenger ID': wText(params.passengerId),
@@ -100,14 +100,19 @@ export async function saveLandingScenery(params: {
       'Image Prompt': wText(params.imagePrompt),
       'Landing Time': wDate(params.landingTime),
       'Created At': wDate(now),
-    },
+  };
+
+  const page = await client.pages.create({
+    parent: { database_id: dbId },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    properties: pickExistingProperties(fullProperties, allowed) as any,
   });
 
   const fresh = await client.pages.retrieve({ page_id: page.id });
   const props = (fresh as { properties: Record<string, unknown> }).properties;
   const imageUrl = resolveImageUrl(props);
 
-  if (imageUrl) {
+  if (imageUrl && allowed.has('Image URL')) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await client.pages.update({
       page_id: page.id,

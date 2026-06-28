@@ -6,7 +6,8 @@
     "dev": "tsx watch server.ts",
     "start": "tsx server.ts",
     "build": "node scripts/build-vercel.mjs",
-    "setup": "tsx scripts/setup-notion.ts"
+    "setup": "tsx scripts/setup-notion.ts",
+    "check:contract": "node scripts/check-workshop-contract.mjs"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",

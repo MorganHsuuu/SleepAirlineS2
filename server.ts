@@ -24,6 +24,7 @@ import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 import type { RouteDirection, DirectionSource, BroadcastStyle, NarrativeRegion } from './src/types';
 import { getDataModeStatus } from './src/lib/data-mode';
 import { formatNotionError } from './src/lib/notion/db-access';
+import { introspectNotionSchemas } from './src/lib/notion/schema-introspect';
 
 const app = express();
 app.use(express.json());
@@ -34,6 +35,17 @@ app.use(express.static(join(process.cwd(), 'public')));
 app.get('/api/config', async (_req, res) => {
   try {
     res.json(await getDataModeStatus());
+  } catch (err) {
+    res.status(500).json({ error: formatNotionError(err) });
+  }
+});
+
+// ── GET /api/notion/schema ────────────────────────────────────────────────────
+
+/** 讀取主辦 Notion 總表目前實際欄位（對照刪欄後的現況）。 */
+app.get('/api/notion/schema', async (_req, res) => {
+  try {
+    res.json(await introspectNotionSchemas());
   } catch (err) {
     res.status(500).json({ error: formatNotionError(err) });
   }
