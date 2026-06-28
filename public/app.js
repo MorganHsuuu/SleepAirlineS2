@@ -66,9 +66,21 @@ function fillLoginForm(profile) {
 // ── API Helper ────────────────────────────────────────────────────────────────
 
 async function api(method, url, body) {
+  if (window.WorkshopLocal?.isActive()) {
+    return WorkshopLocal.handle(method, url, body);
+  }
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(url, opts);
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (err) {
+    if (window.WorkshopLocal) {
+      WorkshopLocal.enable();
+      return WorkshopLocal.handle(method, url, body);
+    }
+    throw err;
+  }
   const text = await res.text();
   let data;
   try {
@@ -472,5 +484,8 @@ function toggleSection(contentId, headerEl) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-fillLoginForm(loadLoginProfile());
-updateUI();
+(async function initApp() {
+  if (window.WorkshopLocal) await WorkshopLocal.probe();
+  fillLoginForm(loadLoginProfile());
+  updateUI();
+})();

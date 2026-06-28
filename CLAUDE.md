@@ -26,9 +26,12 @@
 ```bash
 # GitHub → Code → Download ZIP → 解壓
 cd SleepAirlineS2
-npm install
-npm run dev    # http://localhost:3000
+npm install          # 第一次需要；之後改 UI 可略過
+npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 ```
+
+**Phase 1 改 UI 不一定要跑後端。** 直接雙擊 `public/index.html` 或用 Cursor 預覽也可以登入／起飛／降落（資料在瀏覽器 **localStorage**，不進 Notion）。  
+部署 **Vercel** 後會自動改用伺服器（仍可不填 Notion）；**Phase 3** 才填 Notion 三項 env 寫入主辦總表。
 
 ---
 
@@ -41,7 +44,7 @@ npm run dev    # http://localhost:3000
 1. 請 AI 改 UI：配色、文字、排版、地圖、動態效果等（主要改 `public/`）
 2. 改完執行 **`npm run check:contract`**，確認 API／表單 id 仍符合契約
 3. `commit & push` → Vercel 自動 redeploy → 開自己的網址確認
-4. 可登入、起飛、降落測試流程（資料在伺服器記憶體，**不進主辦 Notion**）
+4. 可登入、起飛、降落測試流程（**不填 Notion**；本機 HTML 預覽用 localStorage，Vercel 無 env 時用伺服器記憶體）
 5. 無 OpenAI 時：機長廣播用模板文字、語音用瀏覽器預設中文 TTS
 
 **Vercel 環境變數：** 全部留空即可。
@@ -97,6 +100,7 @@ NOTION_LANDSCAPE_DB_ID=...          # Landing Scenery ID（要生風景圖時）
 ## 給協助學員的 AI（Cursor / Codex）備註
 
 - 程式內部：`NOTION_API_KEY` 未設 = 記憶體模式；有設 = 寫入主庫（`src/lib/data-mode.ts`）
+- **後端 ≠ 資料庫**：Phase 1 可不跑 `npm run dev`（瀏覽器本機模式）；Phase 2 要 OpenAI 請部署 Vercel 或 `npm run dev`；Phase 3 才填 Notion
 - **不要在 UI 顯示「預覽模式」**；各階段介面應一致、自然
 - 學員改 UI 優先 `public/`；改廣播／生圖 prompt 見下方可改清單
 - 若要求改 Notion 欄位或 schema → **先警告會影響共用主庫**，不要直接改鎖定檔案
