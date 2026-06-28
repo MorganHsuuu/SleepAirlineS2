@@ -111,6 +111,7 @@ OPENAI_IMAGE_MODEL=gpt-image-1-mini
 2. 把 **NOTION_API_KEY + 兩個 DB ID** 發給各組（一次三個值）
 3. Integration 須對兩張表 **Can edit**
 4. Schema 變更只由主辦決定
+5. **擴組後**：到 Notion 兩張表的 `Group ID` 欄位，手動新增 `group_06` … `group_15` 選項（程式不會自動改主庫）
 
 ---
 
@@ -182,7 +183,7 @@ npx tsx scripts/backfill-scenery.ts FL-XXX-YYYY
 |---|---|---|
 | **Flight ID** (Title) | `FL-{乘客ID英數前6碼}-{時間base36}` | `FL-MORGAN-MQV56IO3` |
 | **Passenger ID** | 自訂，建議穩定唯一 | `A`、`MORGAN` |
-| **Group ID** | `group_01` … `group_05` | `group_02` = 網站「第二組」 |
+| **Group ID** | `group_01` … `group_15` | `group_02` = 網站「第二組」 |
 | **Entry ID** (Scenery) | `SC-{Flight ID}` | 程式自動，勿手改 |
 
 人工建 Flight ID 時可自訂，但須唯一；**Landing Scenery 的 Flight ID 必須與主庫同一趟航班一致**。
@@ -196,6 +197,16 @@ npx tsx scripts/backfill-scenery.ts FL-XXX-YYYY
 | 第三組 | `group_03` |
 | 第四組 | `group_04` |
 | 第五組 | `group_05` |
+| 第六組 | `group_06` |
+| 第七組 | `group_07` |
+| 第八組 | `group_08` |
+| 第九組 | `group_09` |
+| 第十組 | `group_10` |
+| 第十一組 | `group_11` |
+| 第十二組 | `group_12` |
+| 第十三組 | `group_13` |
+| 第十四組 | `group_14` |
+| 第十五組 | `group_15` |
 
 ## 常見錯誤
 

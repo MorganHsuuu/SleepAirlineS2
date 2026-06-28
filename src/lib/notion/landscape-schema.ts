@@ -1,16 +1,8 @@
-import { normalizeNotionId, DEFAULT_PARENT_PAGE_ID } from './dashboard-schema';
+import { normalizeNotionId, DEFAULT_PARENT_PAGE_ID, GROUP_OPTIONS } from './dashboard-schema';
 
-export { normalizeNotionId, DEFAULT_PARENT_PAGE_ID };
+export { normalizeNotionId, DEFAULT_PARENT_PAGE_ID, GROUP_OPTIONS };
 
 export const LANDSCAPE_DB_TITLE = 'Sleep Airline Landing Scenery';
-
-const GROUP_OPTIONS = [
-  { name: 'group_01', color: 'blue' as const },
-  { name: 'group_02', color: 'green' as const },
-  { name: 'group_03', color: 'orange' as const },
-  { name: 'group_04', color: 'purple' as const },
-  { name: 'group_05', color: 'pink' as const },
-];
 
 export function getLandscapeProperties() {
   return {

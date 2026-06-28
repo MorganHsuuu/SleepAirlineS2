@@ -1,13 +1,16 @@
 /** 每趟航班一列；舊版「Sleep Airline Dashboard」（一人一列）請保留作 archive。 */
 export const DASHBOARD_TITLE = 'Sleep Airline Flight Log';
 
-const GROUP_OPTIONS = [
-  { name: 'group_01', color: 'blue' as const },
-  { name: 'group_02', color: 'green' as const },
-  { name: 'group_03', color: 'orange' as const },
-  { name: 'group_04', color: 'purple' as const },
-  { name: 'group_05', color: 'pink' as const },
-];
+const GROUP_COLORS = [
+  'blue', 'green', 'orange', 'purple', 'pink',
+  'red', 'yellow', 'gray', 'brown', 'default',
+] as const;
+
+/** Workshop 小隊選項（group_01 … group_15）；Notion Group ID 欄位須同步。 */
+export const GROUP_OPTIONS = Array.from({ length: 15 }, (_, i) => ({
+  name: `group_${String(i + 1).padStart(2, '0')}`,
+  color: GROUP_COLORS[i % GROUP_COLORS.length],
+}));
 
 const STATUS_OPTIONS = [
   { name: 'not_started', color: 'gray' as const },

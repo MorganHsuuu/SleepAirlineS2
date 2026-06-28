@@ -44,13 +44,22 @@ var import_client2 = require("@notionhq/client");
 
 // src/lib/notion/dashboard-schema.ts
 var DASHBOARD_TITLE = "Sleep Airline Flight Log";
-var GROUP_OPTIONS = [
-  { name: "group_01", color: "blue" },
-  { name: "group_02", color: "green" },
-  { name: "group_03", color: "orange" },
-  { name: "group_04", color: "purple" },
-  { name: "group_05", color: "pink" }
+var GROUP_COLORS = [
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "pink",
+  "red",
+  "yellow",
+  "gray",
+  "brown",
+  "default"
 ];
+var GROUP_OPTIONS = Array.from({ length: 15 }, (_, i) => ({
+  name: `group_${String(i + 1).padStart(2, "0")}`,
+  color: GROUP_COLORS[i % GROUP_COLORS.length]
+}));
 var STATUS_OPTIONS = [
   { name: "not_started", color: "gray" },
   { name: "in_flight", color: "yellow" },
@@ -107247,20 +107256,13 @@ async function generateLandingScenery(city, country, displayName, flightId) {
 
 // src/lib/notion/landscape-schema.ts
 var LANDSCAPE_DB_TITLE = "Sleep Airline Landing Scenery";
-var GROUP_OPTIONS2 = [
-  { name: "group_01", color: "blue" },
-  { name: "group_02", color: "green" },
-  { name: "group_03", color: "orange" },
-  { name: "group_04", color: "purple" },
-  { name: "group_05", color: "pink" }
-];
 function getLandscapeProperties() {
   return {
     "Entry ID": { title: {} },
     "Flight ID": { rich_text: {} },
     "Passenger ID": { rich_text: {} },
     "Name": { rich_text: {} },
-    "Group ID": { select: { options: GROUP_OPTIONS2 } },
+    "Group ID": { select: { options: GROUP_OPTIONS } },
     "Arrival Location": { rich_text: {} },
     "Country": { rich_text: {} },
     "Image": { files: {} },

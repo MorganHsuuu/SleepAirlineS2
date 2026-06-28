@@ -60,14 +60,10 @@ NOTION_LANDSCAPE_DB_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | Group ID | Select | ✅ | 見下方「Group ID」 |
 | Status | Select | ✅ | 見下方「Status」 |
 
-### Group ID（只能選這五個）
+### Group ID（只能選這十五個）
 
 ```
-group_01
-group_02
-group_03
-group_04
-group_05
+group_01 … group_15
 ```
 
 ### Status
