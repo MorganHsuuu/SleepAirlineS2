@@ -30,7 +30,7 @@ export async function getDataModeStatus(): Promise<{
       dataMode,
       notionConfigured: false,
       notionReady: false,
-      hint: '預覽模式：可改 UI／走假資料預覽，資料不會寫入 Notion。',
+      hint: '',
     };
   }
 
@@ -49,7 +49,7 @@ export async function getDataModeStatus(): Promise<{
       dataMode,
       notionConfigured: true,
       notionReady: true,
-      hint: '已連線主庫，起飛／降落會寫入 Notion。',
+      hint: '',
     };
   } catch (err) {
     return {

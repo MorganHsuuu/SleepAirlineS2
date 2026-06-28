@@ -1,18 +1,18 @@
 # Sleep Airline Flight Log — 欄位參考
 
-> **共用契約**：所有 workshop fork 寫入的必須是**同一份**主庫，欄位定義以本文為準。UI／CSS 各組可不同。
+> **共用契約**：所有 workshop 各組寫入的必須是**同一份**主庫，欄位定義以本文為準。UI／CSS 各組可不同。
 
 資料庫標題：**Sleep Airline Flight Log**  
 一列 = 一趟航班。
 
 ---
 
-## Fork 與主庫對接
+## 部署與主庫對接
 
 | 角色 | 責任 |
 |---|---|
 | **主辦** | 擁有 Flight Log + Landing Scenery；提供 DB ID；管理 schema 變更 |
-| **各組** | 自有 Vercel + 可改 `public/`；env 指向主庫 ID；不可私建第二套主表 |
+| **各組** | ZIP 下載 → 本機改 UI → **自己的 GitHub + Vercel**；env 指向主庫 ID；不可私建第二套主表 |
 
 ### 主辦分發給各組的資訊範本（複製貼上）
 
@@ -24,14 +24,24 @@ NOTION_LANDSCAPE_DB_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 學員**只需這三項**，全部貼 Vercel → Redeploy。勿設定 NOTION_PARENT_PAGE_ID。
 
-### 資料模式（SLEEP_AIRLINE_DATA_MODE）
+### 資料模式（內部實作，學員不用記）
 
-| 模式 | 何時 | Notion | UI |
+| 模式 | 何時 | Notion | 學員看到的 |
 |---|---|---|---|
-| `preview` | 無 key，或明確設 preview | 不讀寫 | 橫幅 +「UI 預覽」假資料 |
-| `live` | 有 NOTION_API_KEY（預設） | 讀寫主庫 | 正常登入／起飛／降落 |
+| 記憶體（preview） | 無 NOTION_API_KEY | 不讀寫 | 正常 UI，可起飛降落 |
+| 主庫（live） | 有 NOTION_API_KEY | 讀寫主庫 | 同上，資料寫進總表 |
 
-檢查：`GET /api/config` → `{ dataMode, notionReady, hint }`
+檢查串接：`GET /api/config` → `{ notionReady: true }`（Phase 3 驗收）
+
+### 工作坊三階段與 env 對照
+
+| 階段 | 學員做什麼 | Vercel env |
+|---|---|---|
+| Phase 1 UI | Codex 改 `public/`，push 看 Vercel | 全留空 |
+| Phase 2 機長 AI | 測廣播／TTS／生圖 prompt | `OPENAI_*` |
+| Phase 3 Notion | 主辦發三項，寫入共用總表 | `NOTION_*` 三項 |
+
+Phase 3 **不是**學員自建 Notion；勿填 `NOTION_PARENT_PAGE_ID`。
 
 ---
 
@@ -252,11 +262,11 @@ curl -X POST https://sleep-airline-s2.vercel.app/api/scenery/backfill \
 
 ## 環境變數（給工程師）
 
-| 變數 | 用途 | Fork 注意 |
+| 變數 | 用途 | 學員注意 |
 |---|---|---|
 | `NOTION_API_KEY` | 必填 | Integration 須能 edit **主庫** |
 | `NOTION_DASHBOARD_DB_ID` | Flight Log | **必填** — 用主辦提供的 ID |
 | `NOTION_LANDSCAPE_DB_ID` | Landing Scenery | 用主辦提供的 ID（生圖時） |
-| `NOTION_PARENT_PAGE_ID` | 自動尋表／建表 | Fork **勿依賴**；避免建出孤島庫 |
+| `NOTION_PARENT_PAGE_ID` | 自動尋表／建表 | **勿設定**；避免建出孤島庫 |
 | `OPENAI_API_KEY` | 廣播／生圖 | 各組可用自己的 key |
 | `OPENAI_IMAGE_MODEL` | 生圖模型 | 選填，預設 `gpt-image-1-mini` |
