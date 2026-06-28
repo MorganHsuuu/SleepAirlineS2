@@ -30,7 +30,7 @@ npm install          # 第一次需要；之後改 UI 可略過
 npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 ```
 
-**Phase 1 改 UI 不一定要跑後端。** 直接雙擊 `public/index.html` 或用 Cursor 預覽也可以登入／起飛／降落（資料在瀏覽器 **localStorage**，不進 Notion）。  
+**Phase 1 改 UI 不一定要跑後端。** 解壓後先執行 **`npm install`**（會把 `cities_data.json` 複製到 `public/`，降落才會依距離選城市），再雙擊 `public/index.html` 或用 Cursor 預覽即可登入／起飛／降落（資料在瀏覽器 **localStorage**，不進 Notion）。  
 部署 **Vercel** 後會自動改用伺服器（仍可不填 Notion）；**Phase 3** 才填 Notion 三項 env 寫入主辦總表。
 
 ---

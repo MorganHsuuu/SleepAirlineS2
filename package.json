@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/sync-cities-public.mjs",
+    "prestart": "node scripts/sync-cities-public.mjs",
+    "postinstall": "node scripts/sync-cities-public.mjs",
     "dev": "tsx watch server.ts",
     "start": "tsx server.ts",
     "build": "node scripts/build-vercel.mjs",

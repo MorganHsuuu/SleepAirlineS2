@@ -1,6 +1,6 @@
 /**
  * Phase 1 瀏覽器本機模式：無 npm / 無 Notion 時，資料存 localStorage。
- * 部署到 Vercel 或 npm run dev 後，若 /api/config 可用則自動改用伺服器。
+ * 降落邏輯與 server.ts 一致：飛行時長 → 距離 → 從 cities_data.json 選目的地。
  */
 (function () {
   const STORAGE_KEY = 'sleepAirline_workshopLocal_v1';
@@ -9,15 +9,11 @@
   const DEFAULT_LNG = 121.5654;
   const REFERENCE_MINUTES = 480;
   const KM_PER_MINUTE = 12;
-
-  const LAND_DESTINATIONS = [
-    { displayName: 'Tokyo, Japan', latitude: 35.6762, longitude: 139.6503 },
-    { displayName: 'Seoul, South Korea', latitude: 37.5665, longitude: 126.978 },
-    { displayName: 'Singapore, Singapore', latitude: 1.3521, longitude: 103.8198 },
-    { displayName: 'Bangkok, Thailand', latitude: 13.7563, longitude: 100.5018 },
-  ];
+  const EARTH_RADIUS_KM = 6371;
 
   let active = false;
+  let citiesCache = null;
+  let citiesLoadPromise = null;
 
   function loadStore() {
     try {
@@ -37,6 +33,112 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   }
 
+  function toRad(deg) {
+    return (deg * Math.PI) / 180;
+  }
+
+  function haversineDistance(lat1, lon1, lat2, lon2) {
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function calculateBearing(lat1, lon1, lat2, lon2) {
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x =
+      Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+      Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    return (Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  }
+
+  function isInDirection(bearing, direction) {
+    const b = ((bearing % 360) + 360) % 360;
+    switch (direction) {
+      case 'northbound': return b >= 315 || b < 45;
+      case 'northeast': return b >= 22.5 && b < 67.5;
+      case 'eastbound': return b >= 45 && b < 135;
+      case 'southeast': return b >= 112.5 && b < 157.5;
+      case 'southbound': return b >= 135 && b < 225;
+      case 'southwest': return b >= 202.5 && b < 247.5;
+      case 'westbound': return b >= 225 && b < 315;
+      case 'northwest': return b >= 292.5 && b < 337.5;
+      default: return true;
+    }
+  }
+
+  function parseCities(raw) {
+    return raw
+      .filter((e) => e.latitude != null && e.longitude != null && e.city)
+      .map((entry) => {
+        const country =
+          entry.country && entry.country.length > 2
+            ? entry.country
+            : entry.country_zh || entry.country;
+        const displayName =
+          entry.city_zh && entry.country_zh
+            ? `${entry.city_zh}, ${entry.country_zh}`
+            : `${entry.city}, ${entry.country}`;
+        return {
+          displayName,
+          city: entry.city,
+          country,
+          latitude: entry.latitude,
+          longitude: entry.longitude,
+          availableForLanding: true,
+        };
+      });
+  }
+
+  async function loadCities() {
+    if (citiesCache) return citiesCache;
+    if (citiesLoadPromise) return citiesLoadPromise;
+    citiesLoadPromise = (async () => {
+      const urls = ['./cities_data.json', '/cities_data.json'];
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          citiesCache = parseCities(await res.json());
+          return citiesCache;
+        } catch { /* try next */ }
+      }
+      throw new Error(
+        '找不到 cities_data.json。請在專案根目錄執行 npm install（或 npm run dev）後再試。'
+      );
+    })();
+    return citiesLoadPromise;
+  }
+
+  function findArrivalDestination(depLat, depLng, distanceKm, routeDirection, destinations, departureLocation) {
+    const available = destinations.filter(
+      (d) => d.availableForLanding && d.displayName !== departureLocation
+    );
+    const candidates = available.map((dest) => {
+      const actualDistance = haversineDistance(depLat, depLng, dest.latitude, dest.longitude);
+      const bearing = calculateBearing(depLat, depLng, dest.latitude, dest.longitude);
+      return {
+        ...dest,
+        distanceKm: actualDistance,
+        distanceDelta: Math.abs(actualDistance - distanceKm),
+        inDirection: isInDirection(bearing, routeDirection),
+      };
+    });
+    const directional = candidates.filter((c) => c.inDirection);
+    if (directional.length > 0) {
+      directional.sort((a, b) => a.distanceDelta - b.distanceDelta);
+      return directional[0];
+    }
+    candidates.sort((a, b) => a.distanceDelta - b.distanceDelta);
+    if (!candidates[0]) {
+      throw new Error('沒有可用的降落城市，請確認 cities_data.json 已同步到 public/。');
+    }
+    return candidates[0];
+  }
+
   function flightProgress(takeoffTime) {
     const elapsed = (Date.now() - new Date(takeoffTime).getTime()) / 60000;
     return Math.min(100, Math.max(0, (elapsed / REFERENCE_MINUTES) * 100));
@@ -50,8 +152,7 @@
     return 'arrival_harbor';
   }
 
-  function fallbackBroadcast(phase, name, departure, arrival, direction, durationMinutes) {
-    const dir = direction || 'auto';
+  function fallbackBroadcast(phase, name, departure, arrival, durationMinutes) {
     if (phase === 'takeoff') {
       return `各位乘客，甦醒航班即將自 ${departure} 起飛。${name}，請準備進入夜航。`;
     }
@@ -78,7 +179,11 @@
 
   function enrichFlight(f) {
     if (f.status !== 'in_flight') {
-      return { ...f, flightProgress: f.status === 'landed' ? 100 : 0, narrativeRegion: f.status === 'landed' ? 'arrival_harbor' : 'departure_clouds' };
+      return {
+        ...f,
+        flightProgress: f.status === 'landed' ? 100 : 0,
+        narrativeRegion: f.status === 'landed' ? 'arrival_harbor' : 'departure_clouds',
+      };
     }
     const progress = flightProgress(f.takeoffTime);
     return { ...f, flightProgress: progress, narrativeRegion: narrativeRegion(progress) };
@@ -109,6 +214,8 @@
     if (activeF) {
       p.status = 'in_flight';
       p.currentLocation = activeF.departureLocation;
+      p.currentLatitude = activeF.departureLatitude;
+      p.currentLongitude = activeF.departureLongitude;
     } else {
       const lastLanded = store.flights
         .filter((f) => f.passengerId === passengerId && f.status === 'landed')
@@ -116,6 +223,8 @@
       if (lastLanded) {
         p.status = 'landed';
         p.currentLocation = lastLanded.arrivalLocation || DEFAULT_LOCATION;
+        p.currentLatitude = lastLanded.arrivalLatitude ?? DEFAULT_LAT;
+        p.currentLongitude = lastLanded.arrivalLongitude ?? DEFAULT_LNG;
       } else if (!created) {
         p.status = p.status || 'not_started';
       }
@@ -149,7 +258,7 @@
     const takeoffTime = new Date().toISOString();
     const flightId = `FL-LOCAL-${Date.now().toString(36).toUpperCase()}`;
     const routeDirection = body.routeDirection || 'auto';
-    const takeoffBroadcast = fallbackBroadcast('takeoff', p.name, p.currentLocation, null, routeDirection, null);
+    const takeoffBroadcast = fallbackBroadcast('takeoff', p.name, p.currentLocation, null, null);
 
     const flight = {
       notionId: `local_${flightId}`,
@@ -183,7 +292,8 @@
     return { flight: enrichFlight(flight) };
   }
 
-  function handleLand(body) {
+  async function handleLand(body) {
+    const cities = await loadCities();
     const store = loadStore();
     const p = store.passengers[body.passengerId];
     const idx = store.flights.findIndex((f) => f.passengerId === body.passengerId && f.status === 'in_flight');
@@ -194,9 +304,21 @@
     const durationMinutes = Math.max(1, Math.round(
       (new Date(landingTime).getTime() - new Date(active.takeoffTime).getTime()) / 60000
     ));
-    const dest = LAND_DESTINATIONS[Math.floor(Math.random() * LAND_DESTINATIONS.length)];
+    const distanceKm = durationMinutes * KM_PER_MINUTE;
+    const arrival = findArrivalDestination(
+      active.departureLatitude,
+      active.departureLongitude,
+      distanceKm,
+      active.routeDirection,
+      cities,
+      active.departureLocation
+    );
     const captainBroadcast = fallbackBroadcast(
-      'landing', active.passengerName, active.departureLocation, dest.displayName, active.routeDirection, durationMinutes
+      'landing',
+      active.passengerName,
+      active.departureLocation,
+      arrival.displayName,
+      durationMinutes
     );
 
     const landed = {
@@ -204,10 +326,10 @@
       status: 'landed',
       landingTime,
       flightDurationMinutes: durationMinutes,
-      estimatedFlightDistanceKm: Math.round(durationMinutes * KM_PER_MINUTE),
-      arrivalLocation: dest.displayName,
-      arrivalLatitude: dest.latitude,
-      arrivalLongitude: dest.longitude,
+      estimatedFlightDistanceKm: Math.round(distanceKm),
+      arrivalLocation: arrival.displayName,
+      arrivalLatitude: arrival.latitude,
+      arrivalLongitude: arrival.longitude,
       captainBroadcast,
       socialCueType: 'solo',
       socialCueText: '您已平安降落。',
@@ -215,17 +337,16 @@
 
     store.flights[idx] = landed;
     p.status = 'landed';
-    p.currentLocation = dest.displayName;
-    p.currentLatitude = dest.latitude;
-    p.currentLongitude = dest.longitude;
+    p.currentLocation = arrival.displayName;
+    p.currentLatitude = arrival.latitude;
+    p.currentLongitude = arrival.longitude;
     saveStore(store);
     return { flight: enrichFlight(landed), landingScenery: null };
   }
 
   function handleBoard(groupId) {
     const store = loadStore();
-    const flights = buildBoardFlights(store.flights.map(enrichFlight), groupId);
-    return { flights };
+    return { flights: buildBoardFlights(store.flights.map(enrichFlight), groupId) };
   }
 
   function handleProgress(passengerId) {
@@ -252,7 +373,7 @@
     active = true;
   }
 
-  function handle(method, url, body) {
+  async function handle(method, url, body) {
     const u = new URL(url, window.location.origin || 'http://localhost');
     const path = u.pathname;
 
