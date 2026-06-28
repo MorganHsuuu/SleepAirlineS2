@@ -157,13 +157,16 @@ future_body_data
 ### Social Cue Type
 
 ```
-same_sky
-same_region
-nearby_region
+teammate_arrival
+teammate_departure
+route_convergence
+teammate_in_sky
+parallel_heading
 relay_flight
 early_landing
 late_landing
 solo
+（舊版：same_sky, same_region, nearby_region）
 ```
 
 ---

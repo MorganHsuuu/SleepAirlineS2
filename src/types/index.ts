@@ -35,13 +35,19 @@ export type BroadcastStyle =
   | 'radio_host'
   | 'custom';
 export type SocialCueType =
-  | 'same_sky'
-  | 'same_region'
-  | 'nearby_region'
+  | 'teammate_arrival'
+  | 'teammate_departure'
+  | 'route_convergence'
+  | 'teammate_in_sky'
+  | 'parallel_heading'
   | 'relay_flight'
   | 'early_landing'
   | 'late_landing'
-  | 'solo';
+  | 'solo'
+  /** @deprecated 舊版 Notion 紀錄可能仍存在 */
+  | 'same_sky'
+  | 'same_region'
+  | 'nearby_region';
 
 export interface Passenger {
   notionId: string;

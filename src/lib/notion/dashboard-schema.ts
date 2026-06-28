@@ -33,9 +33,16 @@ const BROADCAST_STYLE_OPTIONS = [
 ].map((name, i) => ({ name, color: (['blue', 'purple', 'yellow', 'pink', 'orange', 'gray'] as const)[i] }));
 
 const SOCIAL_CUE_OPTIONS = [
-  'same_sky', 'same_region', 'nearby_region', 'relay_flight',
-  'early_landing', 'late_landing', 'solo',
-].map((name, i) => ({ name, color: (['blue', 'purple', 'green', 'orange', 'yellow', 'pink', 'gray'] as const)[i] }));
+  'teammate_arrival', 'teammate_departure', 'route_convergence', 'teammate_in_sky',
+  'parallel_heading', 'relay_flight', 'early_landing', 'late_landing', 'solo',
+  // 舊版（保留以相容歷史紀錄）
+  'same_sky', 'same_region', 'nearby_region',
+].map((name, i) => ({
+  name,
+  color: (['blue', 'purple', 'green', 'orange', 'yellow', 'pink', 'gray', 'brown', 'red', 'default'] as const)[
+    i % 10
+  ],
+}));
 
 /** Notion 表格建議欄位順序（既有表請在 UI 依此拖曳；API 無法自動排序） */
 export const DASHBOARD_PROPERTY_ORDER = [

@@ -14,7 +14,7 @@ import { calculateFlightDistance } from './src/lib/flight/distance';
 import { calculateFlightProgress } from './src/lib/flight/progress';
 import { getNarrativeRegion } from './src/lib/flight/region';
 import { findArrivalDestination } from './src/lib/flight/direction';
-import { calculateGroupSocialCue } from './src/lib/flight/social';
+import { resolveGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
 import { generateLandingScenery } from './src/lib/ai/scenery';
@@ -125,8 +125,22 @@ app.post('/api/flight/takeoff', async (req, res) => {
     });
 
     const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = calculateGroupSocialCue(
-      { passengerId, narrativeRegion: 'departure_clouds', landingTime: flight.takeoffTime },
+    const socialCue = await resolveGroupSocialCue(
+      {
+        passengerId,
+        passengerName: passenger.name,
+        departureLocation: flight.departureLocation,
+        departureLatitude: flight.departureLatitude,
+        departureLongitude: flight.departureLongitude,
+        arrivalLocation: null,
+        arrivalLatitude: null,
+        arrivalLongitude: null,
+        routeDirection: flight.routeDirection,
+        takeoffTime: flight.takeoffTime,
+        landingTime: null,
+        flightProgress: 0,
+        phase: 'takeoff',
+      },
       groupFlights
     );
 
@@ -228,8 +242,22 @@ app.post('/api/flight/land', async (req, res) => {
     );
 
     const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = calculateGroupSocialCue(
-      { passengerId, narrativeRegion: region, landingTime },
+    const socialCue = await resolveGroupSocialCue(
+      {
+        passengerId,
+        passengerName: passenger.name,
+        departureLocation: activeFlight.departureLocation,
+        departureLatitude: activeFlight.departureLatitude,
+        departureLongitude: activeFlight.departureLongitude,
+        arrivalLocation: arrival.displayName,
+        arrivalLatitude: arrival.latitude,
+        arrivalLongitude: arrival.longitude,
+        routeDirection: activeFlight.routeDirection,
+        takeoffTime: activeFlight.takeoffTime,
+        landingTime,
+        flightProgress: 100,
+        phase: 'landing',
+      },
       groupFlights
     );
 

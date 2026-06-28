@@ -55,7 +55,7 @@ OPENAI_API_KEY=              # 選填，主辦提供或自備
 | `src/lib/ai/speech.ts` | 語音設定 |
 | `src/lib/ai/scenery.ts` | 降落生圖的 prompt 風格 |
 | `src/lib/flight/region.ts` | 飛行敘事區域描述 |
-| `src/lib/flight/social.ts` | 社交提示文字 |
+| `src/lib/flight/social.ts` | 社交提示：候選池隨機 + AI 改寫 |
 
 想做「額外的效果判定」，請在前端（`public/`）或上述可改檔案做，**不要把新欄位寫進共用主庫**。
 
