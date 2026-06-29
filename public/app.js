@@ -3,6 +3,7 @@
 // 必保留：doLogin / doTakeoff / doLand 的 API 路徑與 body 欄位名（passengerId, groupId…）
 // 必保留：input-pid, input-name, input-group, btn-takeoff, btn-land 等元素 id
 // 可任意改：style.css、文案、排版；改完執行 npm run check:contract
+// 預設開啟 UI 示範（SLEEP_AIRLINE_AUTO_PREVIEW）；登出後可登入測試真實流程
 // ────────────────────────────────────────────────────────────────────────────
 
 // ── Display Maps ──────────────────────────────────────────────────────────────
@@ -31,6 +32,8 @@ let groupFlights = [];
 let lastLandedFlight = null;
 let landingScenery = null;
 let refreshTimer = null;
+let previewMode = false;
+const REFERENCE_MINUTES = 480;
 
 // ── DOM Refs ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +64,86 @@ function fillLoginForm(profile) {
   $('input-pid').value = profile.passengerId;
   $('input-name').value = profile.name;
   $('input-group').value = profile.groupId;
+}
+
+// ── UI 示範（不需登入、不需後端）────────────────────────────────────────────
+
+function enterDemoPreview() {
+  previewMode = true;
+  stopAutoRefresh();
+
+  const takeoffTime = new Date(Date.now() - REFERENCE_MINUTES * 0.42 * 60000).toISOString();
+
+  passenger = {
+    passengerId: 'demo_preview',
+    name: '示範乘客',
+    groupId: 'group_01',
+    status: 'in_flight',
+    currentLocation: 'Taipei, Taiwan',
+  };
+
+  activeFlight = {
+    departureLocation: 'Taipei, Taiwan',
+    routeDirection: 'eastbound',
+    takeoffTime,
+    flightProgress: 42,
+    narrativeRegion: 'deep_night_current',
+    takeoffBroadcast:
+      '各位乘客，甦醒航班即將自 Taipei, Taiwan 起飛，航向向東。示範乘客，請準備進入夜航。',
+    takeoffBroadcastStyle: 'formal_captain',
+  };
+
+  lastLandedFlight = null;
+  landingScenery = null;
+
+  groupFlights = [
+    {
+      passengerName: '示範乘客',
+      status: 'in_flight',
+      departureLocation: 'Taipei, Taiwan',
+      arrivalLocation: null,
+      narrativeRegion: 'deep_night_current',
+      flightProgress: 42,
+      flightDurationMinutes: null,
+      takeoffTime,
+      landingTime: null,
+      takeoffBroadcast: activeFlight.takeoffBroadcast,
+      captainBroadcast: null,
+      socialCueText: '小隊里還有夥伴正在夜航。',
+    },
+    {
+      passengerName: '小雙',
+      status: 'landed',
+      departureLocation: 'Taipei, Taiwan',
+      arrivalLocation: 'Tokyo, Japan',
+      narrativeRegion: 'arrival_harbor',
+      flightProgress: 100,
+      flightDurationMinutes: 320,
+      takeoffTime: new Date(Date.now() - 86400000).toISOString(),
+      landingTime: new Date(Date.now() - 3600000).toISOString(),
+      takeoffBroadcast: null,
+      captainBroadcast: '歡迎抵達東京，祝您有個美好的夜晚。',
+      socialCueText: null,
+    },
+    {
+      passengerName: '阿航',
+      status: 'in_flight',
+      departureLocation: 'Taipei, Taiwan',
+      arrivalLocation: null,
+      narrativeRegion: 'pacific_drift',
+      flightProgress: 28,
+      flightDurationMinutes: null,
+      takeoffTime: new Date(Date.now() - REFERENCE_MINUTES * 0.28 * 60000).toISOString(),
+      landingTime: null,
+      takeoffBroadcast: '夜航開始，請調暗舷窗。',
+      captainBroadcast: null,
+      socialCueText: null,
+    },
+  ];
+
+  clearMsg('main');
+  clearMsg('login');
+  updateUI();
 }
 
 // ── API Helper ────────────────────────────────────────────────────────────────
@@ -142,6 +225,9 @@ function updateUI() {
   const loggedIn = !!passenger;
   $('login-section').classList.toggle('hidden', loggedIn);
   $('main-section').classList.toggle('hidden', !loggedIn);
+
+  const hint = $('hdr-preview-hint');
+  if (hint) hint.classList.toggle('hidden', !previewMode);
 
   if (!passenger) return;
 
@@ -314,6 +400,7 @@ async function doLogin(e) {
   $('btn-login').textContent = '登入中...';
   try {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
+    previewMode = false;
     passenger = data.passenger;
     lastLandedFlight = data.lastLandedFlight || null;
     landingScenery = data.landingScenery || null;
@@ -332,6 +419,10 @@ async function doLogin(e) {
 }
 
 async function doTakeoff() {
+  if (previewMode) {
+    showMsg('main', 'error', '目前為 UI 示範。請點右上角「登出」後登入，再測試起飛。');
+    return;
+  }
   clearMsg('main');
   $('btn-takeoff').disabled = true;
   $('btn-takeoff').textContent = '起飛中...';
@@ -367,6 +458,10 @@ async function doTakeoff() {
 }
 
 async function doLand() {
+  if (previewMode) {
+    showMsg('main', 'error', '目前為 UI 示範。請點右上角「登出」後登入，再測試降落。');
+    return;
+  }
   clearMsg('main');
   $('btn-land').disabled = true;
   $('btn-land').textContent = '降落中，請稍候...';
@@ -404,6 +499,7 @@ async function doLand() {
 }
 
 function doLogout() {
+  previewMode = false;
   passenger = null;
   activeFlight = null;
   groupFlights = [];
@@ -473,6 +569,7 @@ async function seedCities() {
 // ── Event Listeners ───────────────────────────────────────────────────────────
 
 $('login-form').addEventListener('submit', doLogin);
+if ($('btn-preview')) $('btn-preview').addEventListener('click', enterDemoPreview);
 $('btn-takeoff').addEventListener('click', doTakeoff);
 $('btn-land').addEventListener('click', doLand);
 $('btn-logout').addEventListener('click', doLogout);
@@ -492,5 +589,13 @@ function toggleSection(contentId, headerEl) {
 (async function initApp() {
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   fillLoginForm(loadLoginProfile());
-  updateUI();
+
+  const forceLogin = new URLSearchParams(location.search).has('login');
+  const autoPreview = window.SLEEP_AIRLINE_AUTO_PREVIEW !== false;
+
+  if (!forceLogin && autoPreview) {
+    enterDemoPreview();
+  } else {
+    updateUI();
+  }
 })();

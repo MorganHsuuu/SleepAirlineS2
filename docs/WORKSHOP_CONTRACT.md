@@ -3,7 +3,7 @@
 > UI 各組可以完全不同；**餵給主辦 Notion 的資料格式**必須一致。  
 > 改完 UI 後在本機執行：`npm run check:contract`
 
-**Phase 1 預覽：** 執行 `npm install` 後可直接開 `public/index.html`（資料在 localStorage；降落讀 `public/cities_data.json` 算距離）。  
+**Phase 1 預覽：** 開啟 `public/index.html` **直接進主畫面 UI 示範**（不需登入、不需 npm）。登出後可登入測試流程；真實降落需 `npm install` 複製 `cities_data.json`。  
 **Phase 3：** 部署 Vercel 並填入 Notion env 後，同一套 UI 才會寫入主辦總表。
 
 ---

@@ -30,8 +30,9 @@ npm install          # 第一次需要；之後改 UI 可略過
 npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 ```
 
-**Phase 1 改 UI 不一定要跑後端。** 解壓後先執行 **`npm install`**（會把 `cities_data.json` 複製到 `public/`，降落才會依距離選城市），再雙擊 `public/index.html` 或用 Cursor 預覽即可登入／起飛／降落（資料在瀏覽器 **localStorage**，不進 Notion）。  
-部署 **Vercel** 後會自動改用伺服器（仍可不填 Notion）；**Phase 3** 才填 Notion 三項 env 寫入主辦總表。
+**Phase 1 改 UI 不一定要跑後端。** 解壓後**直接開 `public/index.html`** 就會進 **UI 示範**（主畫面全開，不需登入）；改 `style.css` 後重新整理即可看效果。  
+若要測試真實登入／起飛／降落：點 **登出** → 填表單登入（本機需 `npm install` 複製 `cities_data.json`）。  
+部署 **Vercel** 後同上；**Phase 3** 才填 Notion 三項 env。
 
 ---
 
@@ -41,7 +42,7 @@ npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 
 **目標：** 用 AI 改長相，部署後看到成果。此階段 **不填 Notion、不填 OpenAI 也可以**。
 
-1. 請 AI 改 UI：配色、文字、排版、地圖、動態效果等（主要改 `public/`）
+1. 請 AI 改 UI：配色、文字、排版、地圖、動態效果等（主要改 `public/`）— **開啟即為 UI 示範，不用先登入**
 2. 改完執行 **`npm run check:contract`**，確認 API／表單 id 仍符合契約
 3. `commit & push` → Vercel 自動 redeploy → 開自己的網址確認
 4. 可登入、起飛、降落測試流程（**不填 Notion**；本機 HTML 預覽用 localStorage，Vercel 無 env 時用伺服器記憶體）
@@ -84,7 +85,7 @@ Redeploy 後測試：
 ```bash
 NOTION_API_KEY=ntn_...              # 主辦提供的 Integration Token
 NOTION_DASHBOARD_DB_ID=...          # Flight Log 總表 ID（32 字元）
-NOTION_LANDSCAPE_DB_ID=...          # Landing Scenery ID（要生風景圖時）
+NOTION_LANDSCAPE_DB_ID=38e65082791780178da6000c4343c38b   # Landing Scenery 檔案庫（降落風景圖）
 ```
 
 主辦也會提供總表／說明網址供對照。**學員請勿設定** `NOTION_PARENT_PAGE_ID`、`NOTION_ALLOW_SCHEMA_WRITE`。

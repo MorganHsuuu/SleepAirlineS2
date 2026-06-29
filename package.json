@@ -10,6 +10,7 @@
     "start": "tsx server.ts",
     "build": "node scripts/build-vercel.mjs",
     "setup": "tsx scripts/setup-notion.ts",
+    "notion:verify": "node scripts/verify-notion-landscape.mjs",
     "check:contract": "node scripts/check-workshop-contract.mjs"
   },
   "dependencies": {

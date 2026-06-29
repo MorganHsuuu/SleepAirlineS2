@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>甦醒航班 | Sleep Airline</title>
   <link rel="stylesheet" href="style.css">
+  <script>window.SLEEP_AIRLINE_AUTO_PREVIEW = true;</script>
 </head>
   <body>
 
@@ -56,6 +57,9 @@
           </div>
           <button type="submit" class="btn btn-primary" id="btn-login">登入</button>
         </form>
+        <button type="button" class="btn btn-ghost" id="btn-preview" style="width:100%;margin-top:12px">
+          直接預覽介面（不需登入）
+        </button>
       </div>
     </div>
   </div>
@@ -72,6 +76,7 @@
         </a>
       </div>
       <div class="header-right">
+        <span class="text-muted hidden" id="hdr-preview-hint" style="font-size:11px">UI 示範</span>
         <span class="text-muted" id="hdr-group" style="font-size:12px"></span>
         <span id="hdr-badge"></span>
         <button class="btn btn-ghost" id="btn-logout" style="font-size:11px">登出</button>
