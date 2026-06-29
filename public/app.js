@@ -79,6 +79,11 @@ async function api(method, url, body) {
       WorkshopLocal.enable();
       return WorkshopLocal.handle(method, url, body);
     }
+    if (err instanceof TypeError || err.message === 'Failed to fetch') {
+      throw new Error(
+        '無法連線後端。本機預覽請確認 workshop-local.js 已載入；或執行 npm run dev 後開 http://localhost:3000'
+      );
+    }
     throw err;
   }
   const text = await res.text();
