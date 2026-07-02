@@ -109,6 +109,21 @@ const NAME2ISO = {
   egypt: 'EG', 埃及: 'EG', morocco: 'MA', 摩洛哥: 'MA', kenya: 'KE', 肯亞: 'KE',
 };
 
+/** 載入由 cities 產生的完整國名→ISO 對照（涵蓋所有國家的中/英名），補進 NAME2ISO */
+async function loadCountryIso() {
+  for (const url of ['./country-iso.json', '/country-iso.json']) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const map = await res.json();
+      for (const [k, v] of Object.entries(map)) {
+        if (!NAME2ISO[k]) NAME2ISO[k] = v;
+      }
+      return;
+    } catch { /* try next */ }
+  }
+}
+
 /** ISO2 → 國旗 emoji（區域指示符號）*/
 function isoToFlag(iso) {
   if (!iso || iso.length !== 2) return '';
@@ -243,7 +258,8 @@ const Globe = (() => {
   let w = 0, h = 0, baseR = 200, k = 1;
   const HOME_ROT = [-DEFAULT_COORD[0], -20];
   let idleTimer = null, idleOn = true;
-  let view = { you: null, friends: [], heading: null, traveledKm: 0, possibilityKm: 0, arrival: null, routeArc: null, planeC: null };
+  let onFriendPick = null;
+  let view = { you: null, friends: [], heading: null, traveledKm: 0, possibilityKm: 0, arrival: null, routeArc: null, planeC: null, mateArc: null };
 
   function cssVar(name) {
     return getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -318,6 +334,10 @@ const Globe = (() => {
       routes.push({ d: circle, s: '3 5', wd: 1.3, o: 0.55 });
       view.planeC = null;
     }
+    // 隊友航線（點看板成員後高亮的虛線大圓）
+    if (view.mateArc) {
+      routes.push({ d: lineTo(view.mateArc.from, view.mateArc.to), s: '5 6', wd: 1.9, o: 0.95 });
+    }
     gRoute.selectAll('path').data(routes).join('path')
       .attr('d', (x) => path(x.d)).attr('fill', 'none')
       .attr('stroke', gold).attr('stroke-width', (x) => x.wd)
@@ -329,7 +349,11 @@ const Globe = (() => {
     const labelInk = cssVar('--ink-soft') || '#33557f';
     const pts = [];
     if (view.you) pts.push({ key: 'you', c: view.you.c, label: view.you.label, kind: 'you' });
-    view.friends.forEach((f, i) => pts.push({ key: 'f' + i + f.label, c: f.c, label: f.label + (f.flying ? ' ✈' : ''), kind: 'friend' }));
+    view.friends.forEach((f, i) => pts.push({ key: 'f' + i + f.label, c: f.c, label: f.label + (f.flying ? ' ✈' : ''), kind: 'friend', idx: f.idx }));
+    if (view.mateArc) {
+      pts.push({ key: 'mateDep', c: view.mateArc.from, label: view.mateArc.depLabel, kind: 'friend' });
+      pts.push({ key: 'mateArr', c: view.mateArc.to, label: view.mateArc.arrLabel, kind: 'arrival' });
+    }
     if (view.arrival) pts.push({ key: 'arr', c: view.arrival.c, label: view.arrival.label, kind: 'arrival' });
     if (view.planeC && !view.routeArc) pts.push({ key: 'plane', c: view.planeC, kind: 'plane' });
     if (view.routeArc?.planeT != null) {
@@ -361,6 +385,10 @@ const Globe = (() => {
       g.select('.lbl').attr('x', x).attr('y', y - 11).attr('text-anchor', 'middle')
         .attr('font-size', '9px').attr('font-weight', main ? '800' : '600')
         .attr('fill', labelInk).text(d.label || '');
+      // 可點擊的隊友點：開啟該隊友航程詳情
+      const clickable = d.kind === 'friend' && Number.isInteger(d.idx);
+      g.style('cursor', clickable ? 'pointer' : null)
+        .on('click', clickable ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
     });
   }
 
@@ -503,6 +531,20 @@ const Globe = (() => {
     setIdle(on) { idleOn = on; },
     update(patch) { Object.assign(view, patch); render(); },
     clearRoute() { Object.assign(view, { heading: null, traveledKm: 0, possibilityKm: 0, routeArc: null, planeC: null, arrival: null }); render(); },
+    setFriendPick(fn) { onFriendPick = fn; },
+    /** 高亮某位隊友的航線（虛線大圓 + 起降點），並把鏡頭轉到航線中點 */
+    focusMate(from, to, arrLabel, depLabel) {
+      view.mateArc = { from, to, arrLabel, depLabel };
+      // 停用自己的航向提示圖層，避免干擾
+      view.heading = null; view.possibilityKm = 0; view.routeArc = null;
+      idleOn = false;
+      render();
+      if (ok && from && to) {
+        const mid = d3.geoInterpolate(from, to)(0.5);
+        flyTo(mid, 900);
+      }
+    },
+    clearMate() { view.mateArc = null; render(); },
     get ok() { return ok; },
   };
 })();
@@ -679,6 +721,15 @@ function openSheet(id) {
 function closeSheets() {
   $('sheet-mask').classList.remove('show');
   document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('show'));
+  Globe.clearMate();
+  restoreGlobeView();
+}
+
+function restoreGlobeView() {
+  if (!passenger) { Globe.setIdle(true); return; }
+  Globe.setIdle(false);
+  if (passenger.status === 'in_flight' && activeFlight) updateGlobeForFlight();
+  else updateGlobeForReady();
 }
 
 // ── 訊息（toast / 登入卡內）──────────────────────────────────────────────────
@@ -754,12 +805,13 @@ async function api(method, url, body) {
 function friendsFromBoard() {
   if (!passenger) return [];
   return groupFlights
-    .filter((f) => f.passengerName !== passenger.name)
-    .map((f) => {
+    .map((f, idx) => ({ f, idx }))
+    .filter(({ f }) => f.passengerName !== passenger.name)
+    .map(({ f, idx }) => {
       const c = f.status === 'landed'
         ? coordOf(f, 'arrivalLatitude', 'arrivalLongitude')
         : coordOf(f, 'departureLatitude', 'departureLongitude');
-      return c ? { c, label: f.passengerName, flying: f.status === 'in_flight' } : null;
+      return c ? { c, label: f.passengerName, flying: f.status === 'in_flight', idx } : null;
     })
     .filter(Boolean);
 }
@@ -906,7 +958,7 @@ function renderBoard() {
   }
   empty.classList.add('hidden');
 
-  listEl.innerHTML = groupFlights.map((f) => {
+  listEl.innerHTML = groupFlights.map((f, i) => {
     const initial = (f.passengerName || '?').slice(0, 1);
     const flying = f.status === 'in_flight';
     const sub = flying
@@ -917,12 +969,13 @@ function renderBoard() {
     const tag = flying
       ? '<span class="tag-fly">✈ 飛行中</span>'
       : f.status === 'landed' ? '<span class="tag-land">✓ 抵達</span>' : '';
-    return `<div class="brow">
+    return `<div class="brow" role="button" tabindex="0" data-idx="${i}">
       <div class="avatar" style="background:${avatarColor(f.passengerName)}">${initial}</div>
       <div class="brow-info">
         <div class="brow-name">${f.passengerName}</div>
         <div class="brow-sub">${sub}</div>
       </div>${tag}
+      <span class="brow-go">›</span>
     </div>`;
   }).join('');
 
@@ -976,6 +1029,113 @@ function renderSceneryCard(loading = false) {
   }
 }
 
+// ── 隊友航程詳情（點小隊看板成員）────────────────────────────────────────────
+
+let mateSceneryToken = 0;
+
+function openMateSheet(f) {
+  if (!f) return;
+  const meta = arrivalMeta(f);
+  const landed = f.status === 'landed';
+  const flying = f.status === 'in_flight';
+
+  $('mate-flag').textContent = landed ? meta.flag : (flying ? '🛫' : '🧳');
+  $('mate-name').textContent = f.passengerName || '隊友';
+  $('mate-status').textContent = landed
+    ? `已降落 · ${meta.country}`
+    : (STATUS_LABEL[f.status] || f.status);
+
+  // 已降落：用視覺化航線帶（起點 ┈✈┈ 終點＋國旗）；其它狀態：文字說明
+  const arc = $('mate-arc');
+  if (landed) {
+    arc.hidden = false;
+    $('ma-dep').textContent = cityOnly(f.departureLocation) || '—';
+    $('ma-arr').textContent = cityOnly(f.arrivalLocation) || '?';
+    $('ma-arc-flag').textContent = meta.flag;
+    $('mate-route').textContent = meta.country ? `抵達 ${meta.country}` : '';
+    $('mate-route').classList.toggle('hidden', !meta.country);
+  } else {
+    arc.hidden = true;
+    $('mate-route').classList.remove('hidden');
+    $('mate-route').textContent = flying
+      ? `${cityOnly(f.departureLocation)} 出發 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
+      : (cityOnly(f.departureLocation) || '—');
+  }
+
+  const chips = [];
+  if (landed) {
+    chips.push(`🌙 ${fmtDuration(f.flightDurationMinutes)}`);
+    if (f.estimatedFlightDistanceKm) {
+      chips.push(`📏 ${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
+    }
+  }
+  if (f.routeDirection && DIRECTION_LABEL[f.routeDirection]) {
+    chips.push(`🧭 ${DIRECTION_LABEL[f.routeDirection]}`);
+  }
+  $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
+
+  $('mate-bc-text').textContent = f.captainBroadcast || f.takeoffBroadcast || '這位隊友還沒有機長廣播。';
+  const cue = $('mate-cue');
+  cue.classList.toggle('hidden', !f.socialCueText);
+  cue.textContent = f.socialCueText ? '◎ ' + f.socialCueText : '';
+
+  // 在地球儀上高亮這位隊友的航線（虛線 + 起降點）
+  const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
+  const arr = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+  if (landed && dep && arr) {
+    Globe.focusMate(dep, arr, `${cityOnly(f.arrivalLocation)}${meta.flag ? ' ' + meta.flag : ''}`, cityOnly(f.departureLocation));
+  } else if (dep) {
+    Globe.clearMate();
+    Globe.flyTo(dep, 900);
+  }
+
+  renderMateScenery(f, meta, landed);
+  openSheet('mate-sheet');
+}
+
+async function renderMateScenery(f, meta, landed) {
+  const win = $('mate-window');
+  if (!landed || !f.arrivalLocation) { win.hidden = true; return; }
+  win.hidden = false;
+
+  const scene = $('mate-scene');
+  const img = $('mate-img');
+  const fallback = $('mate-fallback');
+  const token = ++mateSceneryToken;
+
+  $('mate-caption').textContent = '📍 ' + (cityOnly(f.arrivalLocation) || '') +
+    (meta.country ? ' · ' + meta.country : '');
+  img.hidden = true; img.removeAttribute('src');
+  fallback.innerHTML = '';
+  scene.querySelector('.pw-empty')?.remove();
+  $('mate-loading').classList.remove('hidden');
+
+  let scenery = null;
+  try {
+    if (f.flightId) {
+      const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(f.flightId));
+      scenery = data.scenery || null;
+    }
+  } catch { scenery = null; }
+  if (token !== mateSceneryToken) return;   // 已切換到其他隊友
+
+  $('mate-loading').classList.add('hidden');
+  if (scenery?.imageUrl) {
+    fallback.hidden = true;
+    img.hidden = false;
+    scene.classList.add('developing');
+    img.onload = () => setTimeout(() => scene.classList.remove('developing'), 80);
+    img.src = scenery.imageUrl;
+    img.alt = f.arrivalLocation || '隊友降落風景';
+    if (img.complete) img.onload();
+  } else {
+    // 沒有 AI 生圖時，用晨景 SVG 當窗外預覽（與自己的降落面板一致）
+    img.hidden = true;
+    fallback.hidden = false;
+    fallback.innerHTML = buildWindowScene(cityOnly(f.arrivalLocation) || 'sky');
+  }
+}
+
 // ── 機窗開合（點飛機 → 展開/收合窗外風景）────────────────────────────────────
 
 function setWindowOpen(open) {
@@ -999,7 +1159,23 @@ function celebrateArrival(flightId) {
   celebratedFlightId = flightId;
   const burst = $('arrival-burst');
   if (burst) { burst.classList.remove('go'); void burst.offsetWidth; burst.classList.add('go'); }
-  setWindowOpen(false);
+  // 抵達即自動展開機窗，直接露出窗外風景（AI 圖或晨景），仍可再點擊收合
+  setWindowOpen(true);
+  // 面板可能較高，捲回頂端讓「國旗＋城市＋ARRIVED」的抵達感先被看見
+  const panel = $('landed-panel');
+  if (panel) requestAnimationFrame(() => { panel.scrollTop = 0; });
+}
+
+// ── 降落過場 ─────────────────────────────────────────────────────────────────
+
+function showLandingFx(sub) {
+  const fx = $('landing-fx');
+  if (!fx) return;
+  if (sub) { const s = $('landing-fx-sub'); if (s) s.textContent = sub; }
+  fx.classList.add('show');
+}
+function hideLandingFx() {
+  $('landing-fx')?.classList.remove('show');
 }
 
 // ── 主 UI 狀態機 ─────────────────────────────────────────────────────────────
@@ -1138,6 +1314,7 @@ async function doLand() {
   const btn = $('btn-land');
   btn.disabled = true;
   renderSceneryCard(true);
+  showLandingFx('正在生成機長廣播與窗外風景');
   try {
     const data = await api('POST', '/api/flight/land', {
       passengerId: passenger.passengerId,
@@ -1160,19 +1337,26 @@ async function doLand() {
     // 降落滑行 → 抵達面板
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
+    let finished = false;
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      hideLandingFx();
       activeFlight = null;
       if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
       updateUI();
     };
     if (arr && Globe.ok) Globe.glideToArrival(dep, arr, finish);
     else finish();
+    // 保險：即使滑行動畫（requestAnimationFrame）因切換分頁被暫停，也一定抵達
+    setTimeout(finish, 2600);
 
     await fetchBoard();
     if (landed.captainBroadcast) {
       playBroadcastWithWave(landed.captainBroadcast, landed.captainBroadcastStyle || landed.takeoffBroadcastStyle);
     }
   } catch (err) {
+    hideLandingFx();
     landingScenery = null;
     renderSceneryCard(false);
     showMsg('main', 'error', err.message);
@@ -1303,6 +1487,19 @@ $('btn-theme').addEventListener('click', toggleTheme);
 $('board-head').addEventListener('click', () => $('board-card').classList.toggle('open'));
 $('bd-broadcasts-head').addEventListener('click', () => $('bd-broadcasts-list').classList.toggle('hidden'));
 
+$('bd-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.brow');
+  if (!row) return;
+  openMateSheet(groupFlights[+row.dataset.idx]);
+});
+$('bd-list').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const row = e.target.closest('.brow');
+  if (!row) return;
+  e.preventDefault();
+  openMateSheet(groupFlights[+row.dataset.idx]);
+});
+
 $('btn-compass').addEventListener('click', () => openSheet('compass-sheet'));
 $('btn-tickets').addEventListener('click', () => { renderTickets(); openSheet('tickets-sheet'); });
 $('sheet-mask').addEventListener('click', closeSheets);
@@ -1326,7 +1523,11 @@ $('btn-close-landed').addEventListener('click', () => {
   if (document.readyState === 'complete') Globe.init();
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
+  // 點地球儀上的隊友點 → 開啟該隊友航程詳情
+  Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateSheet(groupFlights[idx]); });
+
   if (window.WorkshopLocal) await WorkshopLocal.probe();
+  await loadCountryIso();
   fillLoginForm(loadLoginProfile());
 
   const forceLogin = new URLSearchParams(location.search).has('login');

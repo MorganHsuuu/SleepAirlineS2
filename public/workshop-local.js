@@ -414,6 +414,9 @@
     if (method === 'GET' && path === '/api/flight/progress') {
       return handleProgress(u.searchParams.get('passengerId') || '');
     }
+    if (method === 'GET' && path === '/api/scenery') {
+      return { scenery: null };
+    }
     if (method === 'GET' && path === '/api/config') {
       return { dataMode: 'preview', notionConfigured: false, notionReady: false, hint: '' };
     }

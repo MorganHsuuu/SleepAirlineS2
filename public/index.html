@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>甦醒航班 | Sleep Airline</title>
   <link rel="stylesheet" href="style.css">
-  <script>window.SLEEP_AIRLINE_AUTO_PREVIEW = true;</script>
+  <script>window.SLEEP_AIRLINE_AUTO_PREVIEW = false;</script>
   <script src="https://cdn.jsdelivr.net/npm/d3@7" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/topojson-client@3" defer></script>
 </head>
@@ -265,6 +265,52 @@
     <div class="tickets-shelf" id="tickets-list"></div>
   </div>
 
+  <!-- 隊友航程詳情（點小隊看板成員開啟）-->
+  <div class="sheet" id="mate-sheet">
+    <div class="sheet-grip"></div>
+    <div class="mate-head">
+      <div class="mate-flag" id="mate-flag">🌍</div>
+      <div class="mate-headinfo">
+        <div class="mate-name" id="mate-name">—</div>
+        <div class="mate-status" id="mate-status">—</div>
+      </div>
+    </div>
+    <div class="mate-route" id="mate-route">—</div>
+    <div class="mate-arc" id="mate-arc" hidden>
+      <div class="ma-end">
+        <span class="ma-dot"></span>
+        <span class="ma-city" id="ma-dep">—</span>
+      </div>
+      <div class="ma-track"><span class="ma-plane">✈</span></div>
+      <div class="ma-end ma-end-r">
+        <span class="ma-dot ma-dot-arr"></span>
+        <span class="ma-city" id="ma-arr">—</span>
+        <span class="ma-flag" id="ma-arc-flag">🌍</span>
+      </div>
+    </div>
+    <div class="landed-meta" id="mate-meta"></div>
+
+    <div class="plane-window" id="mate-window">
+      <div class="pw-frame">
+        <div class="pw-scene" id="mate-scene">
+          <div class="pw-fallback" id="mate-fallback"></div>
+          <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
+          <div class="pw-glare" aria-hidden="true"></div>
+          <div class="scenery-loading hidden" id="mate-loading">讀取降落風景中</div>
+        </div>
+      </div>
+      <div class="pw-meta">
+        <span class="scenery-caption" id="mate-caption"></span>
+      </div>
+    </div>
+
+    <div class="broadcast-box" id="mate-bc">
+      <span class="bc-cap">🎙 機長廣播</span>
+      <span id="mate-bc-text">—</span>
+    </div>
+    <div class="social-cue hidden" id="mate-cue"></div>
+  </div>
+
   <!-- 起飛過場 -->
   <div id="takeoff-fx">
     <span class="fx-plane">✈</span>
@@ -272,6 +318,19 @@
     <span class="fx-cloud" style="width:80px;height:24px;left:62%;animation-delay:.3s"></span>
     <span class="fx-cloud" style="width:100px;height:28px;left:34%;animation-delay:.6s"></span>
     <span class="fx-cloud" style="width:70px;height:20px;left:80%;animation-delay:.15s"></span>
+  </div>
+
+  <!-- 降落過場（等待機長廣播 / 生圖時持續顯示） -->
+  <div id="landing-fx" aria-hidden="true">
+    <span class="lf-cloud" style="width:130px;height:34px;left:8%;animation-delay:0s"></span>
+    <span class="lf-cloud" style="width:90px;height:24px;left:66%;animation-delay:.5s"></span>
+    <span class="lf-cloud" style="width:110px;height:30px;left:38%;animation-delay:.9s"></span>
+    <div class="lf-center">
+      <span class="lf-plane">🛬</span>
+      <div class="lf-title">降落中…</div>
+      <div class="lf-sub" id="landing-fx-sub">正在生成機長廣播與窗外風景</div>
+      <div class="lf-bar"><i></i></div>
+    </div>
   </div>
 
   <script src="workshop-local.js"></script>

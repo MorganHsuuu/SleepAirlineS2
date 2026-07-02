@@ -399,6 +399,20 @@ app.get('/api/board', async (req, res) => {
   }
 });
 
+// ── GET /api/scenery ──────────────────────────────────────────────────────────
+// 唯讀：依 flightId 取降落風景（供小隊看板查看隊友的降落風景圖）
+
+app.get('/api/scenery', async (req, res) => {
+  try {
+    const flightId = req.query.flightId as string;
+    if (!flightId) { res.status(400).json({ error: '請提供 flightId。' }); return; }
+    const scenery = await getLandscapeByFlightId(flightId);
+    res.json({ scenery });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+});
+
 // ── GET /api/workshop ─────────────────────────────────────────────────────────
 
 app.get('/api/workshop', async (_req, res) => {
