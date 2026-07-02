@@ -84,8 +84,9 @@
             : `${entry.city}, ${entry.country}`;
         return {
           displayName,
-          city: entry.city,
+          city: entry.city_zh || entry.city,
           country,
+          iso: entry.country_iso_code || '',
           latitude: entry.latitude,
           longitude: entry.longitude,
           availableForLanding: true,
@@ -152,14 +153,39 @@
     return 'arrival_harbor';
   }
 
-  function fallbackBroadcast(phase, name, departure, arrival, durationMinutes) {
+  // 抵達時機長會補的當地文化 / 社交小語（依國家 ISO；找不到用通用款）
+  const CULTURE_HINT = {
+    JP: '記得入境隨俗，見到當地人時輕輕鞠個躬吧。',
+    KR: '若和當地人乾杯，晚輩要側身、雙手捧杯才有禮貌喔。',
+    CN: '喝茶時被斟茶，用手指輕敲桌面就是在說謝謝。',
+    TW: '別忘了逛逛夜市，一句「呷飽沒」就能拉近距離。',
+    HK: '茶餐廳可能要和陌生人「搭檯」，點杯凍鴛鴦感受在地節奏。',
+    TH: '打招呼時雙手合十微微低頭，這是泰式的溫柔。',
+    VN: '找張街邊小塑膠椅坐下，來杯滴漏咖啡就很在地。',
+    SG: '熟食中心用面紙包佔位是默契，別搶了別人的座位。',
+    MY: '入夜後到 mamak 檔喝杯拉茶，是當地人的宵夜社交。',
+    IN: '雙手合十說聲「Namaste」，用右手遞物才有禮貌。',
+    GB: '排隊是神聖的，到 pub 和鄰座聊聊天氣最道地。',
+    FR: '進店先說聲「Bonjour」，會讓當地人對你另眼相看。',
+    DE: '和人乾杯時記得眼神對視，這在德國是基本禮貌。',
+    IT: '咖啡站著喝、午後別點卡布奇諾，就是道地義式。',
+    ES: '晚餐晚一點才開始，配 tapas 聊天到深夜很正常。',
+    US: '一個微笑加上 small talk，就能輕鬆破冰。',
+    CA: '多說幾次「sorry」與「thank you」，很快就融入了。',
+    AU: '用「no worries」回應一切，你就是半個澳洲人了。',
+    BR: '見面用擁抱與貼臉頰問候，熱情是這裡的語言。',
+    MX: '街角 taco 攤是深夜社交場，別害羞地加入吧。',
+  };
+
+  function fallbackBroadcast(phase, name, departure, arrival, durationMinutes, iso) {
     if (phase === 'takeoff') {
-      return `各位乘客，甦醒航班即將自 ${departure} 起飛。${name}，請準備進入夜航。`;
+      return `各位乘客，甦醒航班即將自 ${departure} 起飛。${name}，請繫好安全帶、調暗舷窗，準備進入今晚的夜航。`;
     }
     const h = durationMinutes ? Math.floor(durationMinutes / 60) : 0;
     const m = durationMinutes ? durationMinutes % 60 : 0;
     const dur = h > 0 ? `${h} 小時 ${m} 分鐘` : m > 0 ? `${m} 分鐘` : '一段';
-    return `各位乘客，甦醒航班已抵達 ${arrival}。${name} 自 ${departure} 出發，飛行 ${dur}。`;
+    const hint = (iso && CULTURE_HINT[iso]) || '走出艙門，帶著好奇心向當地人微笑問好吧。';
+    return `各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
   }
 
   function buildBoardFlights(flights, groupId) {
@@ -318,7 +344,8 @@
       active.passengerName,
       active.departureLocation,
       arrival.displayName,
-      durationMinutes
+      durationMinutes,
+      arrival.iso
     );
 
     const landed = {
@@ -327,6 +354,9 @@
       landingTime,
       flightDurationMinutes: durationMinutes,
       estimatedFlightDistanceKm: Math.round(distanceKm),
+      arrivalIso: arrival.iso || '',
+      arrivalCountry: arrival.country || '',
+      arrivalCity: arrival.city || '',
       arrivalLocation: arrival.displayName,
       arrivalLatitude: arrival.latitude,
       arrivalLongitude: arrival.longitude,
