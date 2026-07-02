@@ -10,14 +10,14 @@ export interface SceneryGenerationResult {
 export function buildSceneryPrompt(city: string, country: string, displayName: string): string {
   const place = displayName || `${city}, ${country}`;
   return [
-    `View through an airplane cabin window on a quiet night flight,`,
-    `gazing at the landscape near ${place}.`,
-    `Dreamy and poetic mood: deep midnight navy sky, soft starlight,`,
-    `gentle moonlit mist over terrain typical of ${country} —`,
-    `rolling hills, coastline, or valley silhouettes, not a tourist postcard or famous monument.`,
-    `Cinematic, half-awake memory feel; subtle amber reflection on the window glass,`,
-    `cool blue-teal atmosphere like a long night journey before dawn.`,
-    `Soft atmospheric perspective, no people, no text, no watermark, no logos.`,
+    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
+    `Golden sunrise light breaking over the city — a hopeful, just-woke-up feeling of arrival.`,
+    `Feature the most iconic, instantly recognizable landmarks and skyline of ${city}:`,
+    `famous architecture, distinctive local rooftops and streets that could only be ${place},`,
+    `rich with the authentic cultural character of ${country}.`,
+    `Bright daybreak palette: warm gold, soft peach, fresh morning-blue sky, thin luminous haze;`,
+    `subtle window-glass reflection at the frame edges — cinematic, dreamy yet luminous.`,
+    `No close-up people, no text, no watermark, no logos.`,
   ].join(' ');
 }
 

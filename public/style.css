@@ -145,7 +145,8 @@ body {
   transition: background .15s;
 }
 .chip-ghost:hover { background: var(--glass-bg-strong); }
-#hdr-preview-hint { color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; }
+#hdr-preview-hint { color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; white-space: nowrap; }
+@media (max-width: 480px) { #hdr-preview-hint { display: none; } }
 
 /* ═══ Toast 訊息 ═══ */
 
