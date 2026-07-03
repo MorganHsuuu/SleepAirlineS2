@@ -199,6 +199,35 @@ function restoreLandingMusic() {
   if (landingAudio) landingAudio.volume = landingVolume;
 }
 
+let mediaUnlocked = false;
+
+/** 在使用者點擊當下解鎖 Audio / Video 自動播放（避免 API 等待後被瀏覽器擋住） */
+async function unlockMedia() {
+  const ctx = getAudioCtx();
+  if (ctx?.state === 'suspended') {
+    try { await ctx.resume(); } catch { /* noop */ }
+  }
+  if (mediaUnlocked) return true;
+  try {
+    const probe = new Audio(CAPTAIN_SFX.url);
+    probe.volume = 0.001;
+    probe.preload = 'auto';
+    await probe.play();
+    probe.pause();
+    try { probe.currentTime = 0; } catch { /* noop */ }
+    mediaUnlocked = true;
+    return true;
+  } catch {
+    try {
+      tone(440, 0, 0.04, 0.001);
+      mediaUnlocked = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 async function playAttentionBeeps() {
   tone(520, 0, 0.08, 0.09);
   await delay(200);
@@ -328,12 +357,14 @@ async function playCaptainBroadcast(text, style) {
   stopPlayback();
   duckLandingMusic();
   try {
-    const prepared = await prepareCaptainSpeech(text, style);
-    if (!prepared) return false;
+    await unlockMedia();
+    const prepPromise = prepareCaptainSpeech(text, style);
     await playCaptainIntro();
-    return playPreparedSpeech(prepared);
+    const prepared = await prepPromise;
+    if (prepared) return playPreparedSpeech(prepared);
+    return speakText(text);
   } catch {
-    return false;
+    return speakText(text);
   } finally {
     restoreLandingMusic();
   }
@@ -346,11 +377,13 @@ if (window.speechSynthesis) {
 
 window.BroadcastAudio = {
   playCaptainBroadcast,
+  prepareCaptainSpeech,
   playTowerSignal,
   startTowerSignalLoop,
   stopTowerSignalLoop,
   speakText,
   stopPlayback,
+  unlockMedia,
   playFlightSfx,
   stopFlightSfx,
   playLandingMusic,

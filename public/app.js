@@ -1697,7 +1697,8 @@ function focusGroupMate(f) {
 // ── 舷窗影片 ─────────────────────────────────────────────────────────────────
 
 async function playWindowVideo(video, src, { loop = true } = {}) {
-  if (!video || !src) return;
+  if (!video || !src) return false;
+  await BroadcastAudio?.unlockMedia?.();
   const srcChanged = video.dataset.src !== src;
   if (srcChanged) {
     video.src = src;
@@ -1712,13 +1713,21 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
   }
   try {
     await video.play();
-  } catch { /* 部分瀏覽器需使用者手勢才允許播放 */ }
+    return true;
+  } catch {
+    try {
+      await BroadcastAudio?.unlockMedia?.();
+      await video.play();
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function pauseWindowVideo(video) {
   if (!video) return;
   video.pause();
-  try { video.currentTime = 0; } catch { /* noop */ }
 }
 
 function waitForVideoEnd(video, fallbackMs = 4000) {
@@ -2032,6 +2041,16 @@ function preloadTakeoffVideo() {
     video.load();
   }
 }
+async function primeCeremonyMedia() {
+  await BroadcastAudio?.unlockMedia?.();
+  preloadTakeoffVideo();
+  preloadLandingVideos();
+  const takeoffVid = $('takeoff-fx-video');
+  const landingVid = $('landing-fx-video');
+  if (takeoffVid) playWindowVideo(takeoffVid, FLIGHT_MEDIA.takeoff);
+  if (landingVid) playWindowVideo(landingVid, FLIGHT_MEDIA.descent);
+}
+
 function preloadLandingVideos() {
   [FLIGHT_MEDIA.descent, FLIGHT_MEDIA.landing].forEach((src) => {
     if (!src) return;
@@ -2108,7 +2127,8 @@ function setTakeoffFxPhase(phase) {
   if (!fx) return;
   fx.dataset.phase = phase;
   if (phase === 'prep') {
-    pauseWindowVideo(video);
+    preloadTakeoffVideo();
+    playWindowVideo(video, FLIGHT_MEDIA.takeoff);
     animateFxLine('takeoff-fx-title', '塔台連線中…');
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
   } else if (phase === 'launch') {
@@ -2453,6 +2473,7 @@ async function doTakeoff() {
   closeSheets();
   const btn = $('btn-takeoff');
   btn.disabled = true;
+  await primeCeremonyMedia();
   lockDockForFx('takeoff');
   showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
   BroadcastAudio?.startTowerSignalLoop?.();
@@ -2530,6 +2551,7 @@ async function doLand() {
   clearMsg('main');
   const btn = $('btn-land');
   btn.disabled = true;
+  await primeCeremonyMedia();
   renderSceneryCard(true);
 
   // ① 立刻進過場：takeoff2 + 甦醒音景（API 背景跑，使用者不覺得在等）
