@@ -40,6 +40,7 @@ if (!existsSync(isoDest) || statSync(src).mtimeMs > statSync(isoDest).mtimeMs) {
 const mediaDir = 'public/media';
 const mediaMap = [
   ['scripts/takeoff1.mp4', 'takeoff.mp4'],
+  ['scripts/takeoff2.mp4', 'takeoff2.mp4'],
   ['scripts/takeoff2.mp4', 'cruise.mp4'],
   ['scripts/landing.mp4', 'landing.mp4'],
 ];

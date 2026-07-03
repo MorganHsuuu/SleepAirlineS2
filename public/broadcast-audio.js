@@ -215,11 +215,15 @@ function speakText(text) {
 
 async function speakWithOpenAI(text, style) {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
     const res = await fetch('/api/broadcast/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, style: style || 'formal_captain' }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     if (!res.ok) return false;
 
     const blob = await res.blob();

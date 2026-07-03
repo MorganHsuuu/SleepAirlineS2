@@ -28,6 +28,7 @@ const DEFAULT_COORD = [121.5654, 25.033];    // Taipei
 /** 飛行舷窗影片（public/media/） */
 const FLIGHT_MEDIA = {
   takeoff: 'media/takeoff.mp4',
+  descent: 'media/takeoff2.mp4',
   cruise: 'media/cruise.mp4',
   landing: 'media/landing.mp4',
 };
@@ -1207,12 +1208,21 @@ function stopFlightTicker() {
 
 // ── 語音播放（含音波動畫）────────────────────────────────────────────────────
 
-async function playBroadcastWithWave(text, style) {
+async function playBroadcastWithWave(text, style, { maxMs = 0 } = {}) {
   if (!text || !window.BroadcastAudio) return;
   const wave = $('voice-wave');
   wave?.classList.add('speaking');
-  try { await BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain'); }
-  finally { wave?.classList.remove('speaking'); }
+  try {
+    const play = BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain');
+    if (maxMs > 0) {
+      await Promise.race([
+        play,
+        waitMs(maxMs).then(() => { BroadcastAudio?.stopPlayback?.(); }),
+      ]);
+    } else {
+      await play;
+    }
+  } finally { wave?.classList.remove('speaking'); }
 }
 
 // ── 票夾（localStorage）──────────────────────────────────────────────────────
@@ -1585,6 +1595,19 @@ function preloadTakeoffVideo() {
     video.load();
   }
 }
+function preloadLandingVideos() {
+  [FLIGHT_MEDIA.descent, FLIGHT_MEDIA.landing].forEach((src) => {
+    if (!src) return;
+    const link = document.querySelector(`link[data-preload="${src}"]`);
+    if (link) return;
+    const el = document.createElement('link');
+    el.rel = 'preload';
+    el.as = 'video';
+    el.href = src;
+    el.dataset.preload = src;
+    document.head.appendChild(el);
+  });
+}
 
 function animateFxLine(id, text) {
   const el = $(id);
@@ -1655,16 +1678,30 @@ async function hideTakeoffFx({ fast = false } = {}) {
 
 // ── 降落過場 ─────────────────────────────────────────────────────────────────
 
-function showLandingFx(sub) {
+function showLandingFx(sub, { phase = 'descent' } = {}) {
   const fx = $('landing-fx');
   if (!fx) return;
   if (sub) animateFxLine('landing-fx-sub', sub);
   fx.classList.remove('is-leaving');
   requestAnimationFrame(() => {
     fx.classList.add('show');
-    playWindowVideo($('landing-fx-video'), FLIGHT_MEDIA.landing);
+    preloadLandingVideos();
+    setLandingFxPhase(phase);
     startLandingMusic();
   });
+}
+function setLandingFxPhase(phase) {
+  const fx = $('landing-fx');
+  const video = $('landing-fx-video');
+  if (!fx || !video) return;
+  fx.dataset.phase = phase;
+  if (phase === 'descent') {
+    animateFxLine('landing-fx-title', '開始下降…');
+    playWindowVideo(video, FLIGHT_MEDIA.descent);
+  } else if (phase === 'approach') {
+    animateFxLine('landing-fx-title', '即將抵達…');
+    playWindowVideo(video, FLIGHT_MEDIA.landing);
+  }
 }
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');
@@ -1800,11 +1837,11 @@ async function doTakeoff() {
   stopLandingMusic();
   const btn = $('btn-takeoff');
   btn.disabled = true;
-  showTakeoffFx('正在與塔台確認 · 讀取 Notion 航班', { phase: 'prep' });
+  showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
   const statusCycle = startFxStatusCycle('takeoff-fx-sub', [
-    '正在與塔台確認 · 讀取 Notion 航班',
-    '同步小隊看板資料…',
-    '機長撰寫起飛廣播…',
+    '塔台連線中 · 請稍候…',
+    '同步航線與小隊雷達…',
+    '機長整理起飛廣播…',
   ]);
   try {
     const data = await Promise.all([
@@ -1826,7 +1863,11 @@ async function doTakeoff() {
 
     if (activeFlight.takeoffBroadcast) {
       await animateFxLine('takeoff-fx-sub', '機長廣播中…');
-      await playBroadcastWithWave(activeFlight.takeoffBroadcast, activeFlight.takeoffBroadcastStyle);
+      await playBroadcastWithWave(
+        activeFlight.takeoffBroadcast,
+        activeFlight.takeoffBroadcastStyle,
+        { maxMs: 45000 }
+      );
     }
 
     await animateFxLine('takeoff-fx-sub', '推進器啟動 · 準備離地…');
@@ -1867,11 +1908,11 @@ async function doLand() {
   const btn = $('btn-land');
   btn.disabled = true;
   renderSceneryCard(true);
-  showLandingFx('讀取 Notion · 計算抵達地點');
+  showLandingFx('穿越雲層中，請稍後…', { phase: 'descent' });
   const statusCycle = startFxStatusCycle('landing-fx-sub', [
-    '讀取 Notion · 計算抵達地點',
-    '機長廣播與窗外風景生成中…',
-    '正在對準跑道 · 準備進場…',
+    '穿越雲層中，請稍後…',
+    '高度下降 · 窗外雲海翻湧…',
+    '導航計算抵達航路…',
   ]);
   try {
     const data = await api('POST', '/api/flight/land', {
@@ -1895,14 +1936,12 @@ async function doLand() {
     stopFlightTicker();
     delete $('landed-panel').dataset.dismissed;
 
-    await animateFxLine('landing-fx-sub', '正在對準跑道 · 機長廣播中…');
+    setLandingFxPhase('approach');
+    await animateFxLine('landing-fx-sub', '對準跑道 · 機長準備廣播…');
 
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
-    const broadcastP = landed.captainBroadcast
-      ? playBroadcastWithWave(landed.captainBroadcast, landed.captainBroadcastStyle || landed.takeoffBroadcastStyle)
-      : Promise.resolve();
-    const glideP = new Promise((resolve) => {
+    await new Promise((resolve) => {
       let done = false;
       const finish = () => {
         if (done) return;
@@ -1913,7 +1952,6 @@ async function doLand() {
       else finish();
       setTimeout(finish, LANDING_FX_MS.glideMin);
     });
-    await Promise.all([broadcastP, glideP, waitMs(1200)]);
 
     stopLandingMusic();
     BroadcastAudio?.stopFlightSfx?.();
@@ -1923,6 +1961,12 @@ async function doLand() {
     updateUI();
 
     await fetchBoard();
+    if (landed.captainBroadcast) {
+      playBroadcastWithWave(
+        landed.captainBroadcast,
+        landed.captainBroadcastStyle || landed.takeoffBroadcastStyle
+      );
+    }
     if (landed.flightId && !landingScenery?.imageUrl) {
       requestLandingScenery(landed.flightId);
     }
@@ -2116,6 +2160,7 @@ $('btn-close-landed').addEventListener('click', () => {
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
+  preloadLandingVideos();
   fillLoginForm(loadLoginProfile());
 
   const forceLogin = new URLSearchParams(location.search).has('login');
