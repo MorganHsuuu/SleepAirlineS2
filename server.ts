@@ -21,9 +21,74 @@ import { generateBroadcastSpeech } from './src/lib/ai/speech';
 import { generateLandingScenery } from './src/lib/ai/scenery';
 import { saveLandingScenery, getLandscapeByFlightId } from './src/lib/notion/landscape-images';
 import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
-
-import type { RouteDirection, BroadcastStyle, NarrativeRegion } from './src/types';
+import { withTimeout } from './src/lib/with-timeout';
 import { getDataModeStatus } from './src/lib/data-mode';
+
+import type { RouteDirection, BroadcastStyle, NarrativeRegion, SocialCue } from './src/types';
+import type { Passenger } from './src/types';
+
+const SOLO_SOCIAL_CUE: SocialCue = {
+  cueType: 'solo',
+  relatedPassenger: null,
+  cueText: '今晚你獨自飛行。同組雷達上暫時只有你一人。',
+};
+
+async function resolveSocialCueWithBudget(
+  current: Parameters<typeof resolveGroupSocialCue>[0],
+  groupFlights: Awaited<ReturnType<typeof getGroupFlights>>
+): Promise<SocialCue> {
+  return withTimeout(resolveGroupSocialCue(current, groupFlights), 12_000, () => SOLO_SOCIAL_CUE);
+}
+
+async function generateBroadcastWithBudget(
+  input: Parameters<typeof generateCaptainBroadcast>[0],
+  fallback: () => string
+): Promise<string> {
+  try {
+    return await withTimeout(generateCaptainBroadcast(input), 18_000, fallback);
+  } catch {
+    return fallback();
+  }
+}
+
+async function generateLandingSceneryWithBudget(
+  arrival: { city: string; country: string; displayName: string },
+  flight: {
+    flightId: string;
+    passengerId: string;
+    passengerName: string;
+    groupId: string;
+  },
+  passenger: Pick<Passenger, 'passengerId' | 'name' | 'groupId'>,
+  landingTime: string
+) {
+  return withTimeout(
+    (async () => {
+      const sceneryGen = await generateLandingScenery(
+        arrival.city,
+        arrival.country,
+        arrival.displayName,
+        flight.flightId
+      );
+      if (!sceneryGen) return null;
+      return saveLandingScenery({
+        flightId: flight.flightId,
+        passengerId: passenger.passengerId,
+        passengerName: passenger.name,
+        groupId: passenger.groupId,
+        arrivalLocation: arrival.displayName,
+        country: arrival.country,
+        imageBuffer: sceneryGen.imageBuffer,
+        filename: sceneryGen.filename,
+        contentType: sceneryGen.contentType,
+        imagePrompt: sceneryGen.imagePrompt,
+        landingTime,
+      });
+    })(),
+    42_000,
+    () => null
+  );
+}
 
 function parseDisplayLocation(displayName: string): { cityName: string; countryName: string } {
   const parts = displayName.split(',').map((s) => s.trim()).filter(Boolean);
@@ -142,40 +207,41 @@ app.post('/api/flight/takeoff', async (req, res) => {
     });
 
     const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = await resolveGroupSocialCue(
-      {
-        passengerId,
-        passengerName: passenger.name,
-        departureLocation: flight.departureLocation,
-        departureLatitude: flight.departureLatitude,
-        departureLongitude: flight.departureLongitude,
-        arrivalLocation: null,
-        arrivalLatitude: null,
-        arrivalLongitude: null,
-        routeDirection: flight.routeDirection,
-        takeoffTime: flight.takeoffTime,
-        landingTime: null,
-        flightProgress: 0,
-        phase: 'takeoff',
-      },
-      groupFlights
-    );
-
-    let takeoffBroadcast = '';
     const depPlace = parseDisplayLocation(flight.departureLocation);
-    const depLocal = await fetchLocalContext({
-      cityName: depPlace.cityName,
-      countryName: depPlace.countryName,
-      countryIso: resolveCountryIso(
-        flight.departureLatitude,
-        flight.departureLongitude,
-        flight.departureLocation
+    const [socialCue, depLocal] = await Promise.all([
+      resolveSocialCueWithBudget(
+        {
+          passengerId,
+          passengerName: passenger.name,
+          departureLocation: flight.departureLocation,
+          departureLatitude: flight.departureLatitude,
+          departureLongitude: flight.departureLongitude,
+          arrivalLocation: null,
+          arrivalLatitude: null,
+          arrivalLongitude: null,
+          routeDirection: flight.routeDirection,
+          takeoffTime: flight.takeoffTime,
+          landingTime: null,
+          flightProgress: 0,
+          phase: 'takeoff',
+        },
+        groupFlights
       ),
-      latitude: flight.departureLatitude,
-      longitude: flight.departureLongitude,
-    }).catch(() => null);
-    try {
-      takeoffBroadcast = await generateCaptainBroadcast({
+      fetchLocalContext({
+        cityName: depPlace.cityName,
+        countryName: depPlace.countryName,
+        countryIso: resolveCountryIso(
+          flight.departureLatitude,
+          flight.departureLongitude,
+          flight.departureLocation
+        ),
+        latitude: flight.departureLatitude,
+        longitude: flight.departureLongitude,
+      }).catch(() => null),
+    ]);
+
+    const takeoffBroadcast = await generateBroadcastWithBudget(
+      {
         phase: 'takeoff',
         passengerName: passenger.name,
         departureLocation: flight.departureLocation,
@@ -188,9 +254,8 @@ app.post('/api/flight/takeoff', async (req, res) => {
         socialCue,
         style: broadcastStyle as BroadcastStyle,
         localContext: depLocal,
-      });
-    } catch {
-      takeoffBroadcast = fallbackCaptainBroadcast(
+      },
+      () => fallbackCaptainBroadcast(
         'takeoff',
         passenger.name,
         flight.departureLocation,
@@ -199,8 +264,8 @@ app.post('/api/flight/takeoff', async (req, res) => {
         null,
         socialCue.cueText,
         depLocal
-      );
-    }
+      )
+    );
 
     await updateFlight(flight.notionId, {
       takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
@@ -272,8 +337,18 @@ app.post('/api/flight/land', async (req, res) => {
       activeFlight.departureLocation
     );
 
-    const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = await resolveGroupSocialCue(
+    const arrPlace = parseDisplayLocation(arrival.displayName);
+    const [groupFlights, arrLocal] = await Promise.all([
+      getGroupFlights(passenger.groupId),
+      fetchLocalContext({
+        cityName: arrival.city || arrPlace.cityName,
+        countryName: arrival.country || arrPlace.countryName,
+        countryIso: arrival.countryIso,
+        latitude: arrival.latitude,
+        longitude: arrival.longitude,
+      }).catch(() => null),
+    ]);
+    const socialCue = await resolveSocialCueWithBudget(
       {
         passengerId,
         passengerName: passenger.name,
@@ -292,42 +367,42 @@ app.post('/api/flight/land', async (req, res) => {
       groupFlights
     );
 
-    let captainBroadcast = '';
-    const arrPlace = parseDisplayLocation(arrival.displayName);
-    const arrLocal = await fetchLocalContext({
-      cityName: arrival.city || arrPlace.cityName,
-      countryName: arrival.country || arrPlace.countryName,
-      countryIso: arrival.countryIso,
-      latitude: arrival.latitude,
-      longitude: arrival.longitude,
-    }).catch(() => null);
-    try {
-      captainBroadcast = await generateCaptainBroadcast({
-        phase: 'landing',
-        passengerName: passenger.name,
-        departureLocation: activeFlight.departureLocation,
-        arrivalLocation: arrival.displayName,
-        narrativeRegion: region,
-        flightDurationMinutes: durationMinutes,
-        flightProgress: 100,
-        estimatedDistanceKm: distanceKm,
-        routeDirection: activeFlight.routeDirection,
-        socialCue,
-        style: broadcastStyle as BroadcastStyle,
-        localContext: arrLocal,
-      });
-    } catch {
-      captainBroadcast = fallbackCaptainBroadcast(
-        'landing',
-        passenger.name,
-        activeFlight.departureLocation,
-        arrival.displayName,
-        activeFlight.routeDirection,
-        durationMinutes,
-        socialCue.cueText,
-        arrLocal
-      );
-    }
+    const broadcastFallback = () => fallbackCaptainBroadcast(
+      'landing',
+      passenger.name,
+      activeFlight.departureLocation,
+      arrival.displayName,
+      activeFlight.routeDirection,
+      durationMinutes,
+      socialCue.cueText,
+      arrLocal
+    );
+
+    const [captainBroadcast, landingScenery] = await Promise.all([
+      generateBroadcastWithBudget(
+        {
+          phase: 'landing',
+          passengerName: passenger.name,
+          departureLocation: activeFlight.departureLocation,
+          arrivalLocation: arrival.displayName,
+          narrativeRegion: region,
+          flightDurationMinutes: durationMinutes,
+          flightProgress: 100,
+          estimatedDistanceKm: distanceKm,
+          routeDirection: activeFlight.routeDirection,
+          socialCue,
+          style: broadcastStyle as BroadcastStyle,
+          localContext: arrLocal,
+        },
+        broadcastFallback
+      ),
+      generateLandingSceneryWithBudget(
+        { city: arrival.city, country: arrival.country, displayName: arrival.displayName },
+        activeFlight,
+        passenger,
+        landingTime
+      ),
+    ]);
 
     await updateFlight(activeFlight.notionId, {
       status: 'landed',
@@ -342,33 +417,6 @@ app.post('/api/flight/land', async (req, res) => {
       socialCueText: socialCue.cueText,
       relatedPassenger: socialCue.relatedPassenger ?? '',
     });
-
-    let landingScenery = null;
-    try {
-      const sceneryGen = await generateLandingScenery(
-        arrival.city,
-        arrival.country,
-        arrival.displayName,
-        activeFlight.flightId
-      );
-      if (sceneryGen) {
-        landingScenery = await saveLandingScenery({
-          flightId: activeFlight.flightId,
-          passengerId: passenger.passengerId,
-          passengerName: passenger.name,
-          groupId: passenger.groupId,
-          arrivalLocation: arrival.displayName,
-          country: arrival.country,
-          imageBuffer: sceneryGen.imageBuffer,
-          filename: sceneryGen.filename,
-          contentType: sceneryGen.contentType,
-          imagePrompt: sceneryGen.imagePrompt,
-          landingTime,
-        });
-      }
-    } catch (sceneryErr) {
-      console.error('Landing scenery generation failed:', sceneryErr);
-    }
 
     res.json({
       flight: {

@@ -566,13 +566,6 @@ function calculateFlightProgress(takeoffTime) {
 }
 
 // src/lib/flight/region.ts
-var REGION_DISPLAY = {
-  departure_clouds: "\u767B\u6A5F\u96F2\u5C64",
-  pacific_drift: "\u592A\u5E73\u6D0B\u6F02\u6D41\u5E36",
-  deep_night_current: "\u6DF1\u591C\u6D0B\u6D41",
-  dawn_corridor: "\u9ECE\u660E\u822A\u5ECA",
-  arrival_harbor: "\u62B5\u9054\u6E2F\u7063"
-};
 function getNarrativeRegion(progress) {
   if (progress < 20) return "departure_clouds";
   if (progress < 40) return "pacific_drift";
@@ -107083,6 +107076,8 @@ var CITIES = cities_data_default.map(normalizeEntry).filter((entry) => entry !==
   destinationId: `${entry.country_iso_code.toUpperCase()}_${slug(entry.city)}`,
   city: entry.city,
   country: entry.country,
+  countryIso: entry.country_iso_code.toUpperCase(),
+  timezone: entry.timezone || "UTC",
   displayName: toDisplayName(entry),
   latitude: entry.latitude,
   longitude: entry.longitude,
@@ -107186,6 +107181,166 @@ function findArrivalDestination(departureLat, departureLng, distanceKm, routeDir
   return candidates[0];
 }
 
+// src/lib/flight/local-context.ts
+var DEFAULT_CULTURE = "\u8D70\u51FA\u8259\u9580\uFF0C\u5E36\u8457\u597D\u5947\u5FC3\u5411\u7576\u5730\u4EBA\u5FAE\u7B11\u554F\u597D\u2014\u2014\u65C5\u884C\u6700\u7F8E\u7684\u98A8\u666F\uFF0C\u5F80\u5F80\u662F\u4EBA\u8207\u4EBA\u7684\u76F8\u9047\u3002";
+var CULTURE_BY_ISO = {
+  JP: { name: "\u65E5\u672C", culture: "\u65E5\u672C\u4EBA\u898B\u9762\u6703\u8F15\u8F15\u97A0\u8EAC\uFF1B\u5C45\u9152\u5C4B\u4E7E\u676F\u6642\u8AAA\u300C\u4E7E\u676F\u300D\uFF0C\u5225\u5FD8\u4E86\u8AAA\u300C\u3044\u305F\u3060\u304D\u307E\u3059\u300D\u3002" },
+  KR: { name: "\u5357\u97D3", culture: "\u97D3\u570B\u4EBA\u4E7E\u676F\u6642\u665A\u8F29\u8981\u5074\u8EAB\u3001\u96D9\u624B\u63A5\u676F\uFF1B\u4E00\u53E5\u300C\uC548\uB155\uD558\uC138\uC694\u300D\u5C31\u80FD\u62C9\u8FD1\u8DDD\u79BB\u3002" },
+  CN: { name: "\u4E2D\u570B", culture: "\u559D\u8336\u6642\u88AB\u659F\u8336\uFF0C\u7528\u624B\u6307\u8F15\u6572\u684C\u9762\u662F\u8AAA\u8B1D\u8B1D\uFF1B\u98EF\u684C\u4E0A\u300C\u6162\u6162\u5403\u300D\u662F\u95DC\u5FC3\u3002" },
+  TW: { name: "\u81FA\u7063", culture: "\u53F0\u7063\u7684\u591C\u5E02\u8207\u4FBF\u5229\u5546\u5E97\u662F\u6DF1\u591C\u793E\u4EA4\u6838\u5FC3\uFF0C\u4E00\u53E5\u300C\u5477\u98FD\u6C92\uFF1F\u300D\u5C31\u662F\u6700\u6EAB\u6696\u7684\u554F\u5019\u3002" },
+  HK: { name: "\u9999\u6E2F", culture: "\u8336\u9910\u5EF3\u642D\u67B1\u662F\u65E5\u5E38\uFF0C\u9EDE\u676F\u51CD\u9D1B\u9D26\u914D\u83E0\u863F\u6CB9\uFF0C\u611F\u53D7\u5FEB\u7BC0\u594F\u88E1\u7684\u4EBA\u60C5\u5473\u3002" },
+  TH: { name: "\u6CF0\u570B", culture: "\u96D9\u624B\u5408\u5341\u5FAE\u5FAE\u4F4E\u982D\u8AAA\u300CSawadee\u300D\uFF1B\u8DEF\u908A\u6524\u7684\u51AC\u9670\u529F\u662F\u6DF1\u591C\u793E\u4EA4\u7684\u9748\u9B42\u3002" },
+  VN: { name: "\u8D8A\u5357", culture: "\u8857\u908A\u5C0F\u5851\u81A0\u6905\u914D\u6EF4\u6F0F\u5496\u5561\u662F\u7D93\u5178\uFF1B\u300CXin ch\xE0o\u300D\u914D\u4E0A\u5FAE\u7B11\u5C31\u8DB3\u5920\u3002" },
+  SG: { name: "\u65B0\u52A0\u5761", culture: "\u719F\u98DF\u4E2D\u5FC3\u7528\u9762\u7D19\u5305\u4F54\u4F4D\u662F\u9ED8\u5951\uFF1B\u591A\u5143\u6587\u5316\u5728\u9019\u88E1\u7528\u7F8E\u98DF\u5C0D\u8A71\u3002" },
+  MY: { name: "\u99AC\u4F86\u897F\u4E9E", culture: "\u5165\u591C\u5F8C\u5230 mamak \u6A94\u559D\u62C9\u8336\uFF0C\u662F\u7576\u5730\u4EBA\u7684\u5BB5\u591C\u793E\u4EA4\u5100\u5F0F\u3002" },
+  ID: { name: "\u5370\u5C3C", culture: "\u300CApa kabar?\u300D\u662F\u65E5\u5E38\u554F\u5019\uFF1B\u5206\u4EAB\u4E00\u76E4 nasi goreng \u5C31\u662F\u670B\u53CB\u3002" },
+  PH: { name: "\u83F2\u5F8B\u8CD3", culture: "Filipino \u7684\u300CPo/Opo\u300D\u662F\u5C0D\u9577\u8F29\u7684\u79AE\u8C8C\uFF1Bkaraoke \u662F\u5168\u6C11\u793E\u4EA4\u8A9E\u8A00\u3002" },
+  IN: { name: "\u5370\u5EA6", culture: "\u96D9\u624B\u5408\u5341\u8AAA\u300CNamaste\u300D\uFF1B\u7528\u53F3\u624B\u905E\u7269\u3001\u5DE6\u624B\u7559\u7D66\u500B\u4EBA\u885B\u751F\u662F\u57FA\u672C\u79AE\u5100\u3002" },
+  AE: { name: "\u963F\u806F", culture: "\u963F\u62C9\u4F2F\u5496\u5561\uFF08qahwa\uFF09\u914D\u6930\u68D7\u662F\u5F85\u5BA2\u4E4B\u9053\uFF1B\u7528\u53F3\u624B\u63A5\u7269\u662F\u5C0A\u91CD\u3002" },
+  TR: { name: "\u571F\u8033\u5176", culture: "\u4E00\u676F\u571F\u8033\u5176\u7D05\u8336\u914D baklava \u662F\u8857\u574A\u8AC7\u5929\u7684\u65E5\u5E38\uFF1B\u300CMerhaba\u300D\u914D\u4E0A\u5FAE\u7B11\u5C31\u5920\u4E86\u3002" },
+  RU: { name: "\u4FC4\u7F85\u65AF", culture: "\u9032\u9580\u812B\u978B\u3001\u4F5C\u5BA2\u5E36\u5C0F\u79AE\u7269\u662F\u79AE\u8C8C\uFF1B\u4F0F\u7279\u52A0\u4E7E\u676F\u8981\u773C\u795E\u5C0D\u8996\u3002" },
+  GB: { name: "\u82F1\u570B", culture: "pub \u88E1\u548C\u9130\u5EA7\u804A\u804A\u5929\u6C23\u662F\u570B\u6C11\u6280\u80FD\uFF1B\u6392\u968A\u662F\u795E\u8056\u7684\u3002" },
+  FR: { name: "\u6CD5\u570B", culture: "\u9032\u5E97\u5148\u8AAA\u300CBonjour\u300D\uFF1B\u9EB5\u5305\u914D\u7D05\u9152\uFF0C\u665A\u9910\u8981\u6162\u6162\u4EAB\u7528\u3002" },
+  DE: { name: "\u5FB7\u570B", culture: "\u4E7E\u676F\u6642\u773C\u795E\u5C0D\u8996\u662F\u57FA\u672C\uFF1B\u9031\u672B\u5564\u9152\u82B1\u5712\uFF08Biergarten\uFF09\u662F\u793E\u4EA4\u91CD\u5730\u3002" },
+  IT: { name: "\u7FA9\u5927\u5229", culture: "Espresso \u7AD9\u8457\u5FEB\u559D\u662F\u9053\u5730\uFF1B\u98EF\u5F8C\u624D\u9EDE\u751C\u9EDE\uFF0C\u5225\u5728\u9910\u524D\u9EDE\u5361\u5E03\u5947\u8AFE\u3002" },
+  ES: { name: "\u897F\u73ED\u7259", culture: "tapas \u914D sangria \u804A\u5230\u6DF1\u591C\u662F\u65E5\u5E38\uFF1Bsiesta \u5F8C\u7684\u508D\u665A\u624D\u662F\u793E\u4EA4\u9AD8\u5CF0\u3002" },
+  PT: { name: "\u8461\u8404\u7259", culture: "fado \u97F3\u6A02\u914D port \u9152\uFF1B\u300CObrigado/a\u300D\u662F\u6BCF\u65E5\u5FC5\u5099\u3002" },
+  NL: { name: "\u8377\u862D", culture: "\u8173\u8E0F\u8ECA\u662F\u570B\u6C11\u8A9E\u8A00\uFF1B\u76F4\u7387\u5766\u8AA0\u7684\u804A\u5929\u65B9\u5F0F\uFF0C\u5225\u8AA4\u6703\u70BA\u7121\u79AE\u3002" },
+  CH: { name: "\u745E\u58EB", culture: "\u6E96\u6642\u662F\u7F8E\u5FB7\uFF1B\u591A\u8A9E\u8A00\u5171\u5B58\uFF0C\u7528\u5C0D\u8A9E\u8A00\u554F\u5019\u6703\u52A0\u5206\u3002" },
+  SE: { name: "\u745E\u5178", culture: "fika\uFF08\u5496\u5561\u914D\u751C\u9EDE\uFF09\u662F\u6BCF\u65E5\u793E\u4EA4\u5100\u5F0F\uFF1Blagom\uFF08\u525B\u525B\u597D\uFF09\u662F\u751F\u6D3B\u54F2\u5B78\u3002" },
+  NO: { name: "\u632A\u5A01", culture: "\u6236\u5916 friluftsliv\uFF08\u89AA\u8FD1\u81EA\u7136\uFF09\u662F\u570B\u6C11\u7CBE\u795E\uFF1B\u7C21\u7D04\u76F4\u63A5\u7684\u4EA4\u6D41\u65B9\u5F0F\u3002" },
+  FI: { name: "\u82AC\u862D", culture: "\u6851\u62FF\u5F8C\u8DF3\u9032\u51B0\u6E56\u662F\u793E\u4EA4\u5100\u5F0F\uFF1B\u6C89\u9ED8\u4E0D\u662F\u51B7\u6F20\uFF0C\u662F\u82AC\u862D\u5F0F\u7684\u8212\u9069\u3002" },
+  DK: { name: "\u4E39\u9EA5", culture: "hygge\uFF08\u6EAB\u99A8\uFF09\u662F\u751F\u6D3B\u6838\u5FC3\uFF1B\u81EA\u884C\u8ECA\u9053\u4E0A\u7684\u300CHej\u300D\u662F\u65E5\u5E38\u554F\u5019\u3002" },
+  GR: { name: "\u5E0C\u81D8", culture: "\u300CYassas\u300D\u914D\u4E0A\u624B\u52E2\uFF1B\u6D77\u908A taverna \u7684 meze \u662F\u5206\u4EAB\u7684\u8D77\u9EDE\u3002" },
+  PL: { name: "\u6CE2\u862D", culture: "\u9032\u9580\u812B\u978B\u662F\u79AE\u8C8C\uFF1Bpierogi \u914D vodka \u662F\u4F5C\u5BA2\u7684\u7ECF\u5178\u7D44\u5408\u3002" },
+  CZ: { name: "\u6377\u514B", culture: "\u5564\u9152\u6BD4\u6C34\u9084\u4FBF\u5B9C\uFF1B\u8209\u676F\u6642\u773C\u795E\u5C0D\u8996\u8AAA\u300CNa zdrav\xED\u300D\u3002" },
+  AT: { name: "\u5967\u5730\u5229", culture: "\u5496\u5561\u9928\u6587\u5316\u6DF1\u539A\uFF1B\u7DAD\u4E5F\u7D0D\u534E\u5C14\u6ECB\u662F\u898B\u9762\u8207\u544A\u5225\u7684\u512A\u96C5\u3002" },
+  IE: { name: "\u611B\u723E\u862D", culture: "pub \u73FE\u5834\u97F3\u6A02\u914D\u5065\u529B\u58EB\uFF1B\u300Ccraic\u300D\uFF08\u6B61\u6A02\u9592\u804A\uFF09\u662F\u9748\u9B42\u3002" },
+  IS: { name: "\u51B0\u5CF6", culture: "\u5730\u71B1\u6EAB\u6CC9\u9592\u8A71\u5BB6\u5E38\uFF1B\u8FFD\u6975\u5149\u662F\u8207\u670B\u53CB\u76F8\u805A\u7684\u65E5\u5E38\u6D6A\u6F2B\u3002" },
+  US: { name: "\u7F8E\u570B", culture: "\u5FAE\u7B11\u8207 small talk \u7834\u51B0\uFF1B\u9031\u672B BBQ \u662F\u9130\u91CC\u793E\u4EA4\u7D93\u5178\u3002" },
+  CA: { name: "\u52A0\u62FF\u5927", culture: "\u300Csorry\u300D\u4E0D\u96E2\u53E3\u662F\u570B\u6C11\u7FD2\u6163\uFF1B\u51B0\u7403\u8207\u6953\u7CD6\u6F3F\u662F\u9A55\u50B2\u3002" },
+  MX: { name: "\u58A8\u897F\u54E5", culture: "\u8857\u982D taco \u662F\u6DF1\u591C\u793E\u4EA4\u5834\uFF1B\u4EA1\u9748\u7BC0\u4EE5\u7E7D\u7D1B\u8272\u5F69\u7D00\u5FF5\u646F\u611B\u3002" },
+  BR: { name: "\u5DF4\u897F", culture: "\u8CBC\u81C9\u9830\u64C1\u62B1\u554F\u5019\uFF1Bchurrasco \u914D\u68EE\u5DF4\u662F\u751F\u6D3B\u7BC0\u594F\u3002" },
+  AR: { name: "\u963F\u6839\u5EF7", culture: "\u5171\u7528 mate \u5438\u7BA1\u662F\u6DF1\u539A\u53CB\u8ABC\uFF1B\u665A\u9910\u8207\u63A2\u6208\u90FD\u5F88\u665A\u624D\u958B\u59CB\u3002" },
+  CL: { name: "\u667A\u5229", culture: "\u8CBC\u81C9\u9830\u554F\u5019\uFF1B\u9031\u672B\u805A\u9910\u914D\u672C\u5730\u7D05\u9152\u662F\u5BB6\u5EAD\u50B3\u7D71\u3002" },
+  PE: { name: "\u79D8\u9B6F", culture: "ceviche \u662F\u570B\u6C11\u7F8E\u98DF\uFF1B\u5206\u4EAB\u98DF\u7269\u662F\u62C9\u8FD1\u5F7C\u6B64\u7684\u65B9\u5F0F\u3002" },
+  CO: { name: "\u54E5\u502B\u6BD4\u4E9E", culture: "\u4E00\u676F tinto \u914D\u9592\u804A\uFF1B\u5EE3\u5834\u97F3\u6A02\u8207\u821E\u8E48\u662F\u9031\u672B\u65E5\u5E38\u3002" },
+  AU: { name: "\u6FB3\u6D32", culture: "\u300Cno worries\u300D\u56DE\u61C9\u4E00\u5207\uFF1B\u6D77\u7058 BBQ \u662F\u793E\u4EA4\u65E5\u5E38\u3002" },
+  NZ: { name: "\u7D10\u897F\u862D", culture: "\u6BDB\u5229\u78B0\u9F3B\u79AE hongi \u4EA4\u63DB\u6C23\u606F\uFF1B\u6236\u5916\u5065\u884C\u662F Kiwi \u7CBE\u795E\u3002" },
+  ZA: { name: "\u5357\u975E", culture: "braai \u70AD\u70E4\u8DE8\u8D8A\u65CF\u7FA4\uFF1B\u300C\u5F69\u8679\u4E4B\u570B\u300D\u591A\u5143\u5171\u878D\u3002" },
+  EG: { name: "\u57C3\u53CA", culture: "\u4F5C\u5BA2\u6703\u88AB\u71B1\u60C5\u52F8\u98DF\uFF1B\u8584\u8377\u7D05\u8336\u914D\u6C34\u7159\u662F\u8857\u574A\u8AC7\u5929\u65E5\u5E38\u3002" },
+  MA: { name: "\u6469\u6D1B\u54E5", culture: "\u8584\u8377\u8336\u9AD8\u9AD8\u6C96\u5012\u8D77\u6CE1\u662F\u5F85\u5BA2\u4E4B\u9053\uFF1Bsouk \u8A0E\u50F9\u9084\u50F9\u4E5F\u662F\u4EA4\u6D41\u3002" },
+  KE: { name: "\u80AF\u4E9E", culture: "\u300CJambo!\u300D\u662F\u554F\u5019\uFF1BUbuntu \u7CBE\u795E\u5F37\u8ABF\u5F7C\u6B64\u9023\u7D50\u3002" },
+  PG: { name: "\u5DF4\u5E03\u4E9E\u65B0\u5E7E\u5167\u4E9E", culture: "\u5CF6\u5DBC\u90E8\u843D\u7684\u6B61\u8FCE\u5100\u5F0F\u71B1\u60C5\u800C\u9686\u91CD\uFF1B\u5206\u4EAB betel nut \u662F\u50B3\u7D71\u793E\u4EA4\u3002" }
+};
+var WMO_LABELS = {
+  0: "\u6674\u6717",
+  1: "\u5927\u81F4\u6674\u6717",
+  2: "\u591A\u96F2",
+  3: "\u9670\u5929",
+  45: "\u6709\u9727",
+  48: "\u9727\u51C7",
+  51: "\u6BDB\u6BDB\u96E8",
+  53: "\u4E2D\u6BDB\u6BDB\u96E8",
+  55: "\u5927\u6BDB\u6BDB\u96E8",
+  56: "\u51CD\u6BDB\u6BDB\u96E8",
+  57: "\u5927\u51CD\u6BDB\u6BDB\u96E8",
+  61: "\u5C0F\u96E8",
+  63: "\u4E2D\u96E8",
+  65: "\u5927\u96E8",
+  66: "\u51CD\u96E8",
+  67: "\u5927\u51CD\u96E8",
+  71: "\u5C0F\u96EA",
+  73: "\u4E2D\u96EA",
+  75: "\u5927\u96EA",
+  77: "\u96EA\u7C92",
+  80: "\u9663\u96E8",
+  81: "\u4E2D\u9663\u96E8",
+  82: "\u5927\u9663\u96E8",
+  85: "\u9663\u96EA",
+  86: "\u5927\u9663\u96EA",
+  95: "\u96F7\u96E8",
+  96: "\u96F7\u96E8\u4F34\u51B0\u96F9",
+  99: "\u5927\u96F7\u96E8\u4F34\u51B0\u96F9"
+};
+function cultureForIso(iso) {
+  const key = iso.toUpperCase();
+  return CULTURE_BY_ISO[key] ?? { name: key, culture: DEFAULT_CULTURE };
+}
+function localTimeLabelFromHour(hour, isDay) {
+  if (!isDay && (hour >= 21 || hour < 5)) return "\u7576\u5730\u6DF1\u591C";
+  if (hour < 5) return "\u7576\u5730\u51CC\u6668";
+  if (hour < 8) return "\u7576\u5730\u6E05\u6668";
+  if (hour < 11) return "\u7576\u5730\u4E0A\u5348";
+  if (hour < 14) return "\u7576\u5730\u4E2D\u5348";
+  if (hour < 18) return "\u7576\u5730\u4E0B\u5348";
+  if (hour < 21) return "\u7576\u5730\u508D\u665A";
+  return "\u7576\u5730\u5165\u591C";
+}
+function parseLocalHour(isoTime) {
+  const m = isoTime.match(/T(\d{2}):/);
+  return m ? parseInt(m[1], 10) : 8;
+}
+async function fetchWeatherSummary(latitude, longitude) {
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude", String(latitude));
+  url.searchParams.set("longitude", String(longitude));
+  url.searchParams.set("current", "temperature_2m,weather_code,is_day");
+  url.searchParams.set("timezone", "auto");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  try {
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const cur = data.current;
+    if (!cur || cur.temperature_2m == null) return null;
+    const code = cur.weather_code ?? 0;
+    const label = WMO_LABELS[code] ?? "\u591A\u96F2";
+    const temp = Math.round(cur.temperature_2m);
+    const hour = parseLocalHour(cur.time ?? "");
+    const isDay = cur.is_day !== 0;
+    const timeLabel = localTimeLabelFromHour(hour, isDay);
+    return {
+      weatherSummary: `\u6C23\u6EAB ${temp}\xB0C\uFF0C${label}`,
+      localTimeLabel: timeLabel
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function resolveCountryIso(latitude, longitude, displayName) {
+  if (displayName) {
+    const exact = CITIES.find((c) => c.displayName === displayName);
+    if (exact) return exact.countryIso;
+  }
+  let nearest = CITIES[0];
+  let best = Infinity;
+  for (const c of CITIES) {
+    const d = haversineDistance(latitude, longitude, c.latitude, c.longitude);
+    if (d < best) {
+      best = d;
+      nearest = c;
+    }
+  }
+  return nearest?.countryIso ?? "TW";
+}
+async function fetchLocalContext(input) {
+  const iso = input.countryIso.toUpperCase();
+  const { name, culture } = cultureForIso(iso);
+  const weather = await fetchWeatherSummary(input.latitude, input.longitude);
+  return {
+    countryIso: iso,
+    countryName: input.countryName || name,
+    cityName: input.cityName,
+    culture,
+    weatherSummary: weather?.weatherSummary ?? null,
+    localTimeLabel: weather?.localTimeLabel ?? null
+  };
+}
+
 // src/lib/ai/social-cue.ts
 var import_openai = __toESM(require("openai"));
 var DIRECTION_LABEL = {
@@ -107238,31 +107393,35 @@ async function generateSocialCueText(candidate) {
   }
   const client = new import_openai.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const completion = await client.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content: `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u793E\u4EA4\u63D0\u793A\u64B0\u5BEB\u8005\u3002
+  try {
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u793E\u4EA4\u63D0\u793A\u64B0\u5BEB\u8005\u3002
 - \u7E41\u9AD4\u4E2D\u6587\uFF0C1\u20132 \u53E5\uFF0C40\u201370 \u5B57
 - \u591C\u822A\u3001\u6EAB\u67D4\u3001\u6709\u756B\u9762\u611F\uFF0C\u50CF\u6A5F\u9577\u4F4E\u8072\u5C0D\u4E58\u5BA2\u8AAA\u7684\u540C\u7D44\u52D5\u614B
 - \u53EA\u80FD\u4F7F\u7528\u63D0\u4F9B\u7684\u4E8B\u5BE6\uFF0C\u4E0D\u5F97\u7DE8\u9020\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D
 - \u6BCF\u6B21\u7528\u4E0D\u540C\u53E5\u5F0F\u8207\u610F\u8C61\uFF0C\u907F\u514D\u5957\u8A71
 - \u76F4\u63A5\u8F38\u51FA\u63D0\u793A\u6B63\u6587\uFF0C\u4E0D\u52A0\u5F15\u865F\u6216\u6A19\u984C`
-      },
-      {
-        role: "user",
-        content: `\u985E\u578B\uFF1A${candidate.cueType}
+        },
+        {
+          role: "user",
+          content: `\u985E\u578B\uFF1A${candidate.cueType}
 ${factsToLines(candidate.facts)}
 
 \u8ACB\u6539\u5BEB\u6210\u4E00\u53E5\u793E\u4EA4\u63D0\u793A\u3002`
-      }
-    ],
-    max_tokens: 120,
-    temperature: 0.9
-  });
-  const text = completion.choices[0]?.message?.content?.trim();
-  return text && text.length > 0 ? text : fallbackSocialCueText(candidate);
+        }
+      ],
+      max_tokens: 120,
+      temperature: 0.9
+    });
+    const text = completion.choices[0]?.message?.content?.trim();
+    return text && text.length > 0 ? text : fallbackSocialCueText(candidate);
+  } catch {
+    return fallbackSocialCueText(candidate);
+  }
 }
 
 // src/lib/flight/geo.ts
@@ -107617,6 +107776,19 @@ function buildSocialBlock(cue) {
   if (cue.relatedPassenger) lines.push(`\u76F8\u95DC\u4E58\u5BA2\uFF1A${cue.relatedPassenger}`);
   return lines.join("\n");
 }
+function buildLocalBlock(ctx, phase) {
+  const lines = [
+    `\u57CE\u5E02\uFF1A${ctx.cityName}`,
+    `\u570B\u5BB6\uFF1A${ctx.countryName}`,
+    `\u7576\u5730\u6587\u5316\uFF0F\u793E\u4EA4\u7279\u8272\uFF1A${ctx.culture}`
+  ];
+  if (ctx.weatherSummary) lines.push(`\u7576\u5730\u5929\u6C23\uFF1A${ctx.weatherSummary}`);
+  if (ctx.localTimeLabel) lines.push(`\u6642\u6BB5\uFF1A${ctx.localTimeLabel}`);
+  lines.push(
+    phase === "landing" ? "\u8ACB\u6539\u5BEB\u6210\u62B5\u9054\u5F8C\u7D66\u4E58\u5BA2\u7684\u4E00\u5169\u53E5\u5728\u5730\u63D0\u793A\uFF08\u554F\u5019\u3001\u98F2\u98DF\u3001\u793E\u4EA4\u79AE\u5100\u7B49\uFF09\uFF0C\u52FF\u6574\u6BB5\u7167\u642C\u3002" : "\u50C5\u53EF\u6539\u5BEB\u51FA\u767C\u5730\u7684\u4E00\u7B46\u5929\u6C23\u6216\u5728\u5730\u6C1B\u570D\uFF0C\u52FF\u6697\u793A\u76EE\u7684\u5730\u3002"
+  );
+  return lines.join("\n");
+}
 async function generateCaptainBroadcast(input) {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002");
@@ -107626,6 +107798,7 @@ async function generateCaptainBroadcast(input) {
   const isTakeoff = input.phase === "takeoff";
   const pax = passengerLabel(input.passengerName);
   const direction = DIRECTION_LABEL2[input.routeDirection] ?? input.routeDirection;
+  const hasLocal = !!input.localContext;
   const systemPrompt = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u6A5F\u9577\uFF0C\u6B63\u5728\u5C0D\u6A5F\u4E0A\u4E58\u5BA2\u505A\u591C\u9593\u5EE3\u64AD\u3002
 ${STYLE_DESCRIPTIONS[input.style]}
 
@@ -107635,23 +107808,38 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - \u7981\u6B62\u5192\u5145\u4E58\u5BA2\u3001\u7981\u6B62\u7528\u7B2C\u4E00\u4EBA\u7A31\u4EE3\u66FF\u4E58\u5BA2\u8AAA\u8A71
 - \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9
 
+\u5730\u7406\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
+- \u8D77\u98DB\u6642\u76EE\u7684\u5730\u662F\u672A\u77E5\u7684\uFF1A\u53EA\u80FD\u8B1B\u51FA\u767C\u5730\u8207\u822A\u5411\uFF0C\u7981\u6B62\u63A8\u6E2C\u3001\u6697\u793A\u822A\u7DDA\u6703\u7D93\u904E\u6216\u62B5\u9054\u54EA\u4E9B\u57CE\u5E02\u3001\u570B\u5BB6
+- \u3010\u540C\u7D44\u793E\u4EA4\u3011\u88E1\u7684\u5730\u540D\u662F\u300C\u968A\u53CB\u300D\u7684\u4F4D\u7F6E\uFF0C\u4E0D\u662F\u4F60\u7684\u822A\u7DDA\uFF1B\u63D0\u5230\u6642\u5FC5\u9808\u660E\u78BA\u639B\u5728\u968A\u53CB\u540D\u5B57\u4E0A\uFF0C
+  \u7981\u6B62\u8AAA\u6210\u672C\u6A5F\u6B63\u98DB\u904E\u3001\u7A7F\u8D8A\u6216\u9760\u8FD1\u90A3\u4E9B\u5730\u65B9\uFF08\u4F8B\uFF1A\u968A\u53CB\u5728\u6771\u4EAC \u2260 \u4F60\u98DB\u904E\u6771\u4EAC\uFF09
+- \u6240\u6709\u5730\u7406\u63CF\u8FF0\u5FC5\u9808\u8207\u300C\u822A\u7DDA\u65B9\u5411\u300D\u4E00\u81F4\uFF0C\u4E0D\u5F97\u81EA\u76F8\u77DB\u76FE
+
+${hasLocal ? `\u7576\u5730\u8CC7\u8A0A\uFF08${isTakeoff ? "\u51FA\u767C\u5730" : "\u62B5\u9054\u5730"}\uFF09\uFF1A
+- \u3010\u7576\u5730\u8CC7\u8A0A\u3011\u4E2D\u7684\u6587\u5316\u3001\u5929\u6C23\u50C5\u4F9B\u6539\u5BEB\u878D\u5165\uFF0C\u7981\u6B62\u6574\u6BB5\u7167\u642C\u6216\u5217\u9EDE
+- \u964D\u843D\u5EE3\u64AD\uFF1A\u5FC5\u9808\u7528\u4E00\u5169\u53E5\u81EA\u7136\u5E36\u51FA\u7576\u5730\u6587\u5316\u7279\u8272\u6216\u793E\u4EA4\u7FD2\u4FD7\uFF0C\u4E26\u9EDE\u4E00\u4E0B\u7576\u5730\u5929\u6C23\uFF08\u6EAB\u5EA6\u3001\u6674\u96E8\uFF09\uFF0C
+  \u50CF\u6A5F\u9577\u63D0\u9192\u4E58\u5BA2\u4E0B\u6A5F\u524D\u7684\u5FC3\u7406\u6E96\u5099\uFF0C\u4E0D\u8981\u50CF\u6C23\u8C61\u5831\u544A\u6216\u65C5\u904A\u624B\u518A
+- \u8D77\u98DB\u5EE3\u64AD\uFF1A\u82E5\u63D0\u4F9B\u51FA\u767C\u5730\u5929\u6C23\uFF0C\u6700\u591A\u4E00\u53E5\u5E36\u904E\uFF0C\u52FF\u55A7\u8CD3\u596A\u4E3B
+` : ""}
 \u5BEB\u4F5C\uFF1A
-- \u7E41\u9AD4\u4E2D\u6587\uFF0C60\u201390 \u5B57\uFF0C\u6700\u591A\u4E0D\u8D85\u904E 100 \u5B57
+- \u7E41\u9AD4\u4E2D\u6587\uFF0C${isTakeoff ? "70\u2013100" : "90\u2013130"} \u5B57\uFF0C\u6700\u591A\u4E0D\u8D85\u904E ${isTakeoff ? "120" : "160"} \u5B57
 - \u4E00\u53E5\u4E00\u91CD\u9EDE\uFF0C\u522A\u6389\u300C\u6709\u4EFB\u4F55\u9700\u6C42\u300D\u300C\u611F\u8B1D\u9078\u642D\u672C\u822A\u7A7A\u300D\u300C\u795D\u60A8\u65C5\u9014\u6109\u5FEB\u300D\u7B49\u7A7A\u6CDB\u5957\u8A71
 - \u7526\u9192\u822A\u73ED\u8A9E\u5883\uFF1A\u9019\u662F\u4E00\u8D9F\u300C\u7761\u8457\u98DB\u884C\u3001\u9192\u4F86\u62B5\u9054\u300D\u7684\u591C\u822A\u9AD4\u9A57
 - \u793E\u4EA4\u8CC7\u8A0A\u8981\u6539\u5BEB\u6210\u81EA\u7136\u3001\u6709\u8DA3\u7684\u4E00\u5169\u53E5\uFF0C\u878D\u5165\u5EE3\u64AD\uFF0C\u4E0D\u8981\u6574\u6BB5\u7167\u642C\u7CFB\u7D71\u63D0\u793A
-- \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u4F7F\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
+- \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\u3001\u6C23\u6EAB\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u4F7F\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
 - \u76F4\u63A5\u8F38\u51FA\u5EE3\u64AD\u6B63\u6587\uFF0C\u4E0D\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E`;
   const takeoffUser = `\u3010\u8D77\u98DB\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
 \u51FA\u767C\u5730\uFF1A${input.departureLocation}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
-\u9032\u5165\u7A7A\u57DF\uFF1A${REGION_DISPLAY[input.narrativeRegion]}
-
+${input.localContext ? `
+\u3010\u7576\u5730\u8CC7\u8A0A \xB7 \u51FA\u767C\u5730\u3011
+${buildLocalBlock(input.localContext, "takeoff")}
+` : ""}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
 ${buildSocialBlock(input.socialCue)}
 
-\u8ACB\u5BA3\u5E03\uFF1A\u591C\u822A\u555F\u7A0B\u3001\u51FA\u767C\u5730\u3001\u822A\u5411\uFF0C\u4E26\u81EA\u7136\u5E36\u5165\u793E\u4EA4\u60C5\u5883\uFF08\u82E5\u70BA solo \u53EF\u5BEB\u6210\u300C\u4ECA\u591C\u5929\u5E55\u4E0A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\u4E4B\u985E\uFF0C\u52FF\u7167\u642C\uFF09\u3002`;
+\u8ACB\u5BA3\u5E03\uFF1A\u591C\u822A\u555F\u7A0B\u3001\u51FA\u767C\u5730\u3001\u822A\u5411\uFF08\u76EE\u7684\u5730\u672A\u77E5\uFF0C\u7761\u591A\u4E45\u98DB\u591A\u9060\uFF09\uFF0C\u4E26\u81EA\u7136\u5E36\u5165\u793E\u4EA4\u60C5\u5883
+\uFF08\u82E5\u70BA solo \u53EF\u5BEB\u6210\u300C\u4ECA\u591C\u5929\u5E55\u4E0A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\u4E4B\u985E\uFF0C\u52FF\u7167\u642C\uFF1B\u968A\u53CB\u7684\u5730\u9EDE\u52D9\u5FC5\u639B\u968A\u53CB\u7684\u540D\u5B57\uFF09\u3002`;
   const duration = formatDuration2(input.flightDurationMinutes);
   const landingUser = `\u3010\u964D\u843D\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
@@ -107660,30 +107848,38 @@ ${buildSocialBlock(input.socialCue)}
 \u98DB\u884C\u6642\u9577\uFF1A${duration || "\u672A\u77E5"}
 \u822A\u7A0B\uFF1A${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} \u516C\u91CC` : "\u672A\u77E5"}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
-
+${input.localContext ? `
+\u3010\u7576\u5730\u8CC7\u8A0A \xB7 \u62B5\u9054\u5730\u3011
+${buildLocalBlock(input.localContext, "landing")}
+` : ""}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
 ${buildSocialBlock(input.socialCue)}
 
-\u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF0C\u4E26\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF08\u6539\u5BEB\uFF0C\u52FF\u7167\u642C\uFF09\u3002`;
+\u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF1B\u5FC5\u9808\u878D\u5165\u4E00\u7B46\u7576\u5730\u6587\u5316\u6216\u5929\u6C23\uFF08\u6539\u5BEB\uFF09\uFF0C
+\u4E26\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF0C\u5408\u4F75\u6210\u4E00\u6BB5\u6D41\u66A2\u5EE3\u64AD\uFF0C\u52FF\u5217\u9EDE\u3001\u52FF\u7167\u642C\u3002`;
   const completion = await client.chat.completions.create({
     model,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: isTakeoff ? takeoffUser : landingUser }
     ],
-    max_tokens: 200,
+    max_tokens: 512,
     temperature: 0.65
   });
   return completion.choices[0]?.message?.content?.trim() ?? "\u5EE3\u64AD\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66\u3002";
 }
-function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arrivalLocation, routeDirection, durationMinutes, socialCueText) {
+function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arrivalLocation, routeDirection, durationMinutes, socialCueText, localContext) {
   const pax = passengerLabel(passengerName);
   const direction = DIRECTION_LABEL2[routeDirection] ?? routeDirection;
   if (phase === "takeoff") {
-    return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5373\u5C07\u81EA ${departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${pax}\uFF0C\u8ACB\u6E96\u5099\u9032\u5165\u591C\u822A\u3002${socialCueText}`;
+    const wx = localContext?.weatherSummary ? ` ${localContext.localTimeLabel ?? "\u6B64\u523B"}${localContext.weatherSummary}\uFF0C` : "";
+    return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5373\u5C07\u81EA ${departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx}${pax}\uFF0C\u8ACB\u6E96\u5099\u9032\u5165\u591C\u822A\u3002${socialCueText}`;
   }
   const dur = formatDuration2(durationMinutes);
-  return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u62B5\u9054 ${arrivalLocation ?? "\u76EE\u7684\u5730"}\u3002${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${socialCueText}`;
+  const timeBit = localContext?.localTimeLabel ? `${localContext.localTimeLabel}\uFF0C` : "\u672C\u5730\u6642\u9593\u6E05\u6668\uFF0C";
+  const wxBit = localContext?.weatherSummary ? `\u7A97\u5916${localContext.weatherSummary}\u3002` : "";
+  const cultureBit = localContext?.culture ? localContext.culture.split("\uFF1B")[0]?.split("\u3002")[0] + "\u3002" : "\u8D70\u51FA\u8259\u9580\uFF0C\u5411\u7576\u5730\u4EBA\u5FAE\u7B11\u554F\u597D\u5427\u3002";
+  return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u5E73\u5B89\u964D\u843D ${arrivalLocation ?? "\u76EE\u7684\u5730"}\uFF0C${timeBit}${wxBit}${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u5171\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${cultureBit} ${socialCueText}`;
 }
 
 // src/lib/ai/speech.ts
@@ -107718,14 +107914,14 @@ var import_openai4 = __toESM(require("openai"));
 function buildSceneryPrompt(city, country, displayName) {
   const place = displayName || `${city}, ${country}`;
   return [
-    `View through an airplane cabin window on a quiet night flight,`,
-    `gazing at the landscape near ${place}.`,
-    `Dreamy and poetic mood: deep midnight navy sky, soft starlight,`,
-    `gentle moonlit mist over terrain typical of ${country} \u2014`,
-    `rolling hills, coastline, or valley silhouettes, not a tourist postcard or famous monument.`,
-    `Cinematic, half-awake memory feel; subtle amber reflection on the window glass,`,
-    `cool blue-teal atmosphere like a long night journey before dawn.`,
-    `Soft atmospheric perspective, no people, no text, no watermark, no logos.`
+    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
+    `Golden sunrise light breaking over the city \u2014 a hopeful, just-woke-up feeling of arrival.`,
+    `Feature the most iconic, instantly recognizable landmarks and skyline of ${city}:`,
+    `famous architecture, distinctive local rooftops and streets that could only be ${place},`,
+    `rich with the authentic cultural character of ${country}.`,
+    `Bright daybreak palette: warm gold, soft peach, fresh morning-blue sky, thin luminous haze;`,
+    `subtle window-glass reflection at the frame edges \u2014 cinematic, dreamy yet luminous.`,
+    `No close-up people, no text, no watermark, no logos.`
   ].join(" ");
 }
 var SCENERY_IMAGE_SIZE = "1536x1024";
@@ -107740,7 +107936,7 @@ async function generateLandingScenery(city, country, displayName, flightId) {
   if (!process.env.OPENAI_API_KEY) return null;
   const imagePrompt = buildSceneryPrompt(city, country, displayName);
   const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
+  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
   const response = await client.images.generate(
     isGptImageModel(model) ? {
       model,
@@ -108039,8 +108235,84 @@ async function backfillSceneryForFlights(flightIds, options) {
   return results;
 }
 
+// src/lib/with-timeout.ts
+function withTimeout(promise, ms, onTimeout) {
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      Promise.resolve(onTimeout()).then(resolve, reject);
+    }, ms);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 // server.ts
 import_dotenv.default.config({ path: ".env.local" });
+var SOLO_SOCIAL_CUE = {
+  cueType: "solo",
+  relatedPassenger: null,
+  cueText: "\u4ECA\u665A\u4F60\u7368\u81EA\u98DB\u884C\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002"
+};
+async function resolveSocialCueWithBudget(current, groupFlights) {
+  return withTimeout(resolveGroupSocialCue(current, groupFlights), 12e3, () => SOLO_SOCIAL_CUE);
+}
+async function generateBroadcastWithBudget(input, fallback) {
+  try {
+    return await withTimeout(generateCaptainBroadcast(input), 18e3, fallback);
+  } catch {
+    return fallback();
+  }
+}
+async function generateLandingSceneryWithBudget(arrival, flight, passenger, landingTime) {
+  return withTimeout(
+    (async () => {
+      const sceneryGen = await generateLandingScenery(
+        arrival.city,
+        arrival.country,
+        arrival.displayName,
+        flight.flightId
+      );
+      if (!sceneryGen) return null;
+      return saveLandingScenery({
+        flightId: flight.flightId,
+        passengerId: passenger.passengerId,
+        passengerName: passenger.name,
+        groupId: passenger.groupId,
+        arrivalLocation: arrival.displayName,
+        country: arrival.country,
+        imageBuffer: sceneryGen.imageBuffer,
+        filename: sceneryGen.filename,
+        contentType: sceneryGen.contentType,
+        imagePrompt: sceneryGen.imagePrompt,
+        landingTime
+      });
+    })(),
+    42e3,
+    () => null
+  );
+}
+function parseDisplayLocation(displayName) {
+  const parts = displayName.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { cityName: parts[0], countryName: parts[parts.length - 1] };
+  }
+  return { cityName: displayName, countryName: "" };
+}
 var app = (0, import_express.default)();
 app.use(import_express.default.json());
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
@@ -108126,27 +108398,40 @@ app.post("/api/flight/takeoff", async (req, res) => {
       takeoffTime
     });
     const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = await resolveGroupSocialCue(
+    const depPlace = parseDisplayLocation(flight.departureLocation);
+    const [socialCue, depLocal] = await Promise.all([
+      resolveSocialCueWithBudget(
+        {
+          passengerId,
+          passengerName: passenger.name,
+          departureLocation: flight.departureLocation,
+          departureLatitude: flight.departureLatitude,
+          departureLongitude: flight.departureLongitude,
+          arrivalLocation: null,
+          arrivalLatitude: null,
+          arrivalLongitude: null,
+          routeDirection: flight.routeDirection,
+          takeoffTime: flight.takeoffTime,
+          landingTime: null,
+          flightProgress: 0,
+          phase: "takeoff"
+        },
+        groupFlights
+      ),
+      fetchLocalContext({
+        cityName: depPlace.cityName,
+        countryName: depPlace.countryName,
+        countryIso: resolveCountryIso(
+          flight.departureLatitude,
+          flight.departureLongitude,
+          flight.departureLocation
+        ),
+        latitude: flight.departureLatitude,
+        longitude: flight.departureLongitude
+      }).catch(() => null)
+    ]);
+    const takeoffBroadcast = await generateBroadcastWithBudget(
       {
-        passengerId,
-        passengerName: passenger.name,
-        departureLocation: flight.departureLocation,
-        departureLatitude: flight.departureLatitude,
-        departureLongitude: flight.departureLongitude,
-        arrivalLocation: null,
-        arrivalLatitude: null,
-        arrivalLongitude: null,
-        routeDirection: flight.routeDirection,
-        takeoffTime: flight.takeoffTime,
-        landingTime: null,
-        flightProgress: 0,
-        phase: "takeoff"
-      },
-      groupFlights
-    );
-    let takeoffBroadcast = "";
-    try {
-      takeoffBroadcast = await generateCaptainBroadcast({
         phase: "takeoff",
         passengerName: passenger.name,
         departureLocation: flight.departureLocation,
@@ -108157,19 +108442,20 @@ app.post("/api/flight/takeoff", async (req, res) => {
         estimatedDistanceKm: null,
         routeDirection: flight.routeDirection,
         socialCue,
-        style: broadcastStyle
-      });
-    } catch {
-      takeoffBroadcast = fallbackCaptainBroadcast(
+        style: broadcastStyle,
+        localContext: depLocal
+      },
+      () => fallbackCaptainBroadcast(
         "takeoff",
         passenger.name,
         flight.departureLocation,
         null,
         flight.routeDirection,
         null,
-        socialCue.cueText
-      );
-    }
+        socialCue.cueText,
+        depLocal
+      )
+    );
     await updateFlight(flight.notionId, {
       takeoffBroadcastStyle: broadcastStyle,
       takeoffBroadcast,
@@ -108228,8 +108514,18 @@ app.post("/api/flight/land", async (req, res) => {
       destinations,
       activeFlight.departureLocation
     );
-    const groupFlights = await getGroupFlights(passenger.groupId);
-    const socialCue = await resolveGroupSocialCue(
+    const arrPlace = parseDisplayLocation(arrival.displayName);
+    const [groupFlights, arrLocal] = await Promise.all([
+      getGroupFlights(passenger.groupId),
+      fetchLocalContext({
+        cityName: arrival.city || arrPlace.cityName,
+        countryName: arrival.country || arrPlace.countryName,
+        countryIso: arrival.countryIso,
+        latitude: arrival.latitude,
+        longitude: arrival.longitude
+      }).catch(() => null)
+    ]);
+    const socialCue = await resolveSocialCueWithBudget(
       {
         passengerId,
         passengerName: passenger.name,
@@ -108247,32 +108543,41 @@ app.post("/api/flight/land", async (req, res) => {
       },
       groupFlights
     );
-    let captainBroadcast = "";
-    try {
-      captainBroadcast = await generateCaptainBroadcast({
-        phase: "landing",
-        passengerName: passenger.name,
-        departureLocation: activeFlight.departureLocation,
-        arrivalLocation: arrival.displayName,
-        narrativeRegion: region,
-        flightDurationMinutes: durationMinutes,
-        flightProgress: 100,
-        estimatedDistanceKm: distanceKm,
-        routeDirection: activeFlight.routeDirection,
-        socialCue,
-        style: broadcastStyle
-      });
-    } catch {
-      captainBroadcast = fallbackCaptainBroadcast(
-        "landing",
-        passenger.name,
-        activeFlight.departureLocation,
-        arrival.displayName,
-        activeFlight.routeDirection,
-        durationMinutes,
-        socialCue.cueText
-      );
-    }
+    const broadcastFallback = () => fallbackCaptainBroadcast(
+      "landing",
+      passenger.name,
+      activeFlight.departureLocation,
+      arrival.displayName,
+      activeFlight.routeDirection,
+      durationMinutes,
+      socialCue.cueText,
+      arrLocal
+    );
+    const [captainBroadcast, landingScenery] = await Promise.all([
+      generateBroadcastWithBudget(
+        {
+          phase: "landing",
+          passengerName: passenger.name,
+          departureLocation: activeFlight.departureLocation,
+          arrivalLocation: arrival.displayName,
+          narrativeRegion: region,
+          flightDurationMinutes: durationMinutes,
+          flightProgress: 100,
+          estimatedDistanceKm: distanceKm,
+          routeDirection: activeFlight.routeDirection,
+          socialCue,
+          style: broadcastStyle,
+          localContext: arrLocal
+        },
+        broadcastFallback
+      ),
+      generateLandingSceneryWithBudget(
+        { city: arrival.city, country: arrival.country, displayName: arrival.displayName },
+        activeFlight,
+        passenger,
+        landingTime
+      )
+    ]);
     await updateFlight(activeFlight.notionId, {
       status: "landed",
       landingTime,
@@ -108286,32 +108591,6 @@ app.post("/api/flight/land", async (req, res) => {
       socialCueText: socialCue.cueText,
       relatedPassenger: socialCue.relatedPassenger ?? ""
     });
-    let landingScenery = null;
-    try {
-      const sceneryGen = await generateLandingScenery(
-        arrival.city,
-        arrival.country,
-        arrival.displayName,
-        activeFlight.flightId
-      );
-      if (sceneryGen) {
-        landingScenery = await saveLandingScenery({
-          flightId: activeFlight.flightId,
-          passengerId: passenger.passengerId,
-          passengerName: passenger.name,
-          groupId: passenger.groupId,
-          arrivalLocation: arrival.displayName,
-          country: arrival.country,
-          imageBuffer: sceneryGen.imageBuffer,
-          filename: sceneryGen.filename,
-          contentType: sceneryGen.contentType,
-          imagePrompt: sceneryGen.imagePrompt,
-          landingTime
-        });
-      }
-    } catch (sceneryErr) {
-      console.error("Landing scenery generation failed:", sceneryErr);
-    }
     res.json({
       flight: {
         ...activeFlight,
@@ -108369,6 +108648,19 @@ app.get("/api/board", async (req, res) => {
       return { ...f, flightProgress: progress, narrativeRegion: region };
     });
     res.json({ flights: enriched });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+});
+app.get("/api/scenery", async (req, res) => {
+  try {
+    const flightId = req.query.flightId;
+    if (!flightId) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B flightId\u3002" });
+      return;
+    }
+    const scenery = await getLandscapeByFlightId(flightId);
+    res.json({ scenery });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }

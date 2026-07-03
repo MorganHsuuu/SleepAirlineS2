@@ -1054,6 +1054,13 @@ body[data-theme="dusk"] .pw-frame {
     transform .68s cubic-bezier(.4, 0, .2, 1),
     opacity .68s ease;
 }
+#landing-fx.is-leaving .fx-porthole-wrap {
+  transform: translateY(-16px) scale(.95);
+  opacity: 0;
+  transition:
+    transform .68s cubic-bezier(.4, 0, .2, 1),
+    opacity .68s ease;
+}
 #takeoff-fx[data-phase="launch"] .fx-porthole-wrap {
   transform: translateY(-2px) scale(1.025);
   transition: transform .85s cubic-bezier(.22, 1, .36, 1);
