@@ -1751,6 +1751,7 @@ async function hideTakeoffFx({ fast = false } = {}) {
   if (!fx?.classList.contains('show')) {
     pauseWindowVideo($('takeoff-fx-video'));
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
+    BroadcastAudio?.stopTowerSignalLoop?.();
     setTakeoffFxPhase('prep');
     fx?.classList.remove('is-leaving');
     return;
@@ -1759,11 +1760,13 @@ async function hideTakeoffFx({ fast = false } = {}) {
     fx.classList.remove('show', 'is-leaving');
     pauseWindowVideo($('takeoff-fx-video'));
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
+    BroadcastAudio?.stopTowerSignalLoop?.();
     setTakeoffFxPhase('prep');
     return;
   }
   fx.classList.add('is-leaving');
   fx.classList.remove('show');
+  BroadcastAudio?.stopTowerSignalLoop?.();
   BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 650 });
   await waitMs(TAKEOFF_FX_MS.leave);
   pauseWindowVideo($('takeoff-fx-video'));
@@ -2013,6 +2016,7 @@ async function doTakeoff() {
   const btn = $('btn-takeoff');
   btn.disabled = true;
   showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
+  BroadcastAudio?.startTowerSignalLoop?.();
   const statusCycle = startFxStatusCycle('takeoff-fx-sub', [
     '塔台連線中 · 請稍候…',
     '同步航線與小隊雷達…',
@@ -2029,6 +2033,7 @@ async function doTakeoff() {
       waitMs(TAKEOFF_FX_MS.prepMin),
     ]).then(([result]) => result);
     stopFxStatusCycle(statusCycle);
+    BroadcastAudio?.stopTowerSignalLoop?.();
 
     activeFlight = data.flight;
     passenger.status = 'in_flight';
@@ -2057,6 +2062,7 @@ async function doTakeoff() {
     startAutoRefresh();
   } catch (err) {
     stopFxStatusCycle(statusCycle);
+    BroadcastAudio?.stopTowerSignalLoop?.();
     await hideTakeoffFx({ fast: true });
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
     try {

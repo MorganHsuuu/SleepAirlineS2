@@ -89,6 +89,36 @@ function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}) {
   });
 }
 
+async function playTowerSignal() {
+  await playAttentionBeeps();
+  await playPaChime();
+}
+
+let towerSignalActive = false;
+let towerSignalTimer = null;
+
+/** 塔台連線等待期：週期播放 bibibibi + PA 叮，直到 stopTowerSignalLoop */
+function startTowerSignalLoop(intervalMs = 5200) {
+  stopTowerSignalLoop();
+  towerSignalActive = true;
+  const tick = async () => {
+    if (!towerSignalActive) return;
+    await playTowerSignal();
+    if (towerSignalActive) {
+      towerSignalTimer = setTimeout(tick, intervalMs);
+    }
+  };
+  tick();
+}
+
+function stopTowerSignalLoop() {
+  towerSignalActive = false;
+  if (towerSignalTimer) {
+    clearTimeout(towerSignalTimer);
+    towerSignalTimer = null;
+  }
+}
+
 async function playCaptainIntro() {
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
@@ -316,6 +346,9 @@ if (window.speechSynthesis) {
 
 window.BroadcastAudio = {
   playCaptainBroadcast,
+  playTowerSignal,
+  startTowerSignalLoop,
+  stopTowerSignalLoop,
   speakText,
   stopPlayback,
   playFlightSfx,
