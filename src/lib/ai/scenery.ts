@@ -11,12 +11,15 @@ export function buildSceneryPrompt(city: string, country: string, displayName: s
   const place = displayName || `${city}, ${country}`;
   return [
     `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
-    `Golden sunrise light breaking over the city — a hopeful, just-woke-up feeling of arrival.`,
-    `Feature the most iconic, instantly recognizable landmarks and skyline of ${city}:`,
-    `famous architecture, distinctive local rooftops and streets that could only be ${place},`,
-    `rich with the authentic cultural character of ${country}.`,
-    `Bright daybreak palette: warm gold, soft peach, fresh morning-blue sky, thin luminous haze;`,
-    `subtle window-glass reflection at the frame edges — cinematic, dreamy yet luminous.`,
+    `Art style: stylized 3D animated film look — soft Pixar-like cartoon rendering,`,
+    `NOT photorealistic, NOT live-action, NOT illustration or watercolor.`,
+    `Rounded friendly forms, smooth CGI surfaces, subtle subsurface glow,`,
+    `expressive simplified landmarks of ${city} that feel instantly recognizable yet charmingly exaggerated.`,
+    `Show iconic architecture and skyline shapes unique to ${place},`,
+    `with the warm cultural personality of ${country} in color and mood.`,
+    `Golden sunrise light, hopeful just-woke-up arrival feeling;`,
+    `bright saturated palette: warm gold, peach, fresh morning-blue sky, soft volumetric haze;`,
+    `gentle window-glass reflection at the frame edges — dreamy, luminous, family-friendly.`,
     `No close-up people, no text, no watermark, no logos.`,
   ].join(' ');
 }

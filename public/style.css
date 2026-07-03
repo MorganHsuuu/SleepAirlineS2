@@ -786,6 +786,11 @@ body[data-theme="dusk"] .pw-frame {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   background: #0e1730;
 }
+#landing-fx .pw-video { z-index: 2; transition: opacity .85s ease; }
+#landing-fx-scenery,
+#landing-fx-fallback { z-index: 1; }
+#landing-fx[data-phase="arrival"] .pw-video { opacity: 0; pointer-events: none; }
+
 .scenery-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   filter: blur(0); transition: filter 2.2s ease, transform 2.2s ease;
@@ -900,32 +905,43 @@ body[data-theme="dusk"] .pw-frame {
 .mate-status { font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--ink-faint); margin-top: 2px; }
 .mate-route { font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-bottom: 10px; }
 
-/* 隊友航線視覺帶：起點 ●┈┈✈┈┈● 終點 */
-.mate-arc { display: flex; align-items: center; gap: 8px; margin: 2px 0 12px; }
-.mate-arc .ma-end { display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 40%; }
-.mate-arc .ma-end-r { justify-content: flex-end; }
-.mate-arc .ma-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+/* 航線視覺帶：起點 🏳 城市·國家 ┈✈┈ 🏳 城市·國家 終點 */
+.route-arc,
+#mate-sheet .route-arc {
+  display: flex; align-items: center; gap: 8px; margin: 2px 0 12px;
+}
+.route-arc .ra-end {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 42%;
+}
+.route-arc .ra-end-r { justify-content: flex-end; }
+.route-arc .ra-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--friend, #3b82f6); box-shadow: 0 0 0 3px rgba(59, 130, 246, .18);
-  flex-shrink: 0;
 }
-.mate-arc .ma-dot-arr { background: var(--gold, #d9a63a); box-shadow: 0 0 0 3px rgba(217, 166, 58, .22); }
-.mate-arc .ma-city {
+.route-arc .ra-dot-arr { background: var(--gold, #d9a63a); box-shadow: 0 0 0 3px rgba(217, 166, 58, .22); }
+.route-arc .ra-place { display: flex; flex-direction: column; min-width: 0; }
+.route-arc .ra-place-r { align-items: flex-end; text-align: right; }
+.route-arc .ra-city {
   font-size: 12.5px; font-weight: 800; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-.mate-arc .ma-flag { font-size: 16px; line-height: 1; flex-shrink: 0; }
-.mate-arc .ma-track {
+.route-arc .ra-country {
+  font-size: 10px; font-weight: 600; color: var(--ink-faint); letter-spacing: .04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.route-arc .ra-flag { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.route-arc .ra-track {
   position: relative; flex: 1; height: 16px;
   border-top: 2px dashed color-mix(in srgb, var(--gold, #d9a63a) 70%, transparent);
   margin-top: 8px;
 }
-.mate-arc .ma-plane {
+.route-arc .ra-plane {
   position: absolute; top: -11px; left: 50%; transform: translateX(-50%) rotate(90deg);
   font-size: 15px; color: var(--gold, #d9a63a);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
   animation: ma-fly 3.2s ease-in-out infinite;
 }
+#landed-panel .route-arc { margin: 8px 0 2px; }
 @keyframes ma-fly {
   0% { left: 14%; opacity: .5; }
   50% { left: 86%; opacity: 1; }

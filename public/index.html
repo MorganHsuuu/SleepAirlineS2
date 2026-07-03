@@ -171,6 +171,26 @@
           </div>
         </header>
 
+        <div class="route-arc" id="bc-arc">
+          <div class="ra-end">
+            <span class="ra-dot"></span>
+            <span class="ra-flag" id="bc-dep-flag">🌍</span>
+            <div class="ra-place">
+              <span class="ra-city" id="bc-dep-city">—</span>
+              <span class="ra-country" id="bc-dep-country">—</span>
+            </div>
+          </div>
+          <div class="ra-track"><span class="ra-plane">✈</span></div>
+          <div class="ra-end ra-end-r">
+            <div class="ra-place ra-place-r">
+              <span class="ra-city" id="bc-arr-city">—</span>
+              <span class="ra-country" id="bc-arr-country">—</span>
+            </div>
+            <span class="ra-flag" id="bc-arr-flag">🌍</span>
+            <span class="ra-dot ra-dot-arr"></span>
+          </div>
+        </div>
+
         <p class="landed-summary" id="bc-origin">—</p>
         <p class="landed-music hidden" id="landed-music-label" aria-live="polite"></p>
         <span class="sr-only" id="bc-duration"></span>
@@ -302,16 +322,23 @@
       </div>
     </div>
     <div class="mate-route" id="mate-route">—</div>
-    <div class="mate-arc" id="mate-arc" hidden>
-      <div class="ma-end">
-        <span class="ma-dot"></span>
-        <span class="ma-city" id="ma-dep">—</span>
+    <div class="route-arc" id="mate-arc" hidden>
+      <div class="ra-end">
+        <span class="ra-dot"></span>
+        <span class="ra-flag" id="ma-dep-flag">🌍</span>
+        <div class="ra-place">
+          <span class="ra-city" id="ma-dep">—</span>
+          <span class="ra-country" id="ma-dep-country">—</span>
+        </div>
       </div>
-      <div class="ma-track"><span class="ma-plane">✈</span></div>
-      <div class="ma-end ma-end-r">
-        <span class="ma-dot ma-dot-arr"></span>
-        <span class="ma-city" id="ma-arr">—</span>
-        <span class="ma-flag" id="ma-arc-flag">🌍</span>
+      <div class="ra-track"><span class="ra-plane">✈</span></div>
+      <div class="ra-end ra-end-r">
+        <div class="ra-place ra-place-r">
+          <span class="ra-city" id="ma-arr">—</span>
+          <span class="ra-country" id="ma-arr-country">—</span>
+        </div>
+        <span class="ra-flag" id="ma-arc-flag">🌍</span>
+        <span class="ra-dot ra-dot-arr"></span>
       </div>
     </div>
     <div class="landed-meta" id="mate-meta"></div>
@@ -375,7 +402,9 @@
   <div id="landing-fx" class="fx-overlay" aria-hidden="true">
     <div class="fx-porthole-wrap fx-porthole">
       <div class="fx-porthole pw-frame pw-frame--porthole">
-        <div class="pw-scene">
+        <div class="pw-scene" id="landing-fx-scene">
+          <div class="pw-fallback" id="landing-fx-fallback" hidden></div>
+          <img id="landing-fx-scenery" class="scenery-img" alt="降落風景" hidden>
           <video id="landing-fx-video" class="pw-video" muted playsinline loop preload="auto"></video>
           <div class="pw-glare" aria-hidden="true"></div>
         </div>

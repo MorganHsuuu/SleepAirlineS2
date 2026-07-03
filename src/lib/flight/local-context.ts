@@ -8,6 +8,8 @@ export interface LocalContext {
   countryName: string;
   cityName: string;
   culture: string;
+  /** 抵達地當地語言的「早安」，供降落廣播開頭 */
+  morningGreeting: string;
   /** 例：氣溫 28°C，晴朗 */
   weatherSummary: string | null;
   /** 例：當地清晨 */
@@ -67,7 +69,71 @@ const CULTURE_BY_ISO: Record<string, { name: string; culture: string }> = {
   MA: { name: '摩洛哥', culture: '薄荷茶高高沖倒起泡是待客之道；souk 討價還價也是交流。' },
   KE: { name: '肯亞', culture: '「Jambo!」是問候；Ubuntu 精神強調彼此連結。' },
   PG: { name: '巴布亞新幾內亞', culture: '島嶼部落的歡迎儀式熱情而隆重；分享 betel nut 是傳統社交。' },
+  RE: { name: '留尼旺', culture: '見面先說「Bonjour」；克里奧料理與火山景觀是當地特色。' },
 };
+
+/** 各國／地區「早安」問候（供降落廣播開頭） */
+const MORNING_GREETING_BY_ISO: Record<string, string> = {
+  JP: 'おはようございます',
+  KR: '안녕하세요',
+  CN: '早上好',
+  TW: '早安',
+  HK: '早晨',
+  TH: 'สวัสดีตอนเช้า',
+  VN: 'Xin chào buổi sáng',
+  SG: 'Good morning',
+  MY: 'Selamat pagi',
+  ID: 'Selamat pagi',
+  PH: 'Magandang umaga',
+  IN: 'Namaste',
+  AE: 'صباح الخير',
+  TR: 'Günaydın',
+  RU: 'Доброе утро',
+  GB: 'Good morning',
+  FR: 'Bonjour',
+  RE: 'Bonjour',
+  GP: 'Bonjour',
+  MQ: 'Bonjour',
+  GF: 'Bonjour',
+  DE: 'Guten Morgen',
+  IT: 'Buongiorno',
+  ES: 'Buenos días',
+  PT: 'Bom dia',
+  NL: 'Goedemorgen',
+  CH: 'Guten Morgen',
+  SE: 'God morgon',
+  NO: 'God morgen',
+  FI: 'Hyvää huomenta',
+  DK: 'God morgen',
+  GR: 'Καλημέρα',
+  PL: 'Dzień dobry',
+  CZ: 'Dobré ráno',
+  AT: 'Guten Morgen',
+  IE: 'Good morning',
+  IS: 'Góðan daginn',
+  US: 'Good morning',
+  CA: 'Good morning',
+  MX: 'Buenos días',
+  BR: 'Bom dia',
+  AR: 'Buenos días',
+  CL: 'Buenos días',
+  PE: 'Buenos días',
+  CO: 'Buenos días',
+  AU: 'Good morning',
+  NZ: 'Good morning',
+  ZA: 'Good morning',
+  EG: 'صباح الخير',
+  MA: 'Bonjour',
+  KE: 'Habari za asubuhi',
+  PG: 'Good morning',
+};
+
+function morningGreetingForIso(iso: string): string {
+  const key = iso.toUpperCase();
+  if (MORNING_GREETING_BY_ISO[key]) return MORNING_GREETING_BY_ISO[key];
+  if (['NC', 'PF', 'YT', 'PM', 'BL', 'MF', 'WF', 'TF'].includes(key)) return 'Bonjour';
+  return 'Good morning';
+}
 
 const WMO_LABELS: Record<number, string> = {
   0: '晴朗', 1: '大致晴朗', 2: '多雲', 3: '陰天',
@@ -182,6 +248,7 @@ export async function fetchLocalContext(input: {
     countryName: input.countryName || name,
     cityName: input.cityName,
     culture,
+    morningGreeting: morningGreetingForIso(iso),
     weatherSummary: weather?.weatherSummary ?? null,
     localTimeLabel: weather?.localTimeLabel ?? null,
   };

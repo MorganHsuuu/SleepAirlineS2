@@ -72,6 +72,9 @@ function buildLocalBlock(ctx: LocalContext, phase: BroadcastPhase): string {
     `國家：${ctx.countryName}`,
     `當地文化／社交特色：${ctx.culture}`,
   ];
+  if (phase === 'landing' && ctx.morningGreeting) {
+    lines.push(`當地語言早安（廣播第一句必須使用）：${ctx.morningGreeting}`);
+  }
   if (ctx.weatherSummary) lines.push(`當地天氣：${ctx.weatherSummary}`);
   if (ctx.localTimeLabel) lines.push(`時段：${ctx.localTimeLabel}`);
   lines.push(
@@ -113,6 +116,8 @@ ${hasLocal ? `當地資訊（${isTakeoff ? '出發地' : '抵達地'}）：
 - 【當地資訊】中的文化、天氣僅供改寫融入，禁止整段照搬或列點
 - 降落廣播：必須用一兩句自然帶出當地文化特色或社交習俗，並點一下當地天氣（溫度、晴雨），
   像機長提醒乘客下機前的心理準備，不要像氣象報告或旅遊手冊
+- 降落廣播：第一句必須以【當地語言早安】開頭（使用 morningGreeting，如 Bonjour、おはようございます），
+  緊接繁體中文繼續廣播，不要翻譯或解釋那句問候
 - 起飛廣播：若提供出發地天氣，最多一句帶過，勿喧賓奪主
 ` : ''}
 寫作：
@@ -146,7 +151,7 @@ ${input.localContext ? `\n【當地資訊 · 抵達地】\n${buildLocalBlock(inp
 【同組社交】
 ${buildSocialBlock(input.socialCue)}
 
-請宣布：醒來抵達、飛了多久、從哪到哪；必須融入一筆當地文化或天氣（改寫），
+請宣布：醒來抵達、飛了多久、從哪到哪；第一句以當地語言早安開頭，必須融入一筆當地文化或天氣（改寫），
 並用一句話點出社交情境，合併成一段流暢廣播，勿列點、勿照搬。`;
 
   const completion = await client.chat.completions.create({
@@ -180,10 +185,11 @@ export function fallbackCaptainBroadcast(
     return `各位乘客，甦醒航班即將自 ${departureLocation} 起飛，航向${direction}。${wx}${pax}，請準備進入夜航。${socialCueText}`;
   }
   const dur = formatDuration(durationMinutes);
+  const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}！` : '';
   const timeBit = localContext?.localTimeLabel ? `${localContext.localTimeLabel}，` : '本地時間清晨，';
   const wxBit = localContext?.weatherSummary ? `窗外${localContext.weatherSummary}。` : '';
   const cultureBit = localContext?.culture
     ? localContext.culture.split('；')[0]?.split('。')[0] + '。'
     : '走出艙門，向當地人微笑問好吧。';
-  return `各位乘客，甦醒航班已平安降落 ${arrivalLocation ?? '目的地'}，${timeBit}${wxBit}${pax} 自 ${departureLocation} 出發，共飛行 ${dur || '一段'}。${cultureBit} ${socialCueText}`;
+  return `${greet}各位乘客，甦醒航班已平安降落 ${arrivalLocation ?? '目的地'}，${timeBit}${wxBit}${pax} 自 ${departureLocation} 出發，共飛行 ${dur || '一段'}。${cultureBit} ${socialCueText}`;
 }

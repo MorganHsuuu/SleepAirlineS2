@@ -174,7 +174,16 @@
     CA: '多說幾次「sorry」與「thank you」，很快就融入了。',
     AU: '用「no worries」回應一切，你就是半個澳洲人了。',
     BR: '見面用擁抱與貼臉頰問候，熱情是這裡的語言。',
-    MX: '街角 taco 攤是深夜社交場，別害羞地加入吧。',
+    NL: '運河邊 borrel 小酌是下班社交；直率聊天別誤會為無禮。',
+    RE: '見面先說「Bonjour」，克里奧料理與火山景觀值得探索。',
+  };
+
+  const MORNING_GREETING = {
+    JP: 'おはようございます', KR: '안녕하세요', CN: '早上好', TW: '早安', HK: '早晨',
+    TH: 'สวัสดีตอนเช้า', VN: 'Xin chào buổi sáng', FR: 'Bonjour', RE: 'Bonjour',
+    NL: 'Goedemorgen', DE: 'Guten Morgen', IT: 'Buongiorno', ES: 'Buenos días',
+    PT: 'Bom dia', GB: 'Good morning', US: 'Good morning', AU: 'Good morning',
+    IN: 'Namaste', BR: 'Bom dia', MX: 'Buenos días', RU: 'Доброе утро',
   };
 
   function fallbackBroadcast(phase, name, departure, arrival, durationMinutes, iso) {
@@ -184,8 +193,9 @@
     const h = durationMinutes ? Math.floor(durationMinutes / 60) : 0;
     const m = durationMinutes ? durationMinutes % 60 : 0;
     const dur = h > 0 ? `${h} 小時 ${m} 分鐘` : m > 0 ? `${m} 分鐘` : '一段';
+    const greet = (iso && MORNING_GREETING[iso]) ? `${MORNING_GREETING[iso]}！` : '';
     const hint = (iso && CULTURE_HINT[iso]) || '走出艙門，帶著好奇心向當地人微笑問好吧。';
-    return `各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
+    return `${greet}各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
   }
 
   function buildBoardFlights(flights, groupId) {
