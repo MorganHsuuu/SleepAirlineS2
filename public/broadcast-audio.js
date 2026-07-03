@@ -213,7 +213,7 @@ function speakText(text) {
   });
 }
 
-async function speakWithOpenAI(text, style) {
+async function fetchOpenAISpeechBlob(text, style) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
@@ -224,34 +224,73 @@ async function speakWithOpenAI(text, style) {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    if (!res.ok) return false;
-
+    if (!res.ok) return null;
     const blob = await res.blob();
-    if (!blob.size || !blob.type.startsWith('audio/')) return false;
-
-    const url = URL.createObjectURL(blob);
-    return await new Promise((resolve) => {
-      const audio = new Audio(url);
-      currentAudio = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(true);
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(false);
-      };
-      audio.play().catch(() => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(false);
-      });
-    });
+    if (!blob.size || !blob.type.startsWith('audio/')) return null;
+    return blob;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** 先載入語音；OpenAI 失敗時標記可走瀏覽器 TTS。 */
+async function prepareCaptainSpeech(text, style) {
+  const blob = await fetchOpenAISpeechBlob(text, style);
+  if (blob) {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    const ready = await new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        if (!ok) {
+          URL.revokeObjectURL(url);
+          resolve(null);
+          return;
+        }
+        resolve({ kind: 'openai', audio, url });
+      };
+      audio.oncanplaythrough = () => finish(true);
+      audio.onerror = () => finish(false);
+      audio.load();
+      setTimeout(() => finish(true), 6000);
+    });
+    if (ready) return ready;
+  }
+  if (text?.trim() && window.speechSynthesis) return { kind: 'browser', text };
+  return null;
+}
+
+function playPreparedSpeech(prepared) {
+  if (!prepared) return Promise.resolve(false);
+  if (prepared.kind === 'browser') return speakText(prepared.text);
+  const { audio, url } = prepared;
+  return new Promise((resolve) => {
+    currentAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(true);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(false);
+    };
+    audio.play().catch(() => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(false);
+    });
+  });
+}
+
+async function speakWithOpenAI(text, style) {
+  const blob = await fetchOpenAISpeechBlob(text, style);
+  if (!blob) return false;
+  const url = URL.createObjectURL(blob);
+  return playPreparedSpeech({ kind: 'openai', audio: new Audio(url), url });
 }
 
 async function playCaptainBroadcast(text, style) {
@@ -259,10 +298,10 @@ async function playCaptainBroadcast(text, style) {
   stopPlayback();
   duckLandingMusic();
   try {
+    const prepared = await prepareCaptainSpeech(text, style);
+    if (!prepared) return false;
     await playCaptainIntro();
-    const usedOpenAI = await speakWithOpenAI(text, style);
-    if (usedOpenAI) return true;
-    return await speakText(text);
+    return playPreparedSpeech(prepared);
   } catch {
     return false;
   } finally {
