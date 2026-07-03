@@ -300,6 +300,9 @@ const Globe = (() => {
     return { type: 'LineString', coordinates: d3.range(0, steps + 1).map((i) => ip(i / steps)) };
   }
 
+  // 機鼻朝上（-y）的小飛機剪影，供航向旋轉
+  const PLANE_ICON = 'M0,-9 C1.6,-5.5 1.4,-3.5 1,-1.5 L8.5,3 L8.5,5.2 L1.1,3.2 L1.1,6.2 L3.6,8.4 L3.6,9.8 L0,8.8 L-3.6,9.8 L-3.6,8.4 L-1.1,6.2 L-1.1,3.2 L-8.5,5.2 L-8.5,3 L-1,-1.5 C-1.4,-3.5 -1.6,-5.5 0,-9 Z';
+
   function render() {
     if (!ok) return;
     const R = projection.scale();
@@ -355,9 +358,15 @@ const Globe = (() => {
       pts.push({ key: 'mateArr', c: view.mateArc.to, label: view.mateArc.arrLabel, kind: 'arrival' });
     }
     if (view.arrival) pts.push({ key: 'arr', c: view.arrival.c, label: view.arrival.label, kind: 'arrival' });
-    if (view.planeC && !view.routeArc) pts.push({ key: 'plane', c: view.planeC, kind: 'plane' });
+    if (view.planeC && !view.routeArc) {
+      // ahead：沿同一航向再往前一點，供機頭轉向用
+      const ahead = destPoint(youC, view.heading, Math.max(view.traveledKm, 1) + 60);
+      pts.push({ key: 'plane', c: view.planeC, ahead, kind: 'plane' });
+    }
     if (view.routeArc?.planeT != null) {
-      pts.push({ key: 'plane', c: d3.geoInterpolate(view.routeArc.from, view.routeArc.to)(view.routeArc.planeT), kind: 'plane' });
+      const ip = d3.geoInterpolate(view.routeArc.from, view.routeArc.to);
+      const t = view.routeArc.planeT;
+      pts.push({ key: 'plane', c: ip(t), ahead: ip(Math.min(1, t + 0.02)), kind: 'plane' });
     }
     const shown = pts.filter((p) => visible(p.c));
 
@@ -365,6 +374,7 @@ const Globe = (() => {
     const ent = sel.enter().append('g').attr('class', 'pt');
     ent.append('circle').attr('class', 'halo');
     ent.append('circle').attr('class', 'core');
+    ent.append('path').attr('class', 'plicon').attr('d', PLANE_ICON).attr('display', 'none');
     ent.append('text').attr('class', 'lbl');
     sel.exit().remove();
 
@@ -373,10 +383,20 @@ const Globe = (() => {
       const g = d3.select(this);
       if (d.kind === 'plane') {
         g.select('.halo').attr('r', 0); g.select('.core').attr('r', 0);
-        g.select('.lbl').attr('x', x).attr('y', y + 5).attr('text-anchor', 'middle')
-          .attr('font-size', '16px').attr('fill', gold).text('✈');
+        g.select('.lbl').text('');
+        // 機頭轉向：以「前方一小段」的螢幕角度旋轉（圖示鼻朝上 = -90°）
+        let deg = 0;
+        if (d.ahead) {
+          const [ax, ay] = projection(d.ahead);
+          deg = Math.atan2(ay - y, ax - x) * 180 / Math.PI + 90;
+        }
+        g.select('.plicon')
+          .attr('display', null)
+          .attr('transform', `translate(${x},${y}) rotate(${deg}) scale(1.15)`)
+          .attr('fill', gold).attr('stroke', '#fff').attr('stroke-width', 0.6);
         return;
       }
+      g.select('.plicon').attr('display', 'none');
       const main = d.kind !== 'friend';
       const col = main ? gold : friendCol;
       g.select('.halo').attr('cx', x).attr('cy', y).attr('r', main ? 10 : 7).attr('fill', col).attr('opacity', 0.18);
