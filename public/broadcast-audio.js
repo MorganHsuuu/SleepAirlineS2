@@ -213,7 +213,7 @@ function speakText(text) {
   });
 }
 
-async function speakWithOpenAI(text, style) {
+async function fetchCaptainSpeechAudio(text, style) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
@@ -224,34 +224,66 @@ async function speakWithOpenAI(text, style) {
       signal: controller.signal,
     });
     clearTimeout(timer);
-    if (!res.ok) return false;
+    if (!res.ok) return null;
 
     const blob = await res.blob();
-    if (!blob.size || !blob.type.startsWith('audio/')) return false;
+    if (!blob.size || !blob.type.startsWith('audio/')) return null;
 
     const url = URL.createObjectURL(blob);
-    return await new Promise((resolve) => {
-      const audio = new Audio(url);
-      currentAudio = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(true);
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(false);
-      };
-      audio.play().catch(() => {
-        URL.revokeObjectURL(url);
-        if (currentAudio === audio) currentAudio = null;
-        resolve(false);
-      });
-    });
+    return { url, blob };
   } catch {
-    return false;
+    return null;
   }
+}
+
+function playPreparedSpeech(url) {
+  return new Promise((resolve) => {
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(true);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(false);
+    };
+    audio.play().catch(() => {
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+      resolve(false);
+    });
+  });
+}
+
+/** 先取得語音（OpenAI 或瀏覽器 TTS），確認就緒後才播 captain 前奏。 */
+async function prepareCaptainSpeech(text, style) {
+  if (!text?.trim()) return null;
+
+  const fetched = await fetchCaptainSpeechAudio(text, style);
+  if (fetched) {
+    return {
+      mode: 'openai',
+      play: () => playPreparedSpeech(fetched.url),
+    };
+  }
+
+  if (window.speechSynthesis) {
+    return {
+      mode: 'browser',
+      play: () => speakText(text),
+    };
+  }
+
+  return null;
+}
+
+async function speakWithOpenAI(text, style) {
+  const fetched = await fetchCaptainSpeechAudio(text, style);
+  if (!fetched) return false;
+  return playPreparedSpeech(fetched.url);
 }
 
 async function playCaptainBroadcast(text, style) {
@@ -259,10 +291,11 @@ async function playCaptainBroadcast(text, style) {
   stopPlayback();
   duckLandingMusic();
   try {
+    const prepared = await prepareCaptainSpeech(text, style);
+    if (!prepared) return false;
+
     await playCaptainIntro();
-    const usedOpenAI = await speakWithOpenAI(text, style);
-    if (usedOpenAI) return true;
-    return await speakText(text);
+    return await prepared.play();
   } catch {
     return false;
   } finally {
