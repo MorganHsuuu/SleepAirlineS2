@@ -123,13 +123,13 @@
               <p class="fly-mood" id="fl-mood">夜航中</p>
               <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
 
-              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
+              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="在地球儀點航線或飛機，望向窗外">
                 <span class="fly-portal-aura" aria-hidden="true"></span>
                 <span class="fly-portal-lane" aria-hidden="true">
                   <span class="fly-portal-shimmer"></span>
                   <span class="fly-portal-plane">✈</span>
                 </span>
-                <span class="fly-portal-hint" id="flight-wt-label">望向窗外</span>
+                <span class="fly-portal-hint" id="flight-wt-label">點地球航線或飛機 · 望向窗外</span>
               </button>
 
               <div class="plane-window plane-window--porthole" id="flight-window" hidden>
@@ -158,53 +158,61 @@
       <div id="landed-panel" class="glass dock-panel landed-panel hidden">
         <div class="arrival-burst" id="arrival-burst" aria-hidden="true"></div>
 
-        <div class="landed-top">
+        <header class="landed-hero">
           <div class="landed-flag" id="bc-flag">🌍</div>
           <div class="landed-place">
-            <div class="landed-city" id="bc-route">—</div>
-            <div class="landed-country" id="bc-country">—</div>
+            <p class="landed-kicker"><span class="stamp" id="bc-stamp">已抵達</span></p>
+            <h2 class="landed-city" id="bc-route">—</h2>
+            <p class="landed-country" id="bc-country">—</p>
           </div>
-          <span class="stamp" id="bc-stamp">ARRIVED ✈</span>
-        </div>
+        </header>
 
-        <div class="landed-meta">
-          <span class="meta-chip" id="bc-origin">✈ —</span>
-          <span class="meta-chip" id="bc-duration">🌙 —</span>
-          <span class="meta-chip" id="bc-distance">📏 —</span>
-        </div>
+        <p class="landed-summary" id="bc-origin">—</p>
+        <span class="sr-only" id="bc-duration"></span>
+        <span class="sr-only" id="bc-distance"></span>
 
-        <div class="culture-card" id="bc-culture">
-          <span class="culture-ico">📖</span>
-          <span class="culture-text" id="bc-culture-text">—</span>
-        </div>
-
-        <div class="broadcast-box" id="bc-text">
-          <span class="bc-cap">🎙 機長廣播</span>
-          <span id="bc-text-inner"></span>
-          <span class="voice-wave" id="voice-wave"><i></i><i></i><i></i><i></i><i></i></span>
-        </div>
-        <div class="social-cue hidden" id="bc-cue"></div>
-
-        <!-- 點飛機 → 機窗風景開合 -->
-        <button class="window-toggle" id="btn-window" type="button" aria-expanded="false">
-          <span class="wt-plane">✈</span>
-          <span class="wt-label" id="wt-label">點我看看窗外風景</span>
-          <span class="wt-caret">▾</span>
-        </button>
-        <div class="plane-window plane-window--porthole" id="plane-window" hidden>
-          <div class="pw-frame pw-frame--porthole">
-            <div class="pw-scene" id="scenery-wrap">
-              <div class="pw-fallback" id="pw-fallback"></div>
-              <img id="scenery-img" class="scenery-img" alt="降落風景" hidden>
-              <div class="pw-glare" aria-hidden="true"></div>
-              <div class="scenery-loading hidden" id="scenery-loading">AI 正在繪製窗外風景</div>
+        <div class="landed-window-zone">
+          <div class="plane-window plane-window--porthole" id="plane-window" hidden>
+            <div class="pw-frame pw-frame--porthole">
+              <div class="pw-scene" id="scenery-wrap">
+                <div class="pw-fallback" id="pw-fallback"></div>
+                <img id="scenery-img" class="scenery-img" alt="降落風景" hidden>
+                <div class="pw-glare" aria-hidden="true"></div>
+                <div class="scenery-loading hidden" id="scenery-loading">AI 正在繪製窗外風景</div>
+              </div>
+            </div>
+            <div class="pw-meta">
+              <span class="scenery-caption" id="scenery-caption"></span>
+              <a id="scenery-link" class="scenery-link hidden" href="#" target="_blank" rel="noopener">原圖 ↗</a>
             </div>
           </div>
-          <div class="pw-meta">
-            <span class="scenery-caption" id="scenery-caption"></span>
-            <a id="scenery-link" class="scenery-link hidden" href="#" target="_blank" rel="noopener">原圖 ↗</a>
-          </div>
+          <button class="fly-portal fly-portal--landed" id="btn-window" type="button" aria-expanded="false" aria-label="看看窗外風景">
+            <span class="fly-portal-aura" aria-hidden="true"></span>
+            <span class="fly-portal-lane" aria-hidden="true">
+              <span class="fly-portal-shimmer"></span>
+              <span class="fly-portal-plane">✈</span>
+            </span>
+            <span class="fly-portal-hint" id="wt-label">看看窗外風景</span>
+          </button>
         </div>
+
+        <div class="landed-broadcast" id="bc-text">
+          <div class="broadcast-box">
+            <div class="bc-cap-row">
+              <span class="bc-cap">🎙 機長廣播</span>
+              <span class="voice-wave" id="voice-wave"><i></i><i></i><i></i><i></i><i></i></span>
+            </div>
+            <p class="landed-bc-body" id="bc-text-inner"></p>
+          </div>
+          <p class="social-cue hidden" id="bc-cue"></p>
+        </div>
+
+        <details class="landed-more">
+          <summary>當地小知識</summary>
+          <div class="culture-card" id="bc-culture">
+            <p class="culture-text" id="bc-culture-text">—</p>
+          </div>
+        </details>
 
         <div class="panel-actions">
           <button class="btn-soft" id="btn-close-landed">✓ 收進票夾，準備下一趟</button>

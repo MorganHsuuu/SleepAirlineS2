@@ -268,13 +268,17 @@ function coordOf(obj, latKey, lngKey) {
 
 const Globe = (() => {
   let ok = false, svg, projection, path, graticule, land = null;
-  let sphereEl, gratEl, gLand, gRoute, gPts, gradStops = [];
+  let sphereEl, gratEl, gLand, gRoute, gRouteHit, gPts, gradStops = [];
   let w = 0, h = 0, baseR = 200, k = 1;
   const HOME_ROT = [-DEFAULT_COORD[0], -20];
   let idleTimer = null, idleOn = true;
   let onFriendPick = null;
   let onPlanePick = null;
-  let view = { you: null, friends: [], heading: null, traveledKm: 0, possibilityKm: 0, arrival: null, routeArc: null, planeC: null, mateArc: null };
+  let view = {
+    you: null, friends: [], friendRoutes: [],
+    heading: null, traveledKm: 0, possibilityKm: 0,
+    arrival: null, routeArc: null, planeC: null, mateArc: null,
+  };
 
   function cssVar(name) {
     return getComputedStyle(document.body).getPropertyValue(name).trim();
@@ -335,39 +339,84 @@ const Globe = (() => {
 
     // 航線圖層
     const gold = cssVar('--gold') || '#d9a63a';
+    const friendCol = cssVar('--friend') || '#3b82f6';
     const routes = [];
     const youC = view.you?.c;
     if (view.routeArc) {
-      routes.push({ d: lineTo(view.routeArc.from, view.routeArc.to), s: null, wd: 2.4, o: 1 });
+      routes.push({ id: 'you', d: lineTo(view.routeArc.from, view.routeArc.to), s: null, wd: 2.4, o: 1, color: gold, pick: 'you' });
     } else if (youC && view.heading != null) {
       const traveled = Math.max(view.traveledKm, 1);
       const planeC = destPoint(youC, view.heading, traveled);
       view.planeC = planeC;
-      routes.push({ d: lineTo(youC, planeC), s: null, wd: 2.4, o: 1 });
+      routes.push({ id: 'you', d: lineTo(youC, planeC), s: null, wd: 2.4, o: 1, color: gold, pick: 'you' });
       const hint = destPoint(youC, view.heading, traveled + 900);
-      routes.push({ d: lineTo(planeC, hint), s: '4 5', wd: 1.4, o: 0.5 });
+      routes.push({ id: 'you-hint', d: lineTo(planeC, hint), s: '4 5', wd: 1.4, o: 0.5, color: gold, pick: 'you' });
     } else if (youC && view.possibilityKm > 0) {
-      // auto：可能圈
       const circle = d3.geoCircle().center(youC).radius(view.possibilityKm / 111.19)();
-      routes.push({ d: circle, s: '3 5', wd: 1.3, o: 0.55 });
+      routes.push({ id: 'you-circle', d: circle, s: '3 5', wd: 1.3, o: 0.55, color: gold, pick: null });
       view.planeC = null;
     }
-    // 隊友航線（點看板成員後高亮的虛線大圓）
+    // 隊友航線（全員可見）
+    (view.friendRoutes || []).forEach((fr) => {
+      routes.push({
+        id: 'fr' + fr.idx,
+        d: lineTo(fr.from, fr.to),
+        s: fr.dashed ? '5 6' : null,
+        wd: fr.dashed ? 1.55 : 1.85,
+        o: fr.dashed ? 0.48 : 0.72,
+        color: friendCol,
+        pick: 'friend',
+        idx: fr.idx,
+      });
+    });
+    // 點看板成員後加強高亮
     if (view.mateArc) {
-      routes.push({ d: lineTo(view.mateArc.from, view.mateArc.to), s: '5 6', wd: 1.9, o: 0.95 });
+      routes.push({
+        id: 'mate',
+        d: lineTo(view.mateArc.from, view.mateArc.to),
+        s: '5 6', wd: 2.6, o: 0.98,
+        color: gold, pick: 'friend', idx: view.mateArc.idx,
+      });
     }
-    gRoute.selectAll('path').data(routes).join('path')
+    gRoute.selectAll('path').data(routes, (d) => d.id).join('path')
       .attr('d', (x) => path(x.d)).attr('fill', 'none')
-      .attr('stroke', gold).attr('stroke-width', (x) => x.wd)
-      .attr('stroke-dasharray', (x) => x.s).attr('opacity', (x) => x.o)
-      .attr('stroke-linecap', 'round');
+      .attr('stroke', (x) => x.color || gold)
+      .attr('stroke-width', (x) => x.wd)
+      .attr('stroke-dasharray', (x) => x.s)
+      .attr('opacity', (x) => x.o)
+      .attr('stroke-linecap', 'round')
+      .attr('pointer-events', 'none');
+
+    const hitRoutes = routes.filter((r) => r.pick);
+    gRouteHit.selectAll('path').data(hitRoutes, (d) => d.id).join('path')
+      .attr('d', (x) => path(x.d)).attr('fill', 'none')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 16)
+      .attr('stroke-linecap', 'round')
+      .attr('pointer-events', (x) => (x.pick === 'you' && onPlanePick) || x.pick === 'friend' ? 'stroke' : 'none')
+      .style('cursor', (x) => {
+        if (x.pick === 'you' && onPlanePick) return 'pointer';
+        if (x.pick === 'friend' && Number.isInteger(x.idx)) return 'pointer';
+        return null;
+      })
+      .on('click', (ev, d) => {
+        ev.stopPropagation();
+        if (d.pick === 'you') onPlanePick?.();
+        else if (d.pick === 'friend' && Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+      });
 
     // 點位圖層
-    const friendCol = cssVar('--friend') || '#3b82f6';
     const labelInk = cssVar('--ink-soft') || '#33557f';
     const pts = [];
     if (view.you) pts.push({ key: 'you', c: view.you.c, label: view.you.label, kind: 'you' });
-    view.friends.forEach((f, i) => pts.push({ key: 'f' + i + f.label, c: f.c, label: f.label + (f.flying ? ' ✈' : ''), kind: 'friend', idx: f.idx }));
+    view.friends.forEach((f, i) => pts.push({
+      key: 'f' + i + f.label,
+      c: f.c,
+      ahead: f.ahead,
+      label: f.label,
+      kind: f.kind || 'friend',
+      idx: f.idx,
+    }));
     if (view.mateArc) {
       pts.push({ key: 'mateDep', c: view.mateArc.from, label: view.mateArc.depLabel, kind: 'friend' });
       pts.push({ key: 'mateArr', c: view.mateArc.to, label: view.mateArc.arrLabel, kind: 'arrival' });
@@ -396,21 +445,26 @@ const Globe = (() => {
     gPts.selectAll('g.pt').each(function (d) {
       const [x, y] = projection(d.c);
       const g = d3.select(this);
-      if (d.kind === 'plane') {
+      if (d.kind === 'plane' || d.kind === 'friend-plane') {
         g.select('.halo').attr('r', 0); g.select('.core').attr('r', 0);
         g.select('.lbl').text('');
-        // 機頭轉向：以「前方一小段」的螢幕角度旋轉（圖示鼻朝上 = -90°）
         let deg = 0;
         if (d.ahead) {
           const [ax, ay] = projection(d.ahead);
           deg = Math.atan2(ay - y, ax - x) * 180 / Math.PI + 90;
         }
+        const pcol = d.kind === 'friend-plane' ? friendCol : gold;
         g.select('.plicon')
           .attr('display', null)
           .attr('transform', `translate(${x},${y}) rotate(${deg}) scale(1.15)`)
-          .attr('fill', gold).attr('stroke', '#fff').attr('stroke-width', 0.6);
-        g.style('cursor', onPlanePick ? 'pointer' : null)
-          .on('click', onPlanePick ? (ev) => { ev.stopPropagation(); onPlanePick(); } : null);
+          .attr('fill', pcol).attr('stroke', '#fff').attr('stroke-width', 0.6);
+        const clickable = d.kind === 'plane' ? !!onPlanePick : Number.isInteger(d.idx);
+        g.style('cursor', clickable ? 'pointer' : null)
+          .on('click', clickable ? (ev) => {
+            ev.stopPropagation();
+            if (d.kind === 'plane') onPlanePick?.();
+            else onFriendPick?.(d.idx);
+          } : null);
         return;
       }
       g.select('.plicon').attr('display', 'none');
@@ -546,6 +600,7 @@ const Globe = (() => {
     gratEl = svg.append('path').attr('fill', 'none').attr('stroke-width', 0.5);
     gLand = svg.append('g');
     gRoute = svg.append('g');
+    gRouteHit = svg.append('g');
     gPts = svg.append('g');
 
     new ResizeObserver(resize).observe($('stage'));
@@ -571,9 +626,8 @@ const Globe = (() => {
     setFriendPick(fn) { onFriendPick = fn; },
     setPlanePick(fn) { onPlanePick = fn; render(); },
     /** 高亮某位隊友的航線（虛線大圓 + 起降點），並把鏡頭轉到航線中點 */
-    focusMate(from, to, arrLabel, depLabel) {
-      view.mateArc = { from, to, arrLabel, depLabel };
-      // 停用自己的航向提示圖層，避免干擾
+    focusMate(from, to, arrLabel, depLabel, idx) {
+      view.mateArc = { from, to, arrLabel, depLabel, idx };
       view.heading = null; view.possibilityKm = 0; view.routeArc = null;
       idleOn = false;
       render();
@@ -840,16 +894,58 @@ async function api(method, url, body) {
 
 // ── 地球儀資料同步 ────────────────────────────────────────────────────────────
 
+function flightPlaneCoord(f) {
+  const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
+  if (!dep) return null;
+  const bearing = DIRECTION_BEARING[f.routeDirection];
+  const km = minutesSince(f.takeoffTime) * KM_PER_MINUTE;
+  if (bearing == null) return { c: dep, km: 0 };
+  const traveled = Math.max(km, 1);
+  return { c: destPoint(dep, bearing, traveled), km: traveled, ahead: destPoint(dep, bearing, traveled + 60) };
+}
+
+function buildFriendRoutes() {
+  if (!passenger) return [];
+  return groupFlights
+    .map((f, idx) => ({ f, idx }))
+    .filter(({ f }) => f.passengerName !== passenger.name)
+    .map(({ f, idx }) => {
+      const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
+      if (!dep) return null;
+      if (f.status === 'landed') {
+        const arr = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+        if (!arr) return null;
+        return { idx, from: dep, to: arr, dashed: true, label: f.passengerName };
+      }
+      if (f.status === 'in_flight') {
+        const pos = flightPlaneCoord(f);
+        if (!pos) return null;
+        return { idx, from: dep, to: pos.c, dashed: false, label: f.passengerName };
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function friendsFromBoard() {
   if (!passenger) return [];
   return groupFlights
     .map((f, idx) => ({ f, idx }))
     .filter(({ f }) => f.passengerName !== passenger.name)
     .map(({ f, idx }) => {
+      if (f.status === 'in_flight') {
+        const pos = flightPlaneCoord(f);
+        if (!pos) return null;
+        return {
+          c: pos.c, ahead: pos.ahead,
+          label: f.passengerName + ' ✈',
+          kind: 'friend-plane', idx,
+        };
+      }
       const c = f.status === 'landed'
         ? coordOf(f, 'arrivalLatitude', 'arrivalLongitude')
         : coordOf(f, 'departureLatitude', 'departureLongitude');
-      return c ? { c, label: f.passengerName, flying: f.status === 'in_flight', idx } : null;
+      return c ? { c, label: f.passengerName, kind: 'friend', idx } : null;
     })
     .filter(Boolean);
 }
@@ -865,8 +961,9 @@ function updateGlobeForReady() {
   Globe.update({
     you: { c: youCoord(), label: `你 · ${cityOnly(passenger.currentLocation)}` },
     friends: friendsFromBoard(),
+    friendRoutes: buildFriendRoutes(),
     heading: bearing ?? null,
-    traveledKm: bearing != null ? 260 : 0,   // ready：短短一截航向提示
+    traveledKm: bearing != null ? 260 : 0,
     possibilityKm: bearing == null ? 700 : 0,
     routeArc: null, arrival: null,
   });
@@ -881,6 +978,7 @@ function updateGlobeForFlight() {
   Globe.update({
     you: { c: dep, label: cityOnly(activeFlight.departureLocation) },
     friends: friendsFromBoard(),
+    friendRoutes: buildFriendRoutes(),
     heading: bearing ?? null,
     traveledKm: km,
     possibilityKm: bearing == null ? Math.max(km, 120) : 0,
@@ -1137,7 +1235,25 @@ function openMateSheet(f) {
   const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
   const arr = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
   if (landed && dep && arr) {
-    Globe.focusMate(dep, arr, `${cityOnly(f.arrivalLocation)}${meta.flag ? ' ' + meta.flag : ''}`, cityOnly(f.departureLocation));
+    Globe.focusMate(
+      dep, arr,
+      `${cityOnly(f.arrivalLocation)}${meta.flag ? ' ' + meta.flag : ''}`,
+      cityOnly(f.departureLocation),
+      groupFlights.indexOf(f),
+    );
+  } else if (flying && dep) {
+    const pos = flightPlaneCoord(f);
+    if (pos) {
+      Globe.focusMate(
+        dep, pos.c,
+        `${f.passengerName} ✈`,
+        cityOnly(f.departureLocation),
+        groupFlights.indexOf(f),
+      );
+    } else {
+      Globe.clearMate();
+      Globe.flyTo(dep, 900);
+    }
   } else if (dep) {
     Globe.clearMate();
     Globe.flyTo(dep, 900);
@@ -1220,7 +1336,7 @@ function setWindowOpen(open) {
   if (!btn || !win) return;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   win.hidden = !open;
-  $('wt-label').textContent = open ? '收合窗外風景' : '點我看看窗外風景';
+  $('wt-label').textContent = open ? '收起舷窗' : '看看窗外風景';
   if (open) renderSceneryCard(false);
 }
 function toggleWindow() {
@@ -1233,7 +1349,7 @@ function setFlightWindowOpen(open) {
   if (!btn || !win) return;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   win.hidden = !open;
-  $('flight-wt-label').textContent = open ? '收起舷窗' : '望向窗外';
+  $('flight-wt-label').textContent = open ? '收起舷窗' : '點地球航線或飛機 · 望向窗外';
   const video = $('flight-window-video');
   if (open) playWindowVideo(video, FLIGHT_MEDIA.cruise);
   else pauseWindowVideo(video);
@@ -1251,9 +1367,7 @@ function celebrateArrival(flightId) {
   celebratedFlightId = flightId;
   const burst = $('arrival-burst');
   if (burst) { burst.classList.remove('go'); void burst.offsetWidth; burst.classList.add('go'); }
-  // 抵達即自動展開機窗，直接露出窗外風景（AI 圖或晨景），仍可再點擊收合
   setWindowOpen(true);
-  // 面板可能較高，捲回頂端讓「國旗＋城市＋ARRIVED」的抵達感先被看見
   const panel = $('landed-panel');
   if (panel) requestAnimationFrame(() => { panel.scrollTop = 0; });
 }
@@ -1320,14 +1434,17 @@ function updateUI() {
 
   if (showLanded) {
     const meta = arrivalMeta(lastLandedFlight);
+    const dep = cityOnly(lastLandedFlight.departureLocation) || '—';
+    const dur = fmtDuration(lastLandedFlight.flightDurationMinutes);
+    const dist = lastLandedFlight.estimatedFlightDistanceKm
+      ? Math.round(lastLandedFlight.estimatedFlightDistanceKm).toLocaleString() + ' km' : '—';
     $('bc-flag').textContent = meta.flag;
     $('bc-route').textContent = cityOnly(lastLandedFlight.arrivalLocation) || '未知目的地';
     $('bc-country').textContent = meta.country;
-    $('bc-origin').textContent = '✈ 從 ' + (cityOnly(lastLandedFlight.departureLocation) || '—') + ' 出發';
-    $('bc-stamp').textContent = 'ARRIVED ✈ ' + codeify(lastLandedFlight.arrivalLocation);
-    $('bc-duration').textContent = '🌙 ' + fmtDuration(lastLandedFlight.flightDurationMinutes);
-    $('bc-distance').textContent = '📏 ' + (lastLandedFlight.estimatedFlightDistanceKm
-      ? Math.round(lastLandedFlight.estimatedFlightDistanceKm).toLocaleString() + ' km' : '—');
+    $('bc-stamp').textContent = '已抵達';
+    $('bc-origin').textContent = `${dep} 出發 · ${dur} · ${dist}`;
+    $('bc-duration').textContent = dur;
+    $('bc-distance').textContent = dist;
     $('bc-culture-text').textContent = meta.culture;
     $('bc-text-inner').textContent = lastLandedFlight.captainBroadcast || '（機長廣播生成中或未啟用）';
     const cue = $('bc-cue');
@@ -1477,7 +1594,8 @@ async function fetchBoard() {
     const data = await api('GET', '/api/board?groupId=' + encodeURIComponent(passenger.groupId));
     if (data.flights) groupFlights = data.flights;
     renderBoard();
-    if (passenger.status !== 'in_flight') updateGlobeForReady();
+    if (passenger.status === 'in_flight') updateGlobeForFlight();
+    else updateGlobeForReady();
   } catch { /* silent */ }
 }
 
@@ -1528,7 +1646,7 @@ function enterDemoPreview() {
   landingScenery = null;
   groupFlights = [
     {
-      passengerName: 'Amy', status: 'in_flight',
+      passengerName: 'Amy', status: 'in_flight', routeDirection: 'eastbound',
       departureLocation: 'London, UK', departureLatitude: 51.5, departureLongitude: -0.12,
       takeoffTime: new Date(Date.now() - 190 * 60000).toISOString(),
       takeoffBroadcast: '夜航開始，請調暗舷窗。',
@@ -1635,8 +1753,7 @@ $('btn-close-landed').addEventListener('click', () => {
   // 飛行中點地球儀上的飛機 → 展開巡航舷窗
   Globe.setPlanePick(() => {
     if (passenger?.status !== 'in_flight') return;
-    toggleFlightWindow();
-    $('flight-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setFlightWindowOpen($('btn-flight-window').getAttribute('aria-expanded') !== 'true');
   });
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
