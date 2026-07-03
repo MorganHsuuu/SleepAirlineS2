@@ -43,7 +43,7 @@ export async function generateLandingScenery(
 
   const imagePrompt = buildSceneryPrompt(city, country, displayName);
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1-mini';
+  const model = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2';
 
   const response = await client.images.generate(
     isGptImageModel(model)

@@ -14,6 +14,7 @@ import { calculateFlightDistance } from './src/lib/flight/distance';
 import { calculateFlightProgress } from './src/lib/flight/progress';
 import { getNarrativeRegion } from './src/lib/flight/region';
 import { findArrivalDestination } from './src/lib/flight/direction';
+import { fetchLocalContext, resolveCountryIso } from './src/lib/flight/local-context';
 import { resolveGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
@@ -23,6 +24,14 @@ import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 
 import type { RouteDirection, BroadcastStyle, NarrativeRegion } from './src/types';
 import { getDataModeStatus } from './src/lib/data-mode';
+
+function parseDisplayLocation(displayName: string): { cityName: string; countryName: string } {
+  const parts = displayName.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return { cityName: parts[0], countryName: parts[parts.length - 1] };
+  }
+  return { cityName: displayName, countryName: '' };
+}
 import { formatNotionError } from './src/lib/notion/db-access';
 import { introspectNotionSchemas } from './src/lib/notion/schema-introspect';
 
@@ -153,6 +162,18 @@ app.post('/api/flight/takeoff', async (req, res) => {
     );
 
     let takeoffBroadcast = '';
+    const depPlace = parseDisplayLocation(flight.departureLocation);
+    const depLocal = await fetchLocalContext({
+      cityName: depPlace.cityName,
+      countryName: depPlace.countryName,
+      countryIso: resolveCountryIso(
+        flight.departureLatitude,
+        flight.departureLongitude,
+        flight.departureLocation
+      ),
+      latitude: flight.departureLatitude,
+      longitude: flight.departureLongitude,
+    }).catch(() => null);
     try {
       takeoffBroadcast = await generateCaptainBroadcast({
         phase: 'takeoff',
@@ -166,6 +187,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
         routeDirection: flight.routeDirection,
         socialCue,
         style: broadcastStyle as BroadcastStyle,
+        localContext: depLocal,
       });
     } catch {
       takeoffBroadcast = fallbackCaptainBroadcast(
@@ -175,7 +197,8 @@ app.post('/api/flight/takeoff', async (req, res) => {
         null,
         flight.routeDirection,
         null,
-        socialCue.cueText
+        socialCue.cueText,
+        depLocal
       );
     }
 
@@ -270,6 +293,14 @@ app.post('/api/flight/land', async (req, res) => {
     );
 
     let captainBroadcast = '';
+    const arrPlace = parseDisplayLocation(arrival.displayName);
+    const arrLocal = await fetchLocalContext({
+      cityName: arrival.city || arrPlace.cityName,
+      countryName: arrival.country || arrPlace.countryName,
+      countryIso: arrival.countryIso,
+      latitude: arrival.latitude,
+      longitude: arrival.longitude,
+    }).catch(() => null);
     try {
       captainBroadcast = await generateCaptainBroadcast({
         phase: 'landing',
@@ -283,6 +314,7 @@ app.post('/api/flight/land', async (req, res) => {
         routeDirection: activeFlight.routeDirection,
         socialCue,
         style: broadcastStyle as BroadcastStyle,
+        localContext: arrLocal,
       });
     } catch {
       captainBroadcast = fallbackCaptainBroadcast(
@@ -292,7 +324,8 @@ app.post('/api/flight/land', async (req, res) => {
         arrival.displayName,
         activeFlight.routeDirection,
         durationMinutes,
-        socialCue.cueText
+        socialCue.cueText,
+        arrLocal
       );
     }
 

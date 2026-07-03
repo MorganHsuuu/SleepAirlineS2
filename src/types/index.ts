@@ -89,6 +89,8 @@ export interface Destination {
   destinationId: string;
   city: string;
   country: string;
+  countryIso: string;
+  timezone: string;
   displayName: string;
   latitude: number;
   longitude: number;

@@ -44,6 +44,8 @@ export const CITIES: Destination[] = (rawCities as RawCity[])
   destinationId: `${entry.country_iso_code.toUpperCase()}_${slug(entry.city)}`,
   city: entry.city,
   country: entry.country,
+  countryIso: entry.country_iso_code.toUpperCase(),
+  timezone: entry.timezone || 'UTC',
   displayName: toDisplayName(entry),
   latitude: entry.latitude,
   longitude: entry.longitude,
