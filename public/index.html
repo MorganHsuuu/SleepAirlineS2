@@ -119,19 +119,32 @@
       <div id="flight-panel" class="hidden">
         <div class="glass dock-panel dock-panel--cta">
           <div class="dock-panel-main">
-            <div class="fly-head">
-              <span class="pulse"></span><b>飛行中</b>
-              <span class="fly-dir" id="fl-direction">—</span>
-            </div>
-            <div class="fly-stats">
-              <div class="fly-stat">
-                <div class="v" id="fl-duration">0 分鐘</div>
-                <div class="k">已飛行時長</div>
+            <div class="fly-journey">
+              <p class="fly-mood" id="fl-mood">夜航中</p>
+              <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
+
+              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
+                <span class="fly-portal-aura" aria-hidden="true"></span>
+                <span class="fly-portal-lane" aria-hidden="true">
+                  <span class="fly-portal-shimmer"></span>
+                  <span class="fly-portal-plane">✈</span>
+                </span>
+                <span class="fly-portal-hint" id="flight-wt-label">望向窗外</span>
+              </button>
+
+              <div class="plane-window plane-window--porthole" id="flight-window" hidden>
+                <div class="pw-frame pw-frame--porthole">
+                  <div class="pw-scene">
+                    <video id="flight-window-video" class="pw-video" muted playsinline loop preload="metadata"></video>
+                    <div class="pw-glare" aria-hidden="true"></div>
+                  </div>
+                </div>
+                <p class="fly-window-cap">雲海仍在向前</p>
               </div>
-              <div class="fly-stat">
-                <div class="v" id="fl-distance">0 km</div>
-                <div class="k">累積距離</div>
-              </div>
+
+              <span class="sr-only" id="fl-duration" aria-live="polite">0 分鐘</span>
+              <span class="sr-only" id="fl-distance">0 km</span>
+              <span class="sr-only" id="fl-direction"></span>
             </div>
           </div>
           <button class="dock-action dock-action--green" id="btn-land" type="button">
@@ -178,8 +191,8 @@
           <span class="wt-label" id="wt-label">點我看看窗外風景</span>
           <span class="wt-caret">▾</span>
         </button>
-        <div class="plane-window" id="plane-window" hidden>
-          <div class="pw-frame">
+        <div class="plane-window plane-window--porthole" id="plane-window" hidden>
+          <div class="pw-frame pw-frame--porthole">
             <div class="pw-scene" id="scenery-wrap">
               <div class="pw-fallback" id="pw-fallback"></div>
               <img id="scenery-img" class="scenery-img" alt="降落風景" hidden>
@@ -290,8 +303,8 @@
     </div>
     <div class="landed-meta" id="mate-meta"></div>
 
-    <div class="plane-window" id="mate-window">
-      <div class="pw-frame">
+    <div class="plane-window plane-window--porthole" id="mate-window">
+      <div class="pw-frame pw-frame--porthole">
         <div class="pw-scene" id="mate-scene">
           <div class="pw-fallback" id="mate-fallback"></div>
           <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
@@ -311,25 +324,37 @@
     <div class="social-cue hidden" id="mate-cue"></div>
   </div>
 
-  <!-- 起飛過場 -->
-  <div id="takeoff-fx">
-    <span class="fx-plane">✈</span>
-    <span class="fx-cloud" style="width:120px;height:34px;left:12%;animation-delay:0s"></span>
-    <span class="fx-cloud" style="width:80px;height:24px;left:62%;animation-delay:.3s"></span>
-    <span class="fx-cloud" style="width:100px;height:28px;left:34%;animation-delay:.6s"></span>
-    <span class="fx-cloud" style="width:70px;height:20px;left:80%;animation-delay:.15s"></span>
+  <!-- 起飛過場：舷窗影片（等待塔台／機長廣播） -->
+  <div id="takeoff-fx" class="fx-overlay" aria-hidden="true">
+    <div class="fx-porthole-wrap fx-porthole">
+      <div class="fx-porthole pw-frame pw-frame--porthole">
+        <div class="pw-scene">
+          <video id="takeoff-fx-video" class="pw-video" muted playsinline loop preload="auto"></video>
+          <div class="pw-glare" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="fx-status">
+        <div class="fx-title">起飛中…</div>
+        <div class="fx-sub" id="takeoff-fx-sub">正在與塔台確認 · 機長廣播準備中</div>
+        <div class="fx-bar"><i></i></div>
+      </div>
+    </div>
   </div>
 
-  <!-- 降落過場（等待機長廣播 / 生圖時持續顯示） -->
-  <div id="landing-fx" aria-hidden="true">
-    <span class="lf-cloud" style="width:130px;height:34px;left:8%;animation-delay:0s"></span>
-    <span class="lf-cloud" style="width:90px;height:24px;left:66%;animation-delay:.5s"></span>
-    <span class="lf-cloud" style="width:110px;height:30px;left:38%;animation-delay:.9s"></span>
-    <div class="lf-center">
-      <span class="lf-plane">🛬</span>
-      <div class="lf-title">降落中…</div>
-      <div class="lf-sub" id="landing-fx-sub">正在生成機長廣播與窗外風景</div>
-      <div class="lf-bar"><i></i></div>
+  <!-- 降落過場：舷窗影片（等待機長廣播／生圖） -->
+  <div id="landing-fx" class="fx-overlay" aria-hidden="true">
+    <div class="fx-porthole-wrap fx-porthole">
+      <div class="fx-porthole pw-frame pw-frame--porthole">
+        <div class="pw-scene">
+          <video id="landing-fx-video" class="pw-video" muted playsinline loop preload="auto"></video>
+          <div class="pw-glare" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="fx-status">
+        <div class="fx-title">降落中…</div>
+        <div class="fx-sub" id="landing-fx-sub">正在生成機長廣播與窗外風景</div>
+        <div class="fx-bar"><i></i></div>
+      </div>
     </div>
   </div>
 

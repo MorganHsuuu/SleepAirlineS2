@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, statSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 const src = 'src/data/cities_data.json';
 const dest = 'public/cities_data.json';
@@ -32,5 +33,22 @@ if (!existsSync(isoDest) || statSync(src).mtimeMs > statSync(isoDest).mtimeMs) {
     console.log('sync-cities-public: wrote →', isoDest, `(${Object.keys(map).length} names)`);
   } catch (err) {
     console.warn('sync-cities-public: country-iso build failed:', err.message);
+  }
+}
+
+// 同步飛行舷窗影片 scripts/*.mp4 → public/media/
+const mediaDir = 'public/media';
+const mediaMap = [
+  ['scripts/takeoff1.mp4', 'takeoff.mp4'],
+  ['scripts/takeoff2.mp4', 'cruise.mp4'],
+  ['scripts/landing.mp4', 'landing.mp4'],
+];
+if (!existsSync(mediaDir)) mkdirSync(mediaDir, { recursive: true });
+for (const [srcMp4, name] of mediaMap) {
+  const destMp4 = join(mediaDir, name);
+  if (!existsSync(srcMp4)) continue;
+  if (!existsSync(destMp4) || statSync(srcMp4).mtimeMs > statSync(destMp4).mtimeMs) {
+    copyFileSync(srcMp4, destMp4);
+    console.log('sync-cities-public: copied →', destMp4);
   }
 }

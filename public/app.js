@@ -25,6 +25,20 @@ const STATUS_LABEL = {
 };
 const KM_PER_MINUTE = 12;                    // 與後端 distance.ts / workshop-local 一致
 const DEFAULT_COORD = [121.5654, 25.033];    // Taipei
+/** 飛行舷窗影片（public/media/） */
+const FLIGHT_MEDIA = {
+  takeoff: 'media/takeoff.mp4',
+  cruise: 'media/cruise.mp4',
+  landing: 'media/landing.mp4',
+};
+/** 飛行中氛圍文案（輪替，不強調數字） */
+const FLIGHT_WHISPERS = [
+  '雲層在舷窗外緩緩流過…',
+  '前方仍是一片溫柔的天光…',
+  '夜航仍在向前，不必急…',
+  '讓睡意帶你穿過這片寧靜…',
+  '航程像一條發光的細線，延伸向遠方…',
+];
 const AVATAR_COLORS = ['#d9a63a', '#5b8ed6', '#8f7fd0', '#5eae9d', '#d97f8e', '#7aa85e'];
 const TICKET_STRIPS = [
   'linear-gradient(90deg,#f2a65e,#e97c6c)',
@@ -259,6 +273,7 @@ const Globe = (() => {
   const HOME_ROT = [-DEFAULT_COORD[0], -20];
   let idleTimer = null, idleOn = true;
   let onFriendPick = null;
+  let onPlanePick = null;
   let view = { you: null, friends: [], heading: null, traveledKm: 0, possibilityKm: 0, arrival: null, routeArc: null, planeC: null, mateArc: null };
 
   function cssVar(name) {
@@ -394,6 +409,8 @@ const Globe = (() => {
           .attr('display', null)
           .attr('transform', `translate(${x},${y}) rotate(${deg}) scale(1.15)`)
           .attr('fill', gold).attr('stroke', '#fff').attr('stroke-width', 0.6);
+        g.style('cursor', onPlanePick ? 'pointer' : null)
+          .on('click', onPlanePick ? (ev) => { ev.stopPropagation(); onPlanePick(); } : null);
         return;
       }
       g.select('.plicon').attr('display', 'none');
@@ -552,6 +569,7 @@ const Globe = (() => {
     update(patch) { Object.assign(view, patch); render(); },
     clearRoute() { Object.assign(view, { heading: null, traveledKm: 0, possibilityKm: 0, routeArc: null, planeC: null, arrival: null }); render(); },
     setFriendPick(fn) { onFriendPick = fn; },
+    setPlanePick(fn) { onPlanePick = fn; render(); },
     /** 高亮某位隊友的航線（虛線大圓 + 起降點），並把鏡頭轉到航線中點 */
     focusMate(from, to, arrLabel, depLabel) {
       view.mateArc = { from, to, arrLabel, depLabel };
@@ -870,15 +888,31 @@ function updateGlobeForFlight() {
   });
 }
 
-// ── 飛行計時器（時長 + 距離）─────────────────────────────────────────────────
+// ── 飛行計時器（背景更新；畫面以氛圍文案取代數字）────────────────────────────
+
+function updateFlightMood() {
+  if (!activeFlight) return;
+  const dir = DIRECTION_LABEL[activeFlight.routeDirection] || activeFlight.routeDirection;
+  const mood = $('fl-mood');
+  if (mood) mood.textContent = dir ? `夜航 · ${dir}` : '夜航中';
+  $('fl-direction').textContent = dir ? '🧭 ' + dir : '—';
+
+  const mins = minutesSince(activeFlight.takeoffTime);
+  $('fl-duration').textContent = fmtDuration(mins);
+  $('fl-distance').textContent = Math.round(mins * KM_PER_MINUTE).toLocaleString() + ' km';
+
+  const whisper = $('fl-whisper');
+  if (whisper) {
+    const idx = Math.min(FLIGHT_WHISPERS.length - 1, Math.floor(mins / 2));
+    whisper.textContent = FLIGHT_WHISPERS[idx];
+  }
+}
 
 function startFlightTicker() {
   stopFlightTicker();
   const tick = () => {
     if (!activeFlight) return;
-    const mins = minutesSince(activeFlight.takeoffTime);
-    $('fl-duration').textContent = fmtDuration(mins);
-    $('fl-distance').textContent = Math.round(mins * KM_PER_MINUTE).toLocaleString() + ' km';
+    updateFlightMood();
     updateGlobeForFlight();
   };
   tick();
@@ -1156,6 +1190,28 @@ async function renderMateScenery(f, meta, landed) {
   }
 }
 
+// ── 舷窗影片 ─────────────────────────────────────────────────────────────────
+
+async function playWindowVideo(video, src, { loop = true } = {}) {
+  if (!video || !src) return;
+  if (video.dataset.src !== src) {
+    video.src = src;
+    video.dataset.src = src;
+  }
+  video.loop = loop;
+  video.muted = true;
+  video.playsInline = true;
+  try {
+    await video.play();
+  } catch { /* 部分瀏覽器需使用者手勢才允許播放 */ }
+}
+
+function pauseWindowVideo(video) {
+  if (!video) return;
+  video.pause();
+  try { video.currentTime = 0; } catch { /* noop */ }
+}
+
 // ── 機窗開合（點飛機 → 展開/收合窗外風景）────────────────────────────────────
 
 function setWindowOpen(open) {
@@ -1169,6 +1225,22 @@ function setWindowOpen(open) {
 }
 function toggleWindow() {
   setWindowOpen($('btn-window').getAttribute('aria-expanded') !== 'true');
+}
+
+function setFlightWindowOpen(open) {
+  const btn = $('btn-flight-window');
+  const win = $('flight-window');
+  if (!btn || !win) return;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  win.hidden = !open;
+  $('flight-wt-label').textContent = open ? '收起舷窗' : '望向窗外';
+  const video = $('flight-window-video');
+  if (open) playWindowVideo(video, FLIGHT_MEDIA.cruise);
+  else pauseWindowVideo(video);
+}
+function toggleFlightWindow() {
+  if (passenger?.status !== 'in_flight') return;
+  setFlightWindowOpen($('btn-flight-window').getAttribute('aria-expanded') !== 'true');
 }
 
 // ── 抵達慶祝動畫 ─────────────────────────────────────────────────────────────
@@ -1186,6 +1258,20 @@ function celebrateArrival(flightId) {
   if (panel) requestAnimationFrame(() => { panel.scrollTop = 0; });
 }
 
+// ── 起飛／降落全螢幕舷窗過場 ─────────────────────────────────────────────────
+
+function showTakeoffFx(sub) {
+  const fx = $('takeoff-fx');
+  if (!fx) return;
+  if (sub) { const s = $('takeoff-fx-sub'); if (s) s.textContent = sub; }
+  fx.classList.add('show');
+  playWindowVideo($('takeoff-fx-video'), FLIGHT_MEDIA.takeoff);
+}
+function hideTakeoffFx() {
+  $('takeoff-fx')?.classList.remove('show');
+  pauseWindowVideo($('takeoff-fx-video'));
+}
+
 // ── 降落過場 ─────────────────────────────────────────────────────────────────
 
 function showLandingFx(sub) {
@@ -1193,9 +1279,11 @@ function showLandingFx(sub) {
   if (!fx) return;
   if (sub) { const s = $('landing-fx-sub'); if (s) s.textContent = sub; }
   fx.classList.add('show');
+  playWindowVideo($('landing-fx-video'), FLIGHT_MEDIA.landing);
 }
 function hideLandingFx() {
   $('landing-fx')?.classList.remove('show');
+  pauseWindowVideo($('landing-fx-video'));
 }
 
 // ── 主 UI 狀態機 ─────────────────────────────────────────────────────────────
@@ -1216,11 +1304,12 @@ function updateUI() {
   $('landed-panel').classList.toggle('hidden', !showLanded);
 
   if (isFlying && activeFlight) {
-    $('fl-direction').textContent = '🧭 ' + (DIRECTION_LABEL[activeFlight.routeDirection] || activeFlight.routeDirection);
+    updateFlightMood();
     Globe.setIdle(false);
     startFlightTicker();
   } else {
     stopFlightTicker();
+    setFlightWindowOpen(false);
     Globe.setIdle(!showLanded);
   }
 
@@ -1291,6 +1380,7 @@ async function doTakeoff() {
   clearMsg('main');
   const btn = $('btn-takeoff');
   btn.disabled = true;
+  showTakeoffFx('正在與塔台確認 · 機長廣播準備中');
   try {
     const data = await api('POST', '/api/flight/takeoff', {
       passengerId: passenger.passengerId,
@@ -1304,14 +1394,9 @@ async function doTakeoff() {
     landingScenery = null;
     delete $('landed-panel').dataset.dismissed;
 
-    // 起飛過場：雲層 + 機身爬升
-    const fx = $('takeoff-fx');
-    fx.classList.remove('play'); void fx.offsetWidth; fx.classList.add('play');
-    setTimeout(() => {
-      updateUI();
-      Globe.flyTo(youCoord(), 1400);
-    }, 1100);
-    setTimeout(() => fx.classList.remove('play'), 2700);
+    hideTakeoffFx();
+    updateUI();
+    Globe.flyTo(youCoord(), 1400);
 
     await fetchBoard();
     startAutoRefresh();
@@ -1319,6 +1404,7 @@ async function doTakeoff() {
       playBroadcastWithWave(activeFlight.takeoffBroadcast, activeFlight.takeoffBroadcastStyle);
     }
   } catch (err) {
+    hideTakeoffFx();
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
@@ -1527,6 +1613,7 @@ $('btn-fate').addEventListener('click', () => Compass.fate());
 $('btn-compass-confirm').addEventListener('click', () => Compass.confirm());
 
 $('btn-window').addEventListener('click', toggleWindow);
+$('btn-flight-window').addEventListener('click', toggleFlightWindow);
 
 $('btn-close-landed').addEventListener('click', () => {
   $('landed-panel').dataset.dismissed = '1';
@@ -1545,6 +1632,12 @@ $('btn-close-landed').addEventListener('click', () => {
 
   // 點地球儀上的隊友點 → 開啟該隊友航程詳情
   Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateSheet(groupFlights[idx]); });
+  // 飛行中點地球儀上的飛機 → 展開巡航舷窗
+  Globe.setPlanePick(() => {
+    if (passenger?.status !== 'in_flight') return;
+    toggleFlightWindow();
+    $('flight-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
