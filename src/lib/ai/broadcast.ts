@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import type { BroadcastStyle, NarrativeRegion } from '../../types';
 import type { SocialCue } from '../../types';
-import { REGION_DISPLAY } from '../flight/region';
 
 const STYLE_DESCRIPTIONS: Record<BroadcastStyle, string> = {
   formal_captain: '語氣沉穩、簡潔，像深夜航班的真正機長，不說套話。',
@@ -84,6 +83,12 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - 禁止冒充乘客、禁止用第一人稱代替乘客說話
 - 用「各位乘客」或「${pax}」稱呼對方
 
+地理（非常重要）：
+- 起飛時目的地是未知的：只能講出發地與航向，禁止推測、暗示航線會經過或抵達哪些城市、國家
+- 【同組社交】裡的地名是「隊友」的位置，不是你的航線；提到時必須明確掛在隊友名字上，
+  禁止說成本機正飛過、穿越或靠近那些地方（例：隊友在東京 ≠ 你飛過東京）
+- 所有地理描述必須與「航線方向」一致，不得自相矛盾
+
 寫作：
 - 繁體中文，60–90 字，最多不超過 100 字
 - 一句一重點，刪掉「有任何需求」「感謝選搭本航空」「祝您旅途愉快」等空泛套話
@@ -96,12 +101,12 @@ ${STYLE_DESCRIPTIONS[input.style]}
 乘客：${pax}
 出發地：${input.departureLocation}
 航線方向：${direction}
-進入空域：${REGION_DISPLAY[input.narrativeRegion]}
 
 【同組社交】
 ${buildSocialBlock(input.socialCue)}
 
-請宣布：夜航啟程、出發地、航向，並自然帶入社交情境（若為 solo 可寫成「今夜天幕上只有你一人」之類，勿照搬）。`;
+請宣布：夜航啟程、出發地、航向（目的地未知，睡多久飛多遠），並自然帶入社交情境
+（若為 solo 可寫成「今夜天幕上只有你一人」之類，勿照搬；隊友的地點務必掛隊友的名字）。`;
 
   const duration = formatDuration(input.flightDurationMinutes);
   const landingUser = `【降落廣播】

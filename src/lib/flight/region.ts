@@ -8,10 +8,11 @@ export const REGION_ORDER: NarrativeRegion[] = [
   'arrival_harbor',
 ];
 
+// 敘事空域：與實際地理無關的詩意階段名，任何航向都成立
 export const REGION_DISPLAY: Record<NarrativeRegion, string> = {
   departure_clouds: '登機雲層',
-  pacific_drift: '太平洋漂流帶',
-  deep_night_current: '深夜洋流',
+  pacific_drift: '高空靜流帶',
+  deep_night_current: '深夜氣流',
   dawn_corridor: '黎明航廊',
   arrival_harbor: '抵達港灣',
 };
