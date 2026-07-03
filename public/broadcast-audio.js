@@ -213,7 +213,7 @@ function speakText(text) {
   });
 }
 
-async function fetchCaptainSpeechAudio(text, style) {
+async function fetchOpenAISpeechBlob(text, style) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
@@ -225,20 +225,48 @@ async function fetchCaptainSpeechAudio(text, style) {
     });
     clearTimeout(timer);
     if (!res.ok) return null;
-
     const blob = await res.blob();
     if (!blob.size || !blob.type.startsWith('audio/')) return null;
-
-    const url = URL.createObjectURL(blob);
-    return { url, blob };
+    return blob;
   } catch {
     return null;
   }
 }
 
-function playPreparedSpeech(url) {
-  return new Promise((resolve) => {
+/** 先載入語音；OpenAI 失敗時標記可走瀏覽器 TTS。 */
+async function prepareCaptainSpeech(text, style) {
+  const blob = await fetchOpenAISpeechBlob(text, style);
+  if (blob) {
+    const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    const ready = await new Promise((resolve) => {
+      let done = false;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        if (!ok) {
+          URL.revokeObjectURL(url);
+          resolve(null);
+          return;
+        }
+        resolve({ kind: 'openai', audio, url });
+      };
+      audio.oncanplaythrough = () => finish(true);
+      audio.onerror = () => finish(false);
+      audio.load();
+      setTimeout(() => finish(true), 6000);
+    });
+    if (ready) return ready;
+  }
+  if (text?.trim() && window.speechSynthesis) return { kind: 'browser', text };
+  return null;
+}
+
+function playPreparedSpeech(prepared) {
+  if (!prepared) return Promise.resolve(false);
+  if (prepared.kind === 'browser') return speakText(prepared.text);
+  const { audio, url } = prepared;
+  return new Promise((resolve) => {
     currentAudio = audio;
     audio.onended = () => {
       URL.revokeObjectURL(url);
@@ -258,32 +286,11 @@ function playPreparedSpeech(url) {
   });
 }
 
-/** 先取得語音（OpenAI 或瀏覽器 TTS），確認就緒後才播 captain 前奏。 */
-async function prepareCaptainSpeech(text, style) {
-  if (!text?.trim()) return null;
-
-  const fetched = await fetchCaptainSpeechAudio(text, style);
-  if (fetched) {
-    return {
-      mode: 'openai',
-      play: () => playPreparedSpeech(fetched.url),
-    };
-  }
-
-  if (window.speechSynthesis) {
-    return {
-      mode: 'browser',
-      play: () => speakText(text),
-    };
-  }
-
-  return null;
-}
-
 async function speakWithOpenAI(text, style) {
-  const fetched = await fetchCaptainSpeechAudio(text, style);
-  if (!fetched) return false;
-  return playPreparedSpeech(fetched.url);
+  const blob = await fetchOpenAISpeechBlob(text, style);
+  if (!blob) return false;
+  const url = URL.createObjectURL(blob);
+  return playPreparedSpeech({ kind: 'openai', audio: new Audio(url), url });
 }
 
 async function playCaptainBroadcast(text, style) {
@@ -293,9 +300,8 @@ async function playCaptainBroadcast(text, style) {
   try {
     const prepared = await prepareCaptainSpeech(text, style);
     if (!prepared) return false;
-
     await playCaptainIntro();
-    return await prepared.play();
+    return playPreparedSpeech(prepared);
   } catch {
     return false;
   } finally {
