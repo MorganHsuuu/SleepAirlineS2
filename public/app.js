@@ -19,6 +19,10 @@ const DIRECTION_BEARING = {
   northbound: 0, northeast: 45, eastbound: 90, southeast: 135,
   southbound: 180, southwest: 225, westbound: 270, northwest: 315,
 };
+/** auto / circular / unknown → 與後端 estimateFlightPosition 一致，預設向東 */
+function routeBearing(dir) {
+  return DIRECTION_BEARING[dir] ?? 90;
+}
 const STATUS_LABEL = {
   not_started: '待起飛', in_flight: '飛行中', landed: '已降落',
   boarding: '準備登機', cancelled: '已取消',
@@ -55,15 +59,8 @@ function landingMusicConfig() {
   return { ...LANDING_MUSIC, url, ...o };
 }
 let landingMusicActive = false;
-function syncLandingMusicLabel(visible) {
-  const cfg = landingMusicConfig();
-  const text = cfg?.title ? `♪ ${cfg.title}` : '♪ 甦醒音景';
-  ['landing-music-label', 'landed-music-label'].forEach((id) => {
-    const el = $(id);
-    if (!el) return;
-    el.textContent = text;
-    el.classList.toggle('hidden', !visible);
-  });
+function syncLandingMusicLabel(_visible) {
+  /* 甦醒音景僅背景播放，不顯示 UI 標籤 */
 }
 async function startLandingMusic() {
   const o = window.SLEEP_AIRLINE_LANDING_MUSIC;
@@ -87,17 +84,14 @@ function stopLandingMusic() {
 const FLIGHT_WHISPERS = [
   '雲層在舷窗外緩緩流過…',
   '前方仍是一片溫柔的天光…',
-  '夜航仍在向前，不必急…',
+  '夜航仍在向前…',
   '讓睡意帶你穿過這片寧靜…',
   '航程像一條發光的細線，延伸向遠方…',
 ];
 const AVATAR_COLORS = ['#d9a63a', '#5b8ed6', '#8f7fd0', '#5eae9d', '#d97f8e', '#7aa85e'];
-const TICKET_STRIPS = [
-  'linear-gradient(90deg,#f2a65e,#e97c6c)',
-  'linear-gradient(90deg,#7fb0e0,#9a8fd8)',
-  'linear-gradient(90deg,#6fc3b4,#8fd08a)',
-  'linear-gradient(90deg,#e0a3c8,#b48fd8)',
-];
+function escHtml(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // ── 抵達：國旗 + 當地文化（可自由增修）──────────────────────────────────────
 // key = 國家 ISO2；culture 為抵達時顯示的當地文化 / 社交小語（繁體中文）
@@ -326,6 +320,10 @@ let landingScenery = null;
 let refreshTimer = null;
 let flightTicker = null;
 let previewMode = false;
+/** 羅盤確認航向後，主按鈕才切換為「起飛」 */
+let takeoffArmed = false;
+/** 全螢幕過場進行中：凍結 dock 切換，等上層退場後再接續 */
+let fxDockLock = null; // 'takeoff' | 'landing'
 /** 地球儀航跡圖層：我的／隊友歷史航程 */
 let routeTrails = { mine: true, friends: true };
 const TRAILS_KEY = 'sleepAirline_trails_v1';
@@ -366,6 +364,54 @@ function coordOf(obj, latKey, lngKey) {
   const lat = obj?.[latKey], lng = obj?.[lngKey];
   if (typeof lat === 'number' && typeof lng === 'number' && (lat || lng)) return [lng, lat];
   return null;
+}
+
+/** 起點 → 終點方位角（0=北，順時針） */
+function bearingFromTo(from, to) {
+  const [lng1, lat1] = from, [lng2, lat2] = to;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lng2 - lng1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+function bearingLabel(bearing) {
+  const b = ((bearing % 360) + 360) % 360;
+  const bands = [
+    [22.5, '北'], [67.5, '東北'], [112.5, '東'], [157.5, '東南'],
+    [202.5, '南'], [247.5, '西南'], [292.5, '西'], [337.5, '西北'], [360, '北'],
+  ];
+  for (const [max, label] of bands) {
+    if (b < max) return label;
+  }
+  return '北';
+}
+const FRIEND_STATUS_LABEL = { in_flight: '飛行中', landed: '已降落', not_started: '待起飛' };
+function compassFriendMarkers() {
+  if (!passenger) return [];
+  const origin = youCoord();
+  return groupFlights
+    .map((f, idx) => ({ f, idx }))
+    .filter(({ f }) => f.passengerName !== passenger.name)
+    .map(({ f, idx }) => {
+      let c = null;
+      if (f.status === 'in_flight') {
+        c = flightPlaneCoord(f)?.c;
+      } else if (f.status === 'landed') {
+        c = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+      } else {
+        c = coordOf(f, 'departureLatitude', 'departureLongitude');
+      }
+      if (!c) return null;
+      const bearing = bearingFromTo(origin, c);
+      return {
+        idx,
+        name: f.passengerName,
+        bearing,
+        dir: bearingLabel(bearing),
+        status: FRIEND_STATUS_LABEL[f.status] || f.status,
+      };
+    })
+    .filter(Boolean);
 }
 
 // ── Globe：全畫面地球儀（D3 · CDN 失敗時優雅退化）────────────────────────────
@@ -425,6 +471,61 @@ const Globe = (() => {
 
   // 機鼻朝上（-y）的小飛機剪影，供航向旋轉
   const PLANE_ICON = 'M0,-9 C1.6,-5.5 1.4,-3.5 1,-1.5 L8.5,3 L8.5,5.2 L1.1,3.2 L1.1,6.2 L3.6,8.4 L3.6,9.8 L0,8.8 L-3.6,9.8 L-3.6,8.4 L-1.1,6.2 L-1.1,3.2 L-8.5,5.2 L-8.5,3 L-1,-1.5 C-1.4,-3.5 -1.6,-5.5 0,-9 Z';
+
+  function isGlobePickTarget(target) {
+    let node = target;
+    const root = document.getElementById('globe-svg');
+    while (node && node !== root) {
+      if (node.classList?.contains('route-hit')
+        || node.classList?.contains('pt-pick')
+        || node.classList?.contains('plane-hit')) return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
+
+  function bindPlanePickTap(selection, screenX, screenY) {
+    if (!onPlanePick) {
+      selection.on('pointerdown.planepick pointerup.planepick click.planepick', null);
+      return;
+    }
+    selection
+      .style('cursor', 'pointer')
+      .on('pointerdown.planepick', function (ev) {
+        ev.stopPropagation();
+        this._planeTap = { x: ev.clientX, y: ev.clientY, sx: screenX, sy: screenY };
+      })
+      .on('pointerup.planepick', function (ev) {
+        const tap = this._planeTap;
+        this._planeTap = null;
+        if (!tap) return;
+        if (Math.hypot(ev.clientX - tap.x, ev.clientY - tap.y) > 14) return;
+        ev.stopPropagation();
+        onPlanePick(tap.sx, tap.sy);
+      });
+  }
+
+  function bindRoutePickTap(selection) {
+    if (!onPlanePick) {
+      selection.on('pointerdown.planepick pointerup.planepick', null);
+      return;
+    }
+    selection
+      .attr('class', 'route-hit')
+      .style('cursor', 'pointer')
+      .on('pointerdown.planepick', function (ev) {
+        ev.stopPropagation();
+        this._routeTap = { x: ev.clientX, y: ev.clientY };
+      })
+      .on('pointerup.planepick', function (ev) {
+        const tap = this._routeTap;
+        this._routeTap = null;
+        if (!tap) return;
+        if (Math.hypot(ev.clientX - tap.x, ev.clientY - tap.y) > 14) return;
+        ev.stopPropagation();
+        onPlanePick(ev.clientX, ev.clientY);
+      });
+  }
 
   function render() {
     if (!ok) return;
@@ -505,27 +606,29 @@ const Globe = (() => {
       .attr('pointer-events', 'none');
 
     const hitRoutes = routes.filter((r) => r.pick);
-    gRouteHit.selectAll('path').data(hitRoutes, (d) => d.id).join('path')
+    const routeHitSel = gRouteHit.selectAll('path').data(hitRoutes, (d) => d.id).join('path')
       .attr('d', (x) => path(x.d)).attr('fill', 'none')
       .attr('stroke', 'transparent')
-      .attr('stroke-width', 16)
+      .attr('stroke-width', 22)
       .attr('stroke-linecap', 'round')
-      .attr('pointer-events', (x) => (x.pick === 'you' && onPlanePick) || x.pick === 'friend' ? 'stroke' : 'none')
-      .style('cursor', (x) => {
-        if (x.pick === 'you' && onPlanePick) return 'pointer';
-        if (x.pick === 'friend' && Number.isInteger(x.idx)) return 'pointer';
-        return null;
-      })
+      .attr('pointer-events', (x) => (x.pick === 'you' && onPlanePick) || x.pick === 'friend' ? 'stroke' : 'none');
+    routeHitSel.filter((d) => d.pick === 'you' && onPlanePick).call(bindRoutePickTap);
+    routeHitSel.filter((d) => d.pick === 'friend')
+      .style('cursor', (d) => (Number.isInteger(d.idx) ? 'pointer' : null))
       .on('click', (ev, d) => {
         ev.stopPropagation();
-        if (d.pick === 'you') onPlanePick?.();
-        else if (d.pick === 'friend' && Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+        if (Number.isInteger(d.idx)) onFriendPick?.(d.idx);
       });
 
     // 點位圖層
     const labelInk = cssVar('--ink-soft') || '#33557f';
     const pts = [];
-    if (view.you) pts.push({ key: 'you', c: view.you.c, label: view.you.label, kind: 'you' });
+    if (view.you) {
+      const hideYouDot = view.planeC && !view.routeArc && view.heading != null;
+      if (!hideYouDot) {
+        pts.push({ key: 'you', c: view.you.c, label: view.you.label, kind: 'you' });
+      }
+    }
     view.friends.forEach((f, i) => pts.push({
       key: 'f' + i + f.label,
       c: f.c,
@@ -540,9 +643,9 @@ const Globe = (() => {
     }
     if (view.arrival) pts.push({ key: 'arr', c: view.arrival.c, label: view.arrival.label, kind: 'arrival' });
     if (view.planeC && !view.routeArc) {
-      // ahead：沿同一航向再往前一點，供機頭轉向用
       const ahead = destPoint(youC, view.heading, Math.max(view.traveledKm, 1) + 60);
-      pts.push({ key: 'plane', c: view.planeC, ahead, kind: 'plane' });
+      const planeLabel = view.you?.label ? `${view.you.label.replace(/^你 · /, '')} ✈` : '你 ✈';
+      pts.push({ key: 'plane', c: view.planeC, ahead, kind: 'plane', label: planeLabel });
     }
     if (view.routeArc?.planeT != null) {
       const ip = d3.geoInterpolate(view.routeArc.from, view.routeArc.to);
@@ -555,6 +658,7 @@ const Globe = (() => {
     const ent = sel.enter().append('g').attr('class', 'pt');
     ent.append('circle').attr('class', 'halo');
     ent.append('circle').attr('class', 'core');
+    ent.append('circle').attr('class', 'plane-hit');
     ent.append('path').attr('class', 'plicon').attr('d', PLANE_ICON).attr('display', 'none');
     ent.append('text').attr('class', 'lbl');
     sel.exit().remove();
@@ -562,7 +666,35 @@ const Globe = (() => {
     gPts.selectAll('g.pt').each(function (d) {
       const [x, y] = projection(d.c);
       const g = d3.select(this);
-      if (d.kind === 'plane' || d.kind === 'friend-plane') {
+      g.select('.plane-hit').attr('display', 'none');
+      if (d.kind === 'plane') {
+        g.attr('class', 'pt pt-pick');
+        g.select('.halo').attr('r', 0); g.select('.core').attr('r', 0);
+        let deg = 0;
+        if (d.ahead) {
+          const [ax, ay] = projection(d.ahead);
+          deg = Math.atan2(ay - y, ax - x) * 180 / Math.PI + 90;
+        }
+        g.select('.plicon')
+          .attr('display', null)
+          .attr('transform', `translate(${x},${y}) rotate(${deg}) scale(1.15)`)
+          .attr('fill', gold).attr('stroke', '#fff').attr('stroke-width', 0.6);
+        g.select('.lbl').attr('x', x).attr('y', y - 13).attr('text-anchor', 'middle')
+          .attr('font-size', '9px').attr('font-weight', '800')
+          .attr('fill', labelInk).text(d.label || '');
+        g.select('.plane-hit')
+          .attr('display', null)
+          .attr('cx', x).attr('cy', y).attr('r', 36)
+          .attr('fill', 'transparent').attr('stroke', 'none')
+          .attr('pointer-events', 'all')
+          .raise();
+        bindPlanePickTap(g, x, y);
+        return;
+      }
+      if (d.kind === 'friend-plane') {
+        g.attr('class', 'pt');
+        g.on('pointerdown.planepick pointerup.planepick click.planepick', null).style('cursor', null);
+        g.select('.plane-hit').attr('display', 'none');
         g.select('.halo').attr('r', 0); g.select('.core').attr('r', 0);
         g.select('.lbl').text('');
         let deg = 0;
@@ -570,20 +702,17 @@ const Globe = (() => {
           const [ax, ay] = projection(d.ahead);
           deg = Math.atan2(ay - y, ax - x) * 180 / Math.PI + 90;
         }
-        const pcol = d.kind === 'friend-plane' ? friendCol : gold;
         g.select('.plicon')
           .attr('display', null)
           .attr('transform', `translate(${x},${y}) rotate(${deg}) scale(1.15)`)
-          .attr('fill', pcol).attr('stroke', '#fff').attr('stroke-width', 0.6);
-        const clickable = d.kind === 'plane' ? !!onPlanePick : Number.isInteger(d.idx);
-        g.style('cursor', clickable ? 'pointer' : null)
-          .on('click', clickable ? (ev) => {
-            ev.stopPropagation();
-            if (d.kind === 'plane') onPlanePick?.();
-            else onFriendPick?.(d.idx);
-          } : null);
+          .attr('fill', friendCol).attr('stroke', '#fff').attr('stroke-width', 0.6);
+        g.select('.lbl').attr('x', x).attr('y', y - 13).attr('text-anchor', 'middle')
+          .attr('font-size', '9px').attr('font-weight', '800')
+          .attr('fill', labelInk).text(d.label || '');
         return;
       }
+      g.attr('class', 'pt');
+      g.on('pointerdown.planepick pointerup.planepick click.planepick', null).style('cursor', null);
       g.select('.plicon').attr('display', 'none');
       const main = d.kind !== 'friend';
       const col = main ? gold : friendCol;
@@ -650,6 +779,7 @@ const Globe = (() => {
     let pinch = 0, lastTap = 0;
 
     el.addEventListener('pointerdown', (e) => {
+      if (isGlobePickTarget(e.target)) return;
       const now = Date.now();
       if (now - lastTap < 300 && touches.size === 0) { resetView(); lastTap = 0; return; }
       lastTap = now;
@@ -768,7 +898,7 @@ const Compass = (() => {
     { a: 270, key: 'westbound' }, { a: 315, key: 'northwest' },
   ];
   const NS = 'http://www.w3.org/2000/svg';
-  let needle = null, current = 'auto', angle = 0, dragging = false, spinning = false;
+  let needle = null, friendLayer = null, current = 'auto', angle = 0, dragging = false, spinning = false;
 
   function el(tag, attrs) {
     const n = document.createElementNS(NS, tag);
@@ -788,12 +918,15 @@ const Compass = (() => {
 
   function readout() {
     const dirEl = $('compass-dir'), hintEl = $('compass-hint');
+    const chip = $('dir-chip-label');
     if (current === 'auto') {
       dirEl.textContent = '自動';
       hintEl.textContent = '由系統為你選擇方向';
+      if (chip) chip.textContent = '方向';
     } else {
       dirEl.textContent = DIRECTION_LABEL[current];
       hintEl.textContent = `今晚傾向醒在${DIRECTION_LABEL[current]}方的城市`;
+      if (chip) chip.textContent = DIRECTION_LABEL[current];
     }
     needle?.setAttribute('opacity', current === 'auto' ? '0.35' : '1');
   }
@@ -857,6 +990,9 @@ const Compass = (() => {
       svg.appendChild(txt);
     }
 
+    friendLayer = el('g', { class: 'compass-friend-layer' });
+    svg.appendChild(friendLayer);
+
     // 八方位熱點
     for (const d of DIRS) {
       const rad = toRad(d.a - 90);
@@ -902,6 +1038,54 @@ const Compass = (() => {
     });
 
     readout();
+    refreshFriends();
+  }
+
+  function refreshFriends() {
+    if (!friendLayer) return;
+    friendLayer.innerHTML = '';
+    const friends = compassFriendMarkers();
+    const legend = $('compass-friends-legend');
+    const friendCol = getComputedStyle(document.body).getPropertyValue('--friend').trim() || '#3b82f6';
+
+    friends.forEach((f) => {
+      const rad = toRad(f.bearing - 90);
+      const cx = 120 + 78 * Math.cos(rad);
+      const cy = 120 + 78 * Math.sin(rad);
+      const g = el('g', { class: 'compass-friend-mark' });
+      const title = el('title', {});
+      title.textContent = `${f.name} · ${f.dir}方 · ${f.status}`;
+      g.appendChild(title);
+      g.appendChild(el('circle', {
+        cx, cy, r: 9,
+        fill: friendCol, stroke: '#fff', 'stroke-width': 1.2, opacity: 0.95,
+      }));
+      const initial = el('text', {
+        x: cx, y: cy + 3.5, 'text-anchor': 'middle',
+        fill: '#fff', 'font-size': 8, 'font-weight': 800, 'font-family': 'system-ui,sans-serif',
+      });
+      initial.textContent = f.name.slice(0, 1);
+      g.appendChild(initial);
+      friendLayer.appendChild(g);
+    });
+
+    if (!legend) return;
+    if (!friends.length) {
+      legend.hidden = true;
+      legend.innerHTML = '';
+      return;
+    }
+    legend.hidden = false;
+    legend.innerHTML = `
+      <div class="compass-friends-title">小隊雷達 · 好友方位</div>
+      <ul class="compass-friends-list">
+        ${friends.map((f) => `
+          <li><span class="compass-friend-dot" aria-hidden="true"></span>
+            <span>${escHtml(f.name)}</span>
+            <span class="compass-friend-dir">${f.dir}方</span>
+            <span class="compass-friend-status">${escHtml(f.status)}</span>
+          </li>`).join('')}
+      </ul>`;
   }
 
   function fate() {
@@ -915,21 +1099,69 @@ const Compass = (() => {
   function confirm() {
     $('tk-direction').value = current;
     updateGlobeForReady();
+    takeoffArmed = true;
+    syncTakeoffButton();
     closeSheets();
   }
 
-  return { build, fate, reset, confirm, get value() { return current; } };
+  return { build, fate, reset, confirm, refreshFriends, get value() { return current; } };
 })();
 
 // ── Sheet 管理 ───────────────────────────────────────────────────────────────
 
+function syncTakeoffButton() {
+  const btn = $('btn-takeoff');
+  if (!btn) return;
+  const icon = btn.querySelector('.pill-icon');
+  const label = btn.querySelector('.pill-label');
+  if (takeoffArmed) {
+    if (icon) icon.textContent = '✈';
+    if (label) label.textContent = '起飛';
+    btn.setAttribute('aria-label', '起飛');
+  } else {
+    if (icon) icon.textContent = '🧭';
+    if (label) label.textContent = '準備啟航';
+    btn.setAttribute('aria-label', '準備啟航，選擇航向');
+  }
+}
+function resetTakeoffPrep() {
+  takeoffArmed = false;
+  syncTakeoffButton();
+}
+
+function isLandedPanelVisible() {
+  if (!passenger || passenger.status === 'in_flight') return false;
+  return !!lastLandedFlight && !$('landed-panel')?.dataset.dismissed;
+}
+
+function canPickCompass() {
+  return !!passenger && passenger.status !== 'in_flight' && !isLandedPanelVisible();
+}
+
+function onTakeoffClick() {
+  if (!takeoffArmed) {
+    if (!canPickCompass()) return;
+    openSheet('compass-sheet');
+    return;
+  }
+  if (previewMode) {
+    showMsg('main', 'error', '示範模式無法真正起飛。請登入後再試。');
+    return;
+  }
+  doTakeoff();
+}
+
 function openSheet(id) {
+  if (id === 'compass-sheet' && !canPickCompass()) return;
   $('sheet-mask').classList.add('show');
   $(id).classList.add('show');
+  document.body.classList.add('sheet-open');
+  if (id === 'compass-sheet') Compass.refreshFriends();
 }
 function closeSheets() {
-  $('sheet-mask').classList.remove('show');
+  $('sheet-mask')?.classList.remove('show');
   document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('show'));
+  document.body.classList.remove('sheet-open');
   Globe.clearMate();
   restoreGlobeView();
 }
@@ -1032,7 +1264,7 @@ async function api(method, url, body, { timeoutMs = 0 } = {}) {
 function flightPlaneCoord(f) {
   const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
   if (!dep) return null;
-  const bearing = DIRECTION_BEARING[f.routeDirection];
+  const bearing = routeBearing(f.routeDirection);
   const km = minutesSince(f.takeoffTime) * KM_PER_MINUTE;
   if (bearing == null) return { c: dep, km: 0 };
   const traveled = Math.max(km, 1);
@@ -1206,17 +1438,16 @@ function updateGlobeForReady() {
 function updateGlobeForFlight() {
   if (!activeFlight) return;
   const dep = coordOf(activeFlight, 'departureLatitude', 'departureLongitude') || youCoord();
-  const dir = activeFlight.routeDirection;
-  const bearing = DIRECTION_BEARING[dir];
+  const bearing = routeBearing(activeFlight.routeDirection);
   const km = minutesSince(activeFlight.takeoffTime) * KM_PER_MINUTE;
   Globe.update({
     you: { c: dep, label: cityOnly(activeFlight.departureLocation) },
     friends: friendsFromBoard(),
     friendRoutes: buildFriendRoutes(),
     trailRoutes: buildTrailRoutes(),
-    heading: bearing ?? null,
+    heading: bearing,
     traveledKm: km,
-    possibilityKm: bearing == null ? Math.max(km, 120) : 0,
+    possibilityKm: 0,
     routeArc: null, arrival: null,
   });
 }
@@ -1255,6 +1486,68 @@ function stopFlightTicker() {
   if (flightTicker) { clearInterval(flightTicker); flightTicker = null; }
 }
 
+function preloadImageUrl(url, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(false); return; }
+    const img = new Image();
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      resolve(ok);
+    };
+    img.onload = () => finish(true);
+    img.onerror = () => finish(false);
+    img.src = url;
+    if (img.complete && img.naturalWidth) finish(true);
+    setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
+const LANDING_SKY_WHISPERS = [
+  '晨光正在慢慢亮起…',
+  '雲層散開，遠方的地景浮現…',
+  '舷窗外的天空，逐漸清楚了…',
+];
+
+/** 著陸影片播完後：有生圖則預載；否則短暫過場後用晨景 fallback（本機不卡住） */
+async function ensureLandingSceneryReady(landed, maxMs) {
+  if (window.WorkshopLocal?.isActive?.()) return false;
+  if (landingScenery?.imageUrl && await preloadImageUrl(landingScenery.imageUrl)) return true;
+
+  const waitCap = maxMs ?? (landingScenery?.imageUrl ? 90000 : 6500);
+  const deadline = Date.now() + waitCap;
+  let wi = 0;
+  let lastWhisper = 0;
+  await animateFxLine('landing-fx-sub', LANDING_SKY_WHISPERS[0]);
+  lastWhisper = Date.now();
+
+  while (Date.now() < deadline) {
+    const url = landingScenery?.imageUrl;
+    if (url && await preloadImageUrl(url)) return true;
+    if (landed?.flightId && !previewMode) {
+      try {
+        const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(landed.flightId));
+        if (data.scenery?.imageUrl) {
+          landingScenery = {
+            ...(landingScenery || {}),
+            ...data.scenery,
+            arrivalLocation: data.scenery.arrivalLocation || landed.arrivalLocation,
+          };
+          if (await preloadImageUrl(data.scenery.imageUrl)) return true;
+        }
+      } catch { /* retry */ }
+    }
+    if (Date.now() - lastWhisper >= 2400) {
+      wi = (wi + 1) % LANDING_SKY_WHISPERS.length;
+      animateFxLine('landing-fx-sub', LANDING_SKY_WHISPERS[wi]);
+      lastWhisper = Date.now();
+    }
+    await waitMs(700);
+  }
+  return !!(landingScenery?.imageUrl);
+}
+
 // ── 語音播放（含音波動畫）────────────────────────────────────────────────────
 
 async function playBroadcastWithWave(text, style, { maxMs = 0 } = {}) {
@@ -1272,73 +1565,6 @@ async function playBroadcastWithWave(text, style, { maxMs = 0 } = {}) {
       await play;
     }
   } finally { wave?.classList.remove('speaking'); }
-}
-
-// ── 票夾（localStorage）──────────────────────────────────────────────────────
-
-const TICKETS_KEY = 'sleepAirline_tickets_v1';
-
-function loadTickets() {
-  try {
-    const all = JSON.parse(localStorage.getItem(TICKETS_KEY) || '{}');
-    return all[passenger?.passengerId] || [];
-  } catch { return []; }
-}
-function saveTicket(t) {
-  if (!passenger) return;
-  try {
-    const all = JSON.parse(localStorage.getItem(TICKETS_KEY) || '{}');
-    const list = all[passenger.passengerId] || [];
-    if (!list.some((x) => x.no === t.no)) list.unshift(t);
-    all[passenger.passengerId] = list.slice(0, 60);
-    localStorage.setItem(TICKETS_KEY, JSON.stringify(all));
-  } catch { /* storage full */ }
-}
-function ticketFromFlight(f) {
-  return {
-    no: (f.flightId || 'FL-????').slice(-9),
-    date: (f.landingTime || new Date().toISOString()).slice(5, 10).replace('-', '/'),
-    from: cityOnly(f.departureLocation), fromCode: codeify(f.departureLocation),
-    to: cityOnly(f.arrivalLocation), toCode: codeify(f.arrivalLocation),
-    dur: fmtDuration(f.flightDurationMinutes),
-    km: f.estimatedFlightDistanceKm ? Math.round(f.estimatedFlightDistanceKm).toLocaleString() + ' km' : '—',
-    dir: DIRECTION_LABEL[f.routeDirection] || '—',
-  };
-}
-function renderTickets() {
-  const list = previewMode
-    ? [
-        { no: 'FL-DEMO-01', date: '06/28', from: '台北', fromCode: 'TPE', to: '東京', toCode: 'NRT', dur: '7 小時 12 分', km: '2,100 km', dir: '東北' },
-        { no: 'FL-DEMO-02', date: '06/25', from: '東京', fromCode: 'NRT', to: '雪梨', toCode: 'SYD', dur: '8 小時 45 分', km: '6,300 km', dir: '南' },
-      ]
-    : loadTickets();
-  const shelf = $('tickets-list');
-  if (!list.length) {
-    shelf.innerHTML = '<div class="tickets-empty">還沒有票根——今晚起飛，醒來就有第一張 ✈</div>';
-    return;
-  }
-  shelf.innerHTML = list.map((t, i) => `
-    <div class="ticket">
-      <div class="ticket-strip" style="background:${TICKET_STRIPS[i % TICKET_STRIPS.length]}">
-        <span class="al">SLEEP AIRLINE</span><span class="no">${t.no} · ${t.date}</span>
-      </div>
-      <div class="ticket-body">
-        <div class="ticket-route">
-          <div><div class="ticket-code">${t.fromCode}</div><div class="ticket-city">${t.from}</div></div>
-          <div class="ticket-mid"><div class="ln"></div><div class="pl">✈</div></div>
-          <div style="text-align:right"><div class="ticket-code">${t.toCode}</div><div class="ticket-city">${t.to}</div></div>
-        </div>
-        <div class="ticket-meta">
-          <span class="ticket-chip">🌙 ${t.dur}</span>
-          <span class="ticket-chip">📏 ${t.km}</span>
-          <span class="ticket-chip">🧭 ${t.dir}</span>
-        </div>
-      </div>
-      <div class="ticket-foot">
-        <span class="ticket-barcode">${'<i style="height:' + '"></i>'.repeat(0)}${Array.from({ length: 24 }, () => `<i style="height:${6 + Math.random() * 11}px"></i>`).join('')}</span>
-        <span class="ticket-stamp">ARRIVED ✈ ${t.toCode}</span>
-      </div>
-    </div>`).join('');
 }
 
 // ── 看板 ─────────────────────────────────────────────────────────────────────
@@ -1390,6 +1616,7 @@ function renderBoard() {
       return `<div class="board-bc-item">${parts.join('')}</div>`;
     }).join('');
   }
+  if ($('compass-sheet')?.classList.contains('show')) Compass.refreshFriends();
 }
 
 // ── 風景圖顯影 ───────────────────────────────────────────────────────────────
@@ -1430,65 +1657,17 @@ function renderSceneryCard(loading = false) {
   }
 }
 
-// ── 隊友航程詳情（點小隊看板成員）────────────────────────────────────────────
+// ── 小隊看板：點成員 → 地球儀高亮航線 ───────────────────────────────────────
 
-let mateSceneryToken = 0;
-
-function openMateSheet(f) {
+function focusGroupMate(f) {
   if (!f) return;
   const meta = arrivalMeta(f);
   const depMeta = departureMeta(f);
   const landed = f.status === 'landed';
   const flying = f.status === 'in_flight';
-
-  $('mate-flag').textContent = landed ? meta.flag : (flying ? '🛫' : '🧳');
-  $('mate-name').textContent = f.passengerName || '隊友';
-  $('mate-status').textContent = landed
-    ? `已降落 · ${meta.countryZh}`
-    : (STATUS_LABEL[f.status] || f.status);
-
-  // 已降落：用視覺化航線帶（起點 ┈✈┈ 終點＋國旗）；其它狀態：文字說明
-  const arc = $('mate-arc');
-  if (landed) {
-    arc.hidden = false;
-    fillRouteArc({
-      depFlag: 'ma-dep-flag',
-      depCity: 'ma-dep',
-      depCountry: 'ma-dep-country',
-      arrFlag: 'ma-arc-flag',
-      arrCity: 'ma-arr',
-      arrCountry: 'ma-arr-country',
-    }, depMeta, meta);
-    $('mate-route').textContent = meta.countryZh ? `抵達 ${meta.countryZh}` : '';
-    $('mate-route').classList.toggle('hidden', !meta.countryZh);
-  } else {
-    arc.hidden = true;
-    $('mate-route').classList.remove('hidden');
-    $('mate-route').textContent = flying
-      ? `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh} 出發 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
-      : `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh}`;
-  }
-
-  const chips = [];
-  if (landed) {
-    chips.push(`🌙 ${fmtDuration(f.flightDurationMinutes)}`);
-    if (f.estimatedFlightDistanceKm) {
-      chips.push(`📏 ${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
-    }
-  }
-  if (f.routeDirection && DIRECTION_LABEL[f.routeDirection]) {
-    chips.push(`🧭 ${DIRECTION_LABEL[f.routeDirection]}`);
-  }
-  $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
-
-  $('mate-bc-text').textContent = f.captainBroadcast || f.takeoffBroadcast || '這位隊友還沒有機長廣播。';
-  const cue = $('mate-cue');
-  cue.classList.toggle('hidden', !f.socialCueText);
-  cue.textContent = f.socialCueText ? '◎ ' + f.socialCueText : '';
-
-  // 在地球儀上高亮這位隊友的航線（虛線 + 起降點）
   const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
   const arr = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+  closeSheets();
   if (landed && dep && arr) {
     Globe.focusMate(
       dep, arr,
@@ -1512,52 +1691,6 @@ function openMateSheet(f) {
   } else if (dep) {
     Globe.clearMate();
     Globe.flyTo(dep, 900);
-  }
-
-  renderMateScenery(f, meta, landed);
-  openSheet('mate-sheet');
-}
-
-async function renderMateScenery(f, meta, landed) {
-  const win = $('mate-window');
-  if (!landed || !f.arrivalLocation) { win.hidden = true; return; }
-  win.hidden = false;
-
-  const scene = $('mate-scene');
-  const img = $('mate-img');
-  const fallback = $('mate-fallback');
-  const token = ++mateSceneryToken;
-
-  $('mate-caption').textContent = '📍 ' + (meta.city || '') +
-    (meta.countryZh ? ' · ' + meta.countryZh : '');
-  img.hidden = true; img.removeAttribute('src');
-  fallback.innerHTML = '';
-  scene.querySelector('.pw-empty')?.remove();
-  $('mate-loading').classList.remove('hidden');
-
-  let scenery = null;
-  try {
-    if (f.flightId) {
-      const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(f.flightId));
-      scenery = data.scenery || null;
-    }
-  } catch { scenery = null; }
-  if (token !== mateSceneryToken) return;   // 已切換到其他隊友
-
-  $('mate-loading').classList.add('hidden');
-  if (scenery?.imageUrl) {
-    fallback.hidden = true;
-    img.hidden = false;
-    scene.classList.add('developing');
-    img.onload = () => setTimeout(() => scene.classList.remove('developing'), 80);
-    img.src = scenery.imageUrl;
-    img.alt = f.arrivalLocation || '隊友降落風景';
-    if (img.complete) img.onload();
-  } else {
-    // 沒有 AI 生圖時，用晨景 SVG 當窗外預覽（與自己的降落面板一致）
-    img.hidden = true;
-    fallback.hidden = false;
-    fallback.innerHTML = buildWindowScene(cityOnly(f.arrivalLocation) || 'sky');
   }
 }
 
@@ -1625,28 +1758,237 @@ function setWindowOpen(open) {
   const win = $('plane-window');
   if (!btn || !win) return;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.setAttribute('aria-label', open ? '收起舷窗' : '看看窗外風景');
   win.hidden = !open;
-  $('wt-label').textContent = open ? '收起舷窗' : '看看窗外風景';
   if (open) renderSceneryCard(false);
 }
 function toggleWindow() {
   setWindowOpen($('btn-window').getAttribute('aria-expanded') !== 'true');
 }
 
-function setFlightWindowOpen(open) {
+let flightShadeLift = 0;
+let flightShadeDrag = null;
+let flightWindowOrigin = { x: 0, y: 0 };
+
+function positionFlightWindow(origin) {
+  const win = $('flight-window');
+  if (!win) return;
+  if (origin && Number.isFinite(origin.x) && Number.isFinite(origin.y)) {
+    flightWindowOrigin = { x: origin.x, y: origin.y };
+  }
+  const pad = 110;
+  const x = Math.max(pad, Math.min(window.innerWidth - pad, flightWindowOrigin.x));
+  const y = Math.max(pad, Math.min(window.innerHeight - pad, flightWindowOrigin.y));
+  win.style.setProperty('--fx-x', `${x}px`);
+  win.style.setProperty('--fx-y', `${y}px`);
+}
+
+function applyFlightShadeLift(lift, { animate = true } = {}) {
+  const win = $('flight-window');
+  if (!win) return;
+  flightShadeLift = Math.max(0, Math.min(1, lift));
+  win.style.setProperty('--shade-lift', String(flightShadeLift));
+  win.classList.toggle('is-dragging-shade', !animate);
+  win.classList.toggle('is-shade-open', flightShadeLift > 0.72);
+
+  const hint = $('flight-shade-hint');
+  if (hint) hint.hidden = win.hidden || flightShadeLift > 0.15;
+
+  const video = $('flight-window-video');
+  if (flightShadeLift > 0.55) playWindowVideo(video, FLIGHT_MEDIA.cruise);
+  else if (flightShadeLift < 0.1) pauseWindowVideo(video);
+
+  syncFlightWindowAria();
+}
+
+function syncFlightWindowAria() {
   const btn = $('btn-flight-window');
   const win = $('flight-window');
   if (!btn || !win) return;
+  const open = !win.hidden && flightShadeLift > 0.72;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  win.hidden = !open;
-  $('flight-wt-label').textContent = open ? '收起舷窗' : '點地球航線或飛機 · 望向窗外';
-  const video = $('flight-window-video');
-  if (open) playWindowVideo(video, FLIGHT_MEDIA.cruise);
-  else pauseWindowVideo(video);
+  btn.setAttribute('aria-label', open ? '收起舷窗' : '望向窗外');
+  $('btn-flight-shade')?.setAttribute('aria-label',
+    flightShadeLift > 0.72 ? '拉下遮帘' : '拉上舷窗遮帘，望向窗外');
 }
-function toggleFlightWindow() {
+
+function syncFlightWindowBackdrop() {
+  const backdrop = $('flight-window-dismiss');
+  const win = $('flight-window');
+  if (!backdrop || !win) return;
+  const show = !win.hidden && !win.classList.contains('hidden');
+  backdrop.classList.toggle('hidden', !show);
+  backdrop.classList.toggle('show', show);
+  backdrop.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function setFlightWindowOpen(open, { origin } = {}) {
+  const win = $('flight-window');
+  if (!win) return;
+  if (open) {
+    closeSheets();
+    positionFlightWindow(origin);
+    win.hidden = false;
+    win.classList.remove('hidden');
+    win.classList.remove('is-closing', 'is-mounted');
+    win.classList.add('is-mounting');
+    void win.offsetWidth;
+    requestAnimationFrame(() => {
+      win.classList.remove('is-mounting');
+      win.classList.add('is-mounted');
+    });
+    applyFlightShadeLift(flightShadeLift > 0.05 ? flightShadeLift : 0, { animate: true });
+    syncFlightWindowBackdrop();
+    return;
+  }
+  let done = false;
+  const hideWindow = () => {
+    if (done) return;
+    done = true;
+    win.hidden = true;
+    win.classList.add('hidden');
+    win.classList.remove('is-mounting', 'is-mounted', 'is-closing', 'is-shade-open', 'is-dragging-shade');
+    flightShadeLift = 0;
+    win.style.setProperty('--shade-lift', '0');
+    pauseWindowVideo($('flight-window-video'));
+    syncFlightWindowAria();
+    syncFlightWindowBackdrop();
+    const hint = $('flight-shade-hint');
+    if (hint) hint.hidden = true;
+  };
+  const shrinkAway = () => {
+    positionFlightWindow(origin);
+    win.classList.remove('is-mounted');
+    win.classList.add('is-closing');
+    const onEnd = (e) => {
+      if (e.target !== win || e.propertyName !== 'transform') return;
+      win.removeEventListener('transitionend', onEnd);
+      hideWindow();
+    };
+    win.addEventListener('transitionend', onEnd);
+    setTimeout(hideWindow, 620);
+  };
+  if (flightShadeLift > 0.02) {
+    applyFlightShadeLift(0, { animate: true });
+    setTimeout(shrinkAway, 420);
+    return;
+  }
+  if (win.hidden) {
+    hideWindow();
+    return;
+  }
+  shrinkAway();
+}
+
+function toggleFlightWindow(originEl) {
   if (passenger?.status !== 'in_flight') return;
-  setFlightWindowOpen($('btn-flight-window').getAttribute('aria-expanded') !== 'true');
+  const win = $('flight-window');
+  let origin;
+  if (originEl?.getBoundingClientRect) {
+    const r = originEl.getBoundingClientRect();
+    origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  if (!win || win.hidden) {
+    setFlightWindowOpen(true, { origin });
+    return;
+  }
+  if (flightShadeLift > 0.72) setFlightWindowOpen(false, { origin });
+  else applyFlightShadeLift(1, { animate: true });
+}
+
+function openFlightWindowFromGlobe(x, y) {
+  if (passenger?.status !== 'in_flight') return;
+  const win = $('flight-window');
+  const origin = { x, y };
+  if (!win?.hidden && flightShadeLift > 0.72) {
+    setFlightWindowOpen(false, { origin });
+    return;
+  }
+  setFlightWindowOpen(true, { origin });
+}
+
+function bindFlightShadeDrag() {
+  const sheet = $('flight-shade-sheet');
+  if (!sheet || flightShadeDrag) return;
+
+  // 遮帘實際可移動距離 = 遮帘自身高度（1:1 跟手）
+  const shadeTravel = () => sheet.offsetHeight || 240;
+  let dragging = false;
+  let moved = false;
+  let startY = 0;
+  let startLift = 0;
+
+  const onDown = (e) => {
+    if (passenger?.status !== 'in_flight' || $('flight-window')?.hidden) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = true;
+    moved = false;
+    startY = e.clientY;
+    startLift = flightShadeLift;
+    sheet.setPointerCapture(e.pointerId);
+    applyFlightShadeLift(startLift, { animate: false });
+  };
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const dy = startY - e.clientY;
+    if (Math.abs(dy) > 4) moved = true;
+    applyFlightShadeLift(startLift + dy / shadeTravel(), { animate: false });
+  };
+
+  const onUp = (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = false;
+    try { sheet.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    if (!moved) {
+      // 純點擊：在開／關之間切換
+      applyFlightShadeLift(flightShadeLift > 0.5 ? 0 : 1, { animate: true });
+      return;
+    }
+    // 拖曳放開：依當前位置吸附到最近端點
+    applyFlightShadeLift(flightShadeLift >= 0.5 ? 1 : 0, { animate: true });
+  };
+
+  sheet.addEventListener('pointerdown', onDown);
+  sheet.addEventListener('pointermove', onMove);
+  sheet.addEventListener('pointerup', onUp);
+  sheet.addEventListener('pointercancel', onUp);
+  flightShadeDrag = { sheet, onDown, onMove, onUp };
+}
+
+function bindFlightWindowDismiss() {
+  const backdrop = $('flight-window-dismiss');
+  if (!backdrop || bindFlightWindowDismiss.done) return;
+  bindFlightWindowDismiss.done = true;
+
+  const closeWindow = () => {
+    if (passenger?.status !== 'in_flight') return;
+    const win = $('flight-window');
+    if (!win || win.hidden || win.classList.contains('hidden')) return;
+    const r = win.getBoundingClientRect();
+    setFlightWindowOpen(false, { origin: { x: r.left + r.width / 2, y: r.top + r.height / 2 } });
+  };
+
+  backdrop.addEventListener('pointerdown', (e) => {
+    if (!backdrop.classList.contains('show')) return;
+    e.preventDefault();
+    backdrop._dismissStart = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    backdrop.setPointerCapture(e.pointerId);
+  });
+  backdrop.addEventListener('pointerup', (e) => {
+    if (!backdrop._dismissStart || backdrop._dismissStart.id !== e.pointerId) return;
+    backdrop._dismissStart = null;
+    try { backdrop.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
+    closeWindow();
+  });
+  backdrop.addEventListener('pointercancel', (e) => {
+    backdrop._dismissStart = null;
+  });
 }
 
 // ── 抵達慶祝動畫 ─────────────────────────────────────────────────────────────
@@ -1721,6 +2063,45 @@ function waitMs(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function lockDockForFx(kind) {
+  fxDockLock = kind;
+  stopAutoRefresh();
+}
+
+function unlockDockForFx() {
+  fxDockLock = null;
+}
+
+/** 等 overlay opacity 退場完成（比固定 ms 更貼近實際動畫） */
+function waitFxLeave(el, fallbackMs) {
+  if (!el) return waitMs(fallbackMs);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener('transitionend', onEnd);
+      resolve();
+    };
+    const onEnd = (e) => {
+      if (e.target === el && e.propertyName === 'opacity') finish();
+    };
+    el.addEventListener('transitionend', onEnd);
+    setTimeout(finish, fallbackMs);
+  });
+}
+
+async function revealDockPanel(panelId) {
+  updateUI();
+  const panel = $(panelId);
+  if (!panel || panel.classList.contains('hidden')) return;
+  panel.classList.remove('dock-panel--enter');
+  void panel.offsetWidth;
+  panel.classList.add('dock-panel--enter');
+  await waitMs(560);
+  panel.classList.remove('dock-panel--enter');
+}
+
 function setTakeoffFxPhase(phase) {
   const fx = $('takeoff-fx');
   const video = $('takeoff-fx-video');
@@ -1768,7 +2149,7 @@ async function hideTakeoffFx({ fast = false } = {}) {
   fx.classList.remove('show');
   BroadcastAudio?.stopTowerSignalLoop?.();
   BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 650 });
-  await waitMs(TAKEOFF_FX_MS.leave);
+  await waitFxLeave(fx, TAKEOFF_FX_MS.leave + 100);
   pauseWindowVideo($('takeoff-fx-video'));
   fx.classList.remove('is-leaving');
   setTakeoffFxPhase('prep');
@@ -1779,6 +2160,7 @@ async function hideTakeoffFx({ fast = false } = {}) {
 function showLandingFx(sub, { phase = 'descent' } = {}) {
   const fx = $('landing-fx');
   if (!fx) return;
+  fx.classList.remove('fx-dismissible');
   resetLandingFxScenery();
   if (sub) animateFxLine('landing-fx-sub', sub);
   fx.classList.remove('is-leaving');
@@ -1786,7 +2168,38 @@ function showLandingFx(sub, { phase = 'descent' } = {}) {
     fx.classList.add('show');
     preloadLandingVideos();
     setLandingFxPhase(phase);
-    startLandingMusic();
+  });
+}
+
+/** 抵達風景顯影後：點擊背景關閉過場 */
+function waitLandingFxDismiss() {
+  return new Promise((resolve) => {
+    const fx = $('landing-fx');
+    const backdrop = $('landing-fx-backdrop');
+    if (!fx?.classList.contains('show')) { resolve(); return; }
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      fx.classList.remove('fx-dismissible');
+      backdrop?.removeEventListener('click', finish);
+      document.removeEventListener('keydown', onKey);
+      clearTimeout(safety);
+      resolve();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') finish(); };
+
+    (async () => {
+      await waitMs(1200);
+      if (done) return;
+      animateFxLine('landing-fx-sub', '點擊背景 · 查看抵達資訊');
+      fx.classList.add('fx-dismissible');
+      backdrop?.addEventListener('click', finish);
+      document.addEventListener('keydown', onKey);
+    })();
+
+    const safety = setTimeout(finish, 45000);
   });
 }
 function resetLandingFxScenery() {
@@ -1865,6 +2278,7 @@ async function playLandingApproach() {
   if (!video) return;
   if (fx) fx.dataset.phase = 'approach';
   animateFxLine('landing-fx-title', '即將抵達…');
+  animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
   BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 });
   await playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false });
   await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
@@ -1873,6 +2287,7 @@ async function playLandingApproach() {
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');
   if (!fx) return;
+  fx.classList.remove('fx-dismissible');
   if (fast || !fx.classList.contains('show')) {
     fx.classList.remove('show', 'is-leaving');
     pauseWindowVideo($('landing-fx-video'));
@@ -1882,7 +2297,7 @@ async function hideLandingFx({ fast = false } = {}) {
   fx.classList.add('is-leaving');
   fx.classList.remove('show');
   pauseWindowVideo($('landing-fx-video'));
-  await waitMs(LANDING_FX_MS.leave);
+  await waitFxLeave(fx, LANDING_FX_MS.leave + 100);
   fx.classList.remove('is-leaving');
   resetLandingFxScenery();
 }
@@ -1910,17 +2325,43 @@ function updateUI() {
   $('login-section').classList.toggle('hidden', loggedIn);
   $('main-section').classList.toggle('hidden', !loggedIn);
   $('hdr-preview-hint')?.classList.toggle('hidden', !previewMode);
-  if (!passenger) { Globe.setIdle(true); return; }
+  if (!passenger) {
+    closeSheets();
+    delete document.body.dataset.uiPhase;
+    Globe.setIdle(true);
+    return;
+  }
 
   const isFlying = passenger.status === 'in_flight';
+  const dismissed = !!$('landed-panel').dataset.dismissed;
+  let showLanded = !isFlying && !!lastLandedFlight && !dismissed;
+  if (isFlying || showLanded) closeSheets();
+
   $('hdr-badge').textContent = STATUS_LABEL[passenger.status] || passenger.status;
 
-  const showLanded = !isFlying && !!lastLandedFlight && !$('landed-panel').dataset.dismissed;
-  $('ready-panel').classList.toggle('hidden', isFlying || showLanded);
-  $('flight-panel').classList.toggle('hidden', !isFlying);
+  let showReady;
+  let showFlight;
+  if (fxDockLock === 'takeoff') {
+    showReady = true;
+    showFlight = false;
+    showLanded = false;
+  } else if (fxDockLock === 'landing') {
+    showReady = false;
+    showFlight = true;
+    showLanded = false;
+  } else {
+    showLanded = !isFlying && !!lastLandedFlight && !dismissed;
+    showReady = !isFlying && !showLanded;
+    showFlight = isFlying;
+  }
+  $('ready-panel').classList.toggle('hidden', !showReady);
+  $('btn-compass')?.classList.toggle('hidden', !showReady || !takeoffArmed);
+  $('flight-panel').classList.toggle('hidden', !showFlight);
   $('landed-panel').classList.toggle('hidden', !showLanded);
 
-  if (isFlying && activeFlight) {
+  document.body.dataset.uiPhase = isFlying ? 'flying' : showLanded ? 'landed' : 'ready';
+
+  if (isFlying && activeFlight && !fxDockLock) {
     updateFlightMood();
     Globe.setIdle(false);
     startFlightTicker();
@@ -1930,10 +2371,11 @@ function updateUI() {
     Globe.setIdle(!showLanded);
   }
 
-  if (!isFlying && !showLanded) {
+  if (showReady) {
     const depMeta = locationMeta(passenger.currentLocation);
     $('tk-departure').textContent = `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh}`;
     updateGlobeForReady();
+    syncTakeoffButton();
   }
 
   if (showLanded) {
@@ -1957,11 +2399,6 @@ function updateUI() {
     $('bc-origin').textContent = `${dur} · ${dist}`;
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
-    $('bc-culture-text').textContent = meta.culture;
-    $('bc-text-inner').textContent = lastLandedFlight.captainBroadcast || '（機長廣播生成中或未啟用）';
-    const cue = $('bc-cue');
-    cue.classList.toggle('hidden', !lastLandedFlight.socialCueText);
-    cue.textContent = lastLandedFlight.socialCueText ? '◎ ' + lastLandedFlight.socialCueText : '';
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
@@ -1988,10 +2425,10 @@ async function doLogin(e) {
     passenger = data.passenger;
     lastLandedFlight = data.lastLandedFlight || null;
     landingScenery = data.landingScenery || null;
+    resetTakeoffPrep();
     delete $('landed-panel').dataset.dismissed;
     saveLoginProfile({ passengerId, name, groupId });
     if (lastLandedFlight) {
-      saveTicket(ticketFromFlight(lastLandedFlight));
       archiveFlightTrail(lastLandedFlight);
     }
     await fetchBoard();
@@ -2013,8 +2450,10 @@ async function doTakeoff() {
   }
   clearMsg('main');
   stopLandingMusic();
+  closeSheets();
   const btn = $('btn-takeoff');
   btn.disabled = true;
+  lockDockForFx('takeoff');
   showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
   BroadcastAudio?.startTowerSignalLoop?.();
   const statusCycle = startFxStatusCycle('takeoff-fx-sub', [
@@ -2037,6 +2476,7 @@ async function doTakeoff() {
 
     activeFlight = data.flight;
     passenger.status = 'in_flight';
+    takeoffArmed = false;
     lastLandedFlight = null;
     landingScenery = null;
     delete $('landed-panel').dataset.dismissed;
@@ -2056,13 +2496,15 @@ async function doTakeoff() {
     await waitMs(TAKEOFF_FX_MS.launchHold);
 
     await hideTakeoffFx();
-    updateUI();
+    unlockDockForFx();
+    await revealDockPanel('flight-panel');
 
     await fetchBoard();
     startAutoRefresh();
   } catch (err) {
     stopFxStatusCycle(statusCycle);
     BroadcastAudio?.stopTowerSignalLoop?.();
+    unlockDockForFx();
     await hideTakeoffFx({ fast: true });
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
     try {
@@ -2089,36 +2531,45 @@ async function doLand() {
   const btn = $('btn-land');
   btn.disabled = true;
   renderSceneryCard(true);
-  showLandingFx('穿越雲層中，請稍後…', { phase: 'descent' });
+
+  // ① 立刻進過場：takeoff2 + 甦醒音景（API 背景跑，使用者不覺得在等）
+  lockDockForFx('landing');
+  showLandingFx('穿越雲層中…', { phase: 'descent' });
+  await startLandingMusic();
   const statusCycle = startFxStatusCycle('landing-fx-sub', [
-    '穿越雲層中，請稍後…',
+    '穿越雲層中…',
     '高度下降 · 窗外雲海翻湧…',
-    '導航計算抵達航路…',
+    '甦醒航班正在接近目的地…',
   ]);
+
+  const landPromise = api('POST', '/api/flight/land', {
+    passengerId: passenger.passengerId,
+    name: passenger.name,
+    groupId: passenger.groupId,
+  }, { timeoutMs: 52000 });
+
   try {
-    const data = await api('POST', '/api/flight/land', {
-      passengerId: passenger.passengerId,
-      name: passenger.name,
-      groupId: passenger.groupId,
-    }, { timeoutMs: 52000 });
+    const data = await landPromise;
     stopFxStatusCycle(statusCycle);
 
     const landed = data.flight;
     lastLandedFlight = landed;
     landingScenery = data.landingScenery || null;
+    const sceneryPreload = landingScenery?.imageUrl
+      ? preloadImageUrl(landingScenery.imageUrl)
+      : null;
     passenger.status = 'landed';
     passenger.currentLocation = landed.arrivalLocation || passenger.currentLocation;
     if (typeof landed.arrivalLatitude === 'number') {
       passenger.currentLatitude = landed.arrivalLatitude;
       passenger.currentLongitude = landed.arrivalLongitude;
     }
-    saveTicket(ticketFromFlight(landed));
     archiveFlightTrail(landed);
     stopFlightTicker();
     delete $('landed-panel').dataset.dismissed;
     activeFlight = null;
 
-    // ② API 完成：仍在 takeoff2 下降畫面，先播機長廣播
+    // ② 資料就緒：captain 前奏 + 機長廣播 + TTS（甦醒音景自動變小聲）
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
       await playBroadcastWithWave(
@@ -2128,9 +2579,12 @@ async function doLand() {
       );
     }
 
-    // ③ 對準跑道：landing.mp4 + takeoff.mp3（地球儀同步滑向抵達地）
-    await animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
-    stopLandingMusic();
+    // ③ 準備降落
+    await animateFxLine('landing-fx-title', '準備降落');
+    await animateFxLine('landing-fx-sub', '甦醒航班即將降落，請回到座位…');
+    await waitMs(1200);
+
+    // ④ landing.mp4 + takeoff.mp3，地球儀滑向抵達地
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
     await Promise.all([
@@ -2138,15 +2592,17 @@ async function doLand() {
       glideToArrival(dep, arr),
     ]);
 
-    // ④ 著陸影片結束 → 舷窗換成抵達風景，短暫停留後進面板
+    // ⑤ 等生圖完成並預載 → 絲滑切換皮克斯舷窗
+    if (sceneryPreload) await sceneryPreload;
+    else await ensureLandingSceneryReady(landed);
     await showLandingFxScenery(landed);
-    await waitMs(LANDING_FX_MS.sceneryHold);
+    await waitLandingFxDismiss();
 
-    // ⑤ 過場結束 → 顯示抵達面板
+    // ⑥ 顯示抵達面板（甦醒音景持續）
     if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
     await hideLandingFx();
-    updateUI();
-    await startLandingMusic();
+    unlockDockForFx();
+    await revealDockPanel('landed-panel');
 
     await fetchBoard();
     if (landed.flightId && !landingScenery?.imageUrl) {
@@ -2154,6 +2610,7 @@ async function doLand() {
     }
   } catch (err) {
     stopFxStatusCycle(statusCycle);
+    unlockDockForFx();
     hideLandingFx({ fast: true });
     stopLandingMusic();
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
@@ -2186,7 +2643,7 @@ async function refreshProgress() {
     activeFlight = data.activeFlight || null;
     if (!activeFlight && passenger.status === 'in_flight') passenger.status = 'landed';
     if (activeFlight) passenger.status = 'in_flight';
-    updateUI();
+    if (!fxDockLock) updateUI();
   } catch { /* silent */ }
 }
 
@@ -2257,6 +2714,8 @@ function doLogout() {
   groupFlights = [];
   lastLandedFlight = null;
   landingScenery = null;
+  resetTakeoffPrep();
+  closeSheets();
   stopAutoRefresh();
   stopFlightTicker();
   stopLandingMusic();
@@ -2284,7 +2743,7 @@ function stopAutoRefresh() {
 
 $('login-form').addEventListener('submit', doLogin);
 $('btn-preview')?.addEventListener('click', enterDemoPreview);
-$('btn-takeoff').addEventListener('click', doTakeoff);
+$('btn-takeoff').addEventListener('click', onTakeoffClick);
 $('btn-land').addEventListener('click', doLand);
 $('btn-logout').addEventListener('click', doLogout);
 $('btn-refresh').addEventListener('click', (e) => { e.stopPropagation(); fetchBoard(); });
@@ -2298,28 +2757,29 @@ $('bd-broadcasts-head').addEventListener('click', () => $('bd-broadcasts-list').
 $('bd-list').addEventListener('click', (e) => {
   const row = e.target.closest('.brow');
   if (!row) return;
-  openMateSheet(groupFlights[+row.dataset.idx]);
+  focusGroupMate(groupFlights[+row.dataset.idx]);
 });
 $('bd-list').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const row = e.target.closest('.brow');
   if (!row) return;
   e.preventDefault();
-  openMateSheet(groupFlights[+row.dataset.idx]);
+  focusGroupMate(groupFlights[+row.dataset.idx]);
 });
 
 $('btn-compass').addEventListener('click', () => openSheet('compass-sheet'));
-$('btn-tickets').addEventListener('click', () => { renderTickets(); openSheet('tickets-sheet'); });
 $('sheet-mask').addEventListener('click', closeSheets);
 $('btn-fate').addEventListener('click', () => Compass.fate());
 $('btn-compass-confirm').addEventListener('click', () => Compass.confirm());
 
 $('btn-window').addEventListener('click', toggleWindow);
-$('btn-flight-window').addEventListener('click', toggleFlightWindow);
+$('btn-flight-window').addEventListener('click', (e) => toggleFlightWindow(e.currentTarget));
 
 $('btn-close-landed').addEventListener('click', () => {
   stopLandingMusic();
+  resetTakeoffPrep();
   $('landed-panel').dataset.dismissed = '1';
+  if (passenger?.status === 'landed') passenger.status = 'not_started';
   updateUI();
 });
 
@@ -2334,16 +2794,16 @@ $('btn-close-landed').addEventListener('click', () => {
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
   // 點地球儀上的隊友點 → 開啟該隊友航程詳情
-  Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateSheet(groupFlights[idx]); });
-  // 飛行中點地球儀上的飛機 → 展開巡航舷窗
-  Globe.setPlanePick(() => {
-    if (passenger?.status !== 'in_flight') return;
-    setFlightWindowOpen($('btn-flight-window').getAttribute('aria-expanded') !== 'true');
-  });
+  Globe.setFriendPick((idx) => { if (groupFlights[idx]) focusGroupMate(groupFlights[idx]); });
+  // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
+  Globe.setPlanePick((x, y) => openFlightWindowFromGlobe(x, y));
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
   preloadLandingVideos();
+  bindFlightShadeDrag();
+  bindFlightWindowDismiss();
+  positionFlightWindow({ x: window.innerWidth / 2, y: window.innerHeight * 0.38 });
   fillLoginForm(loadLoginProfile());
 
   const forceLogin = new URLSearchParams(location.search).has('login');

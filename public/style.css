@@ -15,6 +15,10 @@
   --radius-pill: 999px;
   --dock-w: 480px;
   --ease-pop: cubic-bezier(.34, 1.56, .64, 1);
+  --topbar-inset: max(14px, env(safe-area-inset-top));
+  --topbar-height: 54px;
+  --hud-gap: 16px;
+  --hud-inset-x: 14px;
 }
 
 /* ── 主題：day（05–17 活潑明亮）── */
@@ -105,12 +109,19 @@ body {
   position: absolute; inset: 0; width: 100%; height: 100%;
   cursor: grab; touch-action: none;
 }
+#globe-svg .plane-hit { cursor: pointer; }
+#globe-svg .route-hit { cursor: pointer; }
+#globe-svg .pt-pick .lbl,
+#globe-svg .pt-pick .plicon { pointer-events: none; }
 #globe-svg:active { cursor: grabbing; }
 #stage.no-globe #globe-svg { display: none; }
 
 .globe-trails {
-  position: absolute; top: 72px; left: 14px; z-index: 2;
-  display: flex; flex-wrap: wrap; gap: 6px;
+  position: absolute;
+  top: calc(var(--topbar-inset) + var(--topbar-height) + var(--hud-gap));
+  left: var(--hud-inset-x);
+  z-index: 2;
+  display: flex; flex-wrap: wrap; gap: 8px;
   pointer-events: auto;
 }
 .trail-chip {
@@ -150,9 +161,12 @@ body[data-theme="dusk"] .trail-chip#trail-friends.is-on { color: #93c5fd; }
 
 .topbar {
   position: fixed; z-index: 40;
-  top: max(14px, env(safe-area-inset-top)); left: 14px; right: 14px;
+  top: var(--topbar-inset);
+  left: var(--hud-inset-x);
+  right: var(--hud-inset-x);
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px 10px 18px;
+  min-height: var(--topbar-height);
   border-radius: 20px;
 }
 .brand-link { text-decoration: none; color: inherit; display: block; }
@@ -302,7 +316,45 @@ body[data-theme="dusk"] .pill-green {
   bottom: calc(max(14px, env(safe-area-inset-bottom)) + 62px);
   width: min(92vw, var(--dock-w));
   display: flex; flex-direction: column; gap: 10px;
+  /* 供懸浮羅盤定位 */
+  isolation: isolate;
 }
+
+/* 懸浮羅盤：浮在出發面板右上方 */
+.compass-float {
+  position: absolute;
+  right: 4px;
+  top: -58px;
+  z-index: 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  width: 58px; height: 58px;
+  padding: 8px 6px;
+  border-radius: 50%;
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 10px 28px rgba(40, 60, 100, .22), inset 0 1px 0 rgba(255, 255, 255, .55);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  transition: transform .18s var(--ease-pop), border-color .15s, box-shadow .2s;
+  animation: compass-float 4.2s ease-in-out infinite;
+}
+.compass-float:hover {
+  transform: translateY(-3px) scale(1.04);
+  border-color: var(--gold);
+  box-shadow: 0 14px 32px rgba(120, 90, 40, .24), inset 0 1px 0 rgba(255, 255, 255, .65);
+}
+.compass-float-dial { font-size: 20px; line-height: 1; }
+.compass-float-label {
+  font-size: 8px; font-weight: 800; letter-spacing: .06em;
+  color: var(--gold-deep); max-width: 52px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+@keyframes compass-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.compass-float:hover { animation: none; }
 
 .dock-panel { padding: 16px 18px; }
 
@@ -401,8 +453,26 @@ body[data-theme="dusk"] .dock-action--green {
 #flight-panel .dock-panel--cta { padding: 0 12px 12px; }
 #flight-panel .dock-action { min-height: 44px; font-size: 14px; }
 
-/* 飛行中：詩意氛圍，弱化數字壓力 */
-.fly-journey { text-align: center; }
+#flight-panel.dock-panel--enter,
+#landed-panel.dock-panel--enter {
+  animation: dock-panel-rise .55s cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes dock-panel-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 飛行中：詩意氛圍 + 持續向前（起飛過場式 loading 光帶） */
+.fly-journey {
+  position: relative; text-align: center;
+  padding-bottom: 2px;
+}
+.fly-portal[aria-expanded="true"]::after {
+  content: '點舷窗外收起';
+  display: block; margin-top: 7px;
+  font-size: 9px; font-weight: 600; letter-spacing: .14em;
+  color: var(--ink-faint);
+}
 .fly-mood {
   margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .18em;
   color: var(--gold-deep); opacity: .92;
@@ -412,66 +482,114 @@ body[data-theme="dusk"] .dock-action--green {
   color: var(--ink-soft); letter-spacing: .04em;
 }
 
-/* 望向窗外：金色光帶 + 飛機向右滑行 */
+/* 望向窗外：短虛線航線 + 右向飛機 + 光波 */
 .fly-portal {
-  position: relative; width: 100%; margin-top: 14px; padding: 0;
+  position: relative; z-index: 1;
+  display: flex; justify-content: center;
+  width: 100%; margin-top: 14px; padding: 0;
   border: none; background: transparent; cursor: pointer; font-family: inherit;
 }
 .fly-portal-lane {
-  position: relative; height: 40px; border-radius: 999px; overflow: hidden;
+  position: relative; display: block;
+  width: min(58%, 196px); height: 20px; margin: 2px auto 0;
+}
+.fly-portal-lane::before {
+  content: '';
+  position: absolute; top: 50%; left: 6%; right: 6%;
+  border-top: 1.5px dashed color-mix(in srgb, var(--gold, #d9a63a) 62%, transparent);
+  transform: translateY(-50%);
+  opacity: .88;
+}
+.fly-portal-lane::after {
+  content: '';
+  position: absolute; inset: 2px 8%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse 85% 120% at 50% 50%, rgba(255, 210, 120, .1), transparent 72%);
+  pointer-events: none;
+}
+.fly-portal-wave {
+  position: absolute; top: 50%; left: 0;
+  width: 34%; height: 12px;
+  transform: translateY(-50%);
   background: linear-gradient(90deg,
-    rgba(217, 166, 58, .06) 0%,
-    rgba(255, 220, 150, .18) 42%,
-    rgba(217, 166, 58, .28) 68%,
-    rgba(217, 166, 58, .08) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), inset 0 -1px 8px rgba(120, 90, 40, .12);
+    transparent 0%,
+    rgba(255, 232, 180, .08) 18%,
+    rgba(255, 218, 140, .42) 50%,
+    rgba(255, 232, 180, .08) 82%,
+    transparent 100%);
+  filter: blur(4px);
+  border-radius: 999px;
+  opacity: 0;
+  animation: fly-portal-wave 5.2s ease-in-out infinite;
+  pointer-events: none;
 }
-.fly-portal-shimmer {
-  position: absolute; inset: 0;
-  background: linear-gradient(105deg,
-    transparent 0%, transparent 35%,
-    rgba(255, 236, 190, .45) 50%,
-    transparent 65%, transparent 100%);
-  background-size: 220% 100%;
-  animation: portal-shimmer 3.6s ease-in-out infinite;
-}
-@keyframes portal-shimmer {
-  0% { background-position: 120% 0; }
-  100% { background-position: -120% 0; }
+@keyframes fly-portal-wave {
+  0% { left: -8%; opacity: 0; }
+  12% { opacity: .95; }
+  88% { opacity: .95; }
+  100% { left: 74%; opacity: 0; }
 }
 .fly-portal-plane {
   position: absolute; top: 50%; left: 8%;
-  transform: translateY(-50%) rotate(90deg) scale(.95);
-  font-size: 17px; color: #e8c56a;
-  filter: drop-shadow(0 0 6px rgba(255, 210, 120, .9)) drop-shadow(0 0 14px rgba(217, 166, 58, .55));
-  animation: portal-fly 4.2s ease-in-out infinite;
+  font-size: 13px; line-height: 1; color: var(--gold, #d9a63a);
+  transform: translate(-35%, -58%) rotate(0deg);
+  filter:
+    drop-shadow(0 0 5px rgba(255, 210, 120, .75))
+    drop-shadow(0 0 12px rgba(255, 228, 170, .35))
+    drop-shadow(0 1px 2px rgba(0, 0, 0, .22));
+  animation: fly-portal-go 5.2s linear infinite;
+  pointer-events: none;
 }
-@keyframes portal-fly {
-  0%, 100% { left: 8%; opacity: .72; }
-  50% { left: 78%; opacity: 1; }
+@keyframes fly-portal-go {
+  0% { left: 8%; opacity: .55; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { left: 92%; opacity: .55; }
 }
-.fly-portal-aura {
-  position: absolute; left: 0; right: 0; top: -6px; height: 52px;
-  border-radius: 999px; pointer-events: none;
-  background: radial-gradient(ellipse 55% 80% at 22% 50%, rgba(255, 210, 120, .28), transparent 72%);
-  animation: portal-aura 3s ease-in-out infinite alternate;
+.fly-portal:hover .fly-portal-lane::before {
+  border-top-color: color-mix(in srgb, var(--gold, #d9a63a) 82%, transparent);
 }
-@keyframes portal-aura {
-  from { opacity: .55; transform: translateX(0); }
-  to { opacity: 1; transform: translateX(18px); }
+.fly-portal:hover .fly-portal-lane::after {
+  background: radial-gradient(ellipse 85% 120% at 50% 50%, rgba(255, 210, 120, .16), transparent 72%);
 }
-.fly-portal-hint {
-  display: block; margin-top: 9px;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .16em;
-  color: var(--ink-faint); transition: color .2s;
+.fly-portal[aria-expanded="true"] .fly-portal-plane,
+.fly-portal[aria-expanded="true"] .fly-portal-wave {
+  animation-play-state: paused;
 }
-.fly-portal:hover .fly-portal-hint,
-.fly-portal[aria-expanded="true"] .fly-portal-hint { color: var(--gold-deep); }
-.fly-portal[aria-expanded="true"] .fly-portal-plane { animation-play-state: paused; left: 50%; transform: translate(-50%, -50%) rotate(90deg); }
+.fly-portal[aria-expanded="true"] .fly-portal-plane {
+  left: 50%;
+  transform: translate(-50%, -58%) rotate(45deg);
+  opacity: 1;
+}
+.fly-portal[aria-expanded="true"] .fly-portal-wave {
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: .45;
+}
 
-.fly-window-cap {
-  margin: 8px 0 0; font-size: 10px; letter-spacing: .14em;
-  color: var(--ink-faint); font-weight: 600;
+/* 飛行舷窗：點／滑旁邊收起 */
+.flight-window-dismiss {
+  position: fixed; inset: 0; z-index: 49;
+  background: rgba(12, 20, 38, .12);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s ease;
+  touch-action: none;
+}
+.flight-window-dismiss.show {
+  opacity: 1; pointer-events: auto;
+}
+
+.pw-shade-hint {
+  margin: 10px 0 0;
+  font-size: 10px; letter-spacing: .14em;
+  color: var(--gold-deep); font-weight: 600;
+  animation: shade-hint-pulse 2.4s ease-in-out infinite;
+}
+@keyframes shade-hint-pulse {
+  0%, 100% { opacity: .55; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
 }
 
 .sr-only {
@@ -483,6 +601,7 @@ body[data-theme="dusk"] .dock-action--green {
 .pw-frame.pw-frame--porthole {
   --pw-r: 66px;
   --pw-bezel: 12px;
+  --shade-lift: 0;
   position: relative;
   width: min(100%, 196px);
   margin: 0 auto;
@@ -493,6 +612,7 @@ body[data-theme="dusk"] .dock-action--green {
     inset 0 2px 12px rgba(255, 255, 255, .95),
     inset 0 -6px 14px rgba(180, 190, 205, .18),
     0 10px 24px rgba(20, 35, 60, .12);
+  overflow: hidden;
 }
 body[data-theme="dusk"] .pw-frame.pw-frame--porthole {
   background: linear-gradient(165deg, #3c4560 0%, #232c44 55%, #2a3348 100%);
@@ -501,7 +621,7 @@ body[data-theme="dusk"] .pw-frame.pw-frame--porthole {
     inset 0 -8px 16px rgba(0, 0, 0, .45),
     0 10px 26px rgba(0, 0, 0, .35);
 }
-/* 窗簾拉柄 */
+/* 窗簾拉柄（抵達／過場用；飛行中改為可拖曳遮帘） */
 .pw-frame.pw-frame--porthole::before {
   content: '';
   position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
@@ -509,6 +629,7 @@ body[data-theme="dusk"] .pw-frame.pw-frame--porthole {
   background: linear-gradient(180deg, #ffffff, #e9edf2);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
 }
+#flight-window .pw-frame.pw-frame--porthole::before { display: none; }
 body[data-theme="dusk"] .pw-frame.pw-frame--porthole::before {
   background: linear-gradient(180deg, #5a6478, #3a4258);
 }
@@ -520,6 +641,142 @@ body[data-theme="dusk"] .pw-frame.pw-frame--porthole::before {
   box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .18), inset 0 0 20px rgba(0, 0, 0, .35);
 }
 .pw-frame.pw-frame--porthole .pw-glare { border-radius: var(--pw-r); }
+
+/* 飛行中遮帘：整片可上下拉，往上捲起露出窗外 */
+#flight-window .pw-shade-sheet {
+  position: absolute;
+  inset: var(--pw-bezel);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--pw-r);
+  transform: translateY(calc(-100% * var(--shade-lift, 0)));
+  transition: transform .5s cubic-bezier(.22, 1, .36, 1);
+  cursor: grab;
+  touch-action: none;
+  will-change: transform;
+}
+#flight-window .pw-shade-sheet:active { cursor: grabbing; }
+#flight-window.is-dragging-shade .pw-shade-sheet { transition: none; }
+
+.pw-shade-fabric {
+  position: relative;
+  flex: 1;
+  border-radius: var(--pw-r) var(--pw-r) 16px 16px;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(180deg,
+      rgba(255, 255, 255, .05) 0 1px,
+      rgba(120, 135, 160, .05) 1px 14px),
+    linear-gradient(180deg, #f4f6fa 0%, #e2e7ef 50%, #ccd3df 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, .8),
+    inset 0 -18px 26px rgba(70, 88, 118, .16);
+}
+/* 布面高光帶 */
+.pw-shade-fabric::before {
+  content: '';
+  position: absolute; top: 0; bottom: 22px; left: 18%;
+  width: 26%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .5), transparent);
+  opacity: .5;
+  filter: blur(2px);
+}
+/* 底緣縫線 */
+.pw-shade-fabric::after {
+  content: '';
+  position: absolute; left: 9%; right: 9%; bottom: 9px; height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(150, 165, 190, .55), transparent);
+}
+body[data-theme="dusk"] .pw-shade-fabric {
+  background:
+    repeating-linear-gradient(180deg,
+      rgba(255, 255, 255, .035) 0 1px,
+      rgba(0, 0, 0, .12) 1px 14px),
+    linear-gradient(180deg, #3d4761 0%, #2b3348 55%, #1d2333 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, .1),
+    inset 0 -18px 26px rgba(0, 0, 0, .32);
+}
+body[data-theme="dusk"] .pw-shade-fabric::before { opacity: .18; }
+body[data-theme="dusk"] .pw-shade-fabric::after {
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .4), transparent);
+}
+
+/* 底緣把手：跨越大部分寬度的橫桿，隨遮帘捲到頂端仍可抓 */
+.pw-shade-rod {
+  flex-shrink: 0;
+  align-self: center;
+  width: 68%; max-width: 128px; height: 16px;
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  cursor: grab;
+  touch-action: none;
+  background: linear-gradient(180deg, #ffffff 0%, #eef1f6 48%, #dbe1ea 100%);
+  box-shadow:
+    0 3px 7px rgba(20, 35, 60, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .95),
+    inset 0 -2px 3px rgba(150, 168, 192, .4);
+}
+body[data-theme="dusk"] .pw-shade-rod {
+  background: linear-gradient(180deg, #767f95 0%, #565f75 50%, #414a60 100%);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.pw-shade-rod:active { cursor: grabbing; }
+.pw-shade-knob {
+  display: block;
+  width: 26px; height: 4px;
+  margin: 6px auto 0;
+  border-radius: 999px;
+  background: rgba(140, 158, 185, .5);
+}
+#flight-window.is-shade-open .pw-shade-rod {
+  background: linear-gradient(180deg, #fffdf6 0%, #ffefcf 55%, #f5dca6 100%);
+  box-shadow:
+    0 3px 10px rgba(120, 90, 40, .2),
+    0 0 14px rgba(255, 210, 120, .4),
+    inset 0 1px 0 rgba(255, 255, 255, .95);
+}
+
+/* 飛行巡航舷窗：浮在地球儀上，從點擊處縮放展開 */
+.flight-window-float {
+  position: fixed;
+  z-index: 50;
+  left: var(--fx-x, 50%);
+  top: var(--fx-y, 38%);
+  width: min(72vw, 220px);
+  margin: 0;
+  pointer-events: auto;
+  --fx-scale: 1;
+  --fx-opacity: 1;
+  transform: translate(-50%, -50%) scale(var(--fx-scale));
+  opacity: var(--fx-opacity);
+  transform-origin: center center;
+  transition:
+    transform .58s cubic-bezier(.22, 1, .36, 1),
+    opacity .45s ease;
+  filter: drop-shadow(0 18px 44px rgba(16, 28, 52, .32));
+}
+.flight-window-float.is-mounting {
+  --fx-scale: 0.07;
+  --fx-opacity: 0;
+}
+.flight-window-float.is-mounted {
+  --fx-scale: 1;
+  --fx-opacity: 1;
+}
+.flight-window-float.is-closing {
+  --fx-scale: 0.06;
+  --fx-opacity: 0;
+}
+.flight-window-float.plane-window--porthole {
+  margin-top: 0;
+  animation: none;
+}
+
 .plane-window--porthole {
   margin-top: 12px;
   display: flex; flex-direction: column; align-items: center;
@@ -876,10 +1133,10 @@ body[data-theme="dusk"] .pw-frame {
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   opacity: 0; pointer-events: none; transition: opacity .3s;
 }
-.sheet-mask.show { opacity: 1; pointer-events: auto; }
+.sheet-mask.show { opacity: 1; pointer-events: auto; z-index: 100; }
 
 .sheet {
-  position: fixed; z-index: 95;
+  position: fixed; z-index: 101;
   left: 50%; bottom: 0; transform: translateX(-50%) translateY(105%);
   width: min(100vw, 520px);
   border-radius: 26px 26px 0 0;
@@ -893,6 +1150,24 @@ body[data-theme="dusk"] .pw-frame {
   max-height: 86vh; overflow-y: auto;
 }
 .sheet.show { transform: translateX(-50%) translateY(0); }
+body[data-ui-phase="flying"] #compass-sheet,
+body[data-ui-phase="landed"] #compass-sheet {
+  transform: translateX(-50%) translateY(110%) !important;
+  pointer-events: none;
+  visibility: hidden;
+}
+body[data-ui-phase="flying"] #sheet-mask.show,
+body[data-ui-phase="landed"] #sheet-mask.show {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* sheet 開啟時：底層 HUD／登入卡不攔截點擊 */
+body.sheet-open #login-section,
+body.sheet-open #main-section {
+  pointer-events: none;
+}
+
 .sheet-grip { width: 40px; height: 4px; border-radius: 3px; background: var(--divider); margin: 0 auto 14px; }
 .sheet-title { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 4px; }
 .sheet-sub { text-align: center; font-size: 10px; color: var(--ink-faint); margin-bottom: 14px; }
@@ -911,7 +1186,7 @@ body[data-theme="dusk"] .pw-frame {
   display: flex; align-items: center; gap: 8px; margin: 2px 0 12px;
 }
 .route-arc .ra-end {
-  display: flex; align-items: center; gap: 6px; flex-shrink: 0; max-width: 42%;
+  display: flex; align-items: flex-end; gap: 6px; flex-shrink: 0; max-width: 42%;
 }
 .route-arc .ra-end-r { justify-content: flex-end; }
 .route-arc .ra-dot {
@@ -919,8 +1194,11 @@ body[data-theme="dusk"] .pw-frame {
   background: var(--friend, #3b82f6); box-shadow: 0 0 0 3px rgba(59, 130, 246, .18);
 }
 .route-arc .ra-dot-arr { background: var(--gold, #d9a63a); box-shadow: 0 0 0 3px rgba(217, 166, 58, .22); }
-.route-arc .ra-place { display: flex; flex-direction: column; min-width: 0; }
+.route-arc .ra-place { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 .route-arc .ra-place-r { align-items: flex-end; text-align: right; }
+.route-arc .ra-flag {
+  font-size: 26px; line-height: 1; flex-shrink: 0; margin-bottom: 1px;
+}
 .route-arc .ra-city {
   font-size: 12.5px; font-weight: 800; color: var(--ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
@@ -929,15 +1207,14 @@ body[data-theme="dusk"] .pw-frame {
   font-size: 10px; font-weight: 600; color: var(--ink-faint); letter-spacing: .04em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-.route-arc .ra-flag { font-size: 16px; line-height: 1; flex-shrink: 0; }
 .route-arc .ra-track {
-  position: relative; flex: 1; height: 16px;
+  position: relative; flex: 1; height: 16px; margin-top: 8px;
   border-top: 2px dashed color-mix(in srgb, var(--gold, #d9a63a) 70%, transparent);
-  margin-top: 8px;
 }
 .route-arc .ra-plane {
-  position: absolute; top: -11px; left: 50%; transform: translateX(-50%) rotate(90deg);
-  font-size: 15px; color: var(--gold, #d9a63a);
+  position: absolute; top: -11px; left: 50%;
+  transform: translateX(-50%) rotate(0deg);
+  font-size: 15px; line-height: 1; color: var(--gold, #d9a63a);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
   animation: ma-fly 3.2s ease-in-out infinite;
 }
@@ -960,6 +1237,33 @@ body[data-theme="dusk"] .pw-frame {
 .compass-holder { display: flex; justify-content: center; touch-action: none; }
 #compass-svg { cursor: grab; }
 #compass-svg:active { cursor: grabbing; }
+.compass-friend-layer { pointer-events: none; }
+.compass-friend-mark { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .25)); }
+.compass-friends-legend {
+  margin: 10px 4px 0; padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--friend, #3b82f6) 8%, var(--glass-bg-strong));
+  border: 1px solid color-mix(in srgb, var(--friend, #3b82f6) 22%, transparent);
+}
+.compass-friends-title {
+  font-size: 9px; font-weight: 800; letter-spacing: .14em;
+  color: var(--friend, #3b82f6); margin-bottom: 8px;
+}
+.compass-friends-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.compass-friends-list li {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11px; color: var(--ink-soft);
+}
+.compass-friend-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--friend, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, .2);
+}
+.compass-friend-dir { font-weight: 800; color: var(--ink); }
+.compass-friend-status { font-size: 10px; color: var(--ink-faint); }
 .compass-readout { text-align: center; margin-top: 10px; }
 .compass-readout .d { font-size: 17px; font-weight: 800; color: var(--gold-deep); letter-spacing: 2px; }
 .compass-readout .s { font-size: 10px; color: var(--ink-faint); margin-top: 3px; }
@@ -987,14 +1291,50 @@ body[data-theme="dusk"] .pw-frame {
 /* 票夾 */
 .tickets-shelf { display: flex; flex-direction: column; gap: 13px; padding: 4px 2px 8px; }
 .tickets-empty { text-align: center; font-size: 11px; color: var(--ink-faint); padding: 26px 0 30px; }
+.ticket-flip {
+  perspective: 900px;
+  cursor: pointer;
+  outline: none;
+}
+.ticket-flip:nth-child(even) { transform: rotate(0.7deg); }
+.ticket-flip:hover { transform: rotate(0) translateY(-2px); }
+.ticket-flip:focus-visible .ticket-face {
+  box-shadow: 0 0 0 2px var(--gold-soft), 0 8px 24px rgba(0, 0, 0, .12);
+}
+.ticket-flip-inner {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform .58s cubic-bezier(.22, 1, .36, 1);
+}
+.ticket-flip.is-flipped .ticket-flip-inner { transform: rotateY(180deg); }
+.ticket-face, .ticket-back { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.ticket-back {
+  position: absolute; inset: 0;
+  transform: rotateY(180deg);
+  display: flex; flex-direction: column;
+  padding: 14px 14px 12px;
+  background: linear-gradient(165deg, #fffef9 0%, #f6f0e4 100%);
+  border: 1px solid #e8dcc8;
+  border-radius: 14px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .08);
+}
+.ticket-back-head {
+  font-size: 9px; font-weight: 800; letter-spacing: .14em;
+  color: var(--gold-deep); margin-bottom: 10px;
+}
+.ticket-back-culture {
+  flex: 1; margin: 0;
+  font-size: 11px; line-height: 1.75; color: #4a5f78;
+}
+.ticket-back-hint {
+  margin-top: 10px; font-size: 9px; font-weight: 600;
+  letter-spacing: .1em; color: var(--ink-faint); text-align: center;
+}
 .ticket {
   border-radius: 15px; overflow: hidden; background: #fffdf8;
   box-shadow: 0 6px 18px rgba(60, 85, 130, 0.18);
-  transform: rotate(-0.6deg); transition: transform .2s;
   color: #324a63;
 }
-.ticket:nth-child(even) { transform: rotate(0.7deg); }
-.ticket:hover { transform: rotate(0) translateY(-2px); }
 .ticket-strip { height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 13px; color: #fff; }
 .ticket-strip .al { font-size: 8.5px; font-weight: 800; letter-spacing: 1.5px; }
 .ticket-strip .no { font-size: 8.5px; opacity: .9; font-family: ui-monospace, monospace; }
@@ -1081,6 +1421,18 @@ body[data-theme="dusk"] .pw-frame {
 #takeoff-fx[data-phase="launch"] .fx-porthole-wrap {
   transform: translateY(-2px) scale(1.025);
   transition: transform .85s cubic-bezier(.22, 1, .36, 1);
+}
+.fx-overlay-backdrop {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+.fx-overlay-card {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+}
+.fx-overlay.fx-dismissible { pointer-events: auto; }
+.fx-overlay.fx-dismissible .fx-overlay-backdrop {
+  pointer-events: auto; cursor: pointer;
 }
 .fx-porthole-wrap {
   width: min(72vw, 220px);
@@ -1247,17 +1599,45 @@ body[data-theme="dusk"] .pw-frame {
 /* ═══ 響應式：桌面 ═══ */
 
 @media (min-width: 900px) {
-  .topbar { left: 24px; right: 24px; }
+  :root { --hud-inset-x: 24px; }
+  .topbar { left: var(--hud-inset-x); right: var(--hud-inset-x); }
+  .globe-trails { left: var(--hud-inset-x); }
   .dock { width: var(--dock-w); bottom: 90px; }
   .board {
-    left: auto; right: 24px; transform: none;
-    top: calc(max(14px, env(safe-area-inset-top)) + 74px);
+    left: auto; right: var(--hud-inset-x); transform: none;
+    top: calc(var(--topbar-inset) + var(--topbar-height) + var(--hud-gap));
     bottom: auto; width: 340px;
     max-height: 44px;
   }
   .board.open { max-height: min(66vh, 560px); }
   .board-body { max-height: calc(min(66vh, 560px) - 44px); }
-  .sheet { border-radius: 26px; bottom: 40px; }
+
+  /* 寬螢幕：羅盤改居中 modal，避免與底部 dock 重疊搶點擊 */
+  #compass-sheet {
+    top: 50%;
+    bottom: auto;
+    left: 50%;
+    width: min(400px, calc(100vw - 48px));
+    max-height: min(86vh, 520px);
+    border-radius: 26px;
+    border-bottom: 1px solid var(--glass-line);
+    padding: 16px 22px 20px;
+    transform: translate(-50%, calc(-50% + 100vh));
+  }
+  #compass-sheet.show {
+    transform: translate(-50%, -50%);
+  }
+  #compass-sheet #compass-svg {
+    width: 220px;
+    height: 220px;
+  }
+  #compass-sheet .compass-actions {
+    margin-top: 12px;
+  }
+  #compass-sheet .btn-fate,
+  #compass-sheet .btn-confirm {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 420px) {

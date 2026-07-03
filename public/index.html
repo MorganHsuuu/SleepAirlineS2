@@ -16,6 +16,7 @@
     <div class="glow glow-a"></div>
     <div class="glow glow-b"></div>
     <svg id="globe-svg"></svg>
+
     <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
       <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
       <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
@@ -85,7 +86,6 @@
       <div class="topbar-right">
         <span id="hdr-preview-hint" class="hidden">UI 示範</span>
         <span class="chip" id="hdr-badge">—</span>
-        <button class="chip chip-ghost" id="btn-tickets" title="航程收藏">🎫</button>
         <button class="chip chip-ghost" id="btn-theme" title="切換日夜">🌙</button>
         <button class="chip chip-ghost" id="btn-logout">登出</button>
       </div>
@@ -98,6 +98,11 @@
     <!-- Dock：狀態面板 -->
     <div class="dock">
 
+      <button type="button" class="compass-float glass hidden" id="btn-compass" aria-label="選擇航向">
+        <span class="compass-float-dial" aria-hidden="true">🧭</span>
+        <span class="compass-float-label" id="dir-chip-label">方向</span>
+      </button>
+
       <!-- ready：出發準備 -->
       <div id="ready-panel">
         <div class="glass dock-panel dock-panel--cta">
@@ -107,14 +112,11 @@
                 <div class="k">今晚起飛地</div>
                 <div class="v" id="tk-departure">—</div>
               </div>
-              <button class="dir-chip" id="btn-compass">
-                <span class="ico">🧭</span><span id="dir-chip-label">方向</span>
-              </button>
             </div>
           </div>
-          <button class="dock-action dock-action--gold" id="btn-takeoff" type="button">
-            <span class="pill-icon">✈</span>
-            <span class="pill-label">起飛</span>
+          <button class="dock-action dock-action--gold" id="btn-takeoff" type="button" aria-label="準備啟航，選擇航向">
+            <span class="pill-icon">🧭</span>
+            <span class="pill-label">準備啟航</span>
           </button>
         </div>
       </div>
@@ -127,24 +129,12 @@
               <p class="fly-mood" id="fl-mood">夜航中</p>
               <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
 
-              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="在地球儀點航線或飛機，望向窗外">
-                <span class="fly-portal-aura" aria-hidden="true"></span>
+              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
                 <span class="fly-portal-lane" aria-hidden="true">
-                  <span class="fly-portal-shimmer"></span>
+                  <span class="fly-portal-wave"></span>
                   <span class="fly-portal-plane">✈</span>
                 </span>
-                <span class="fly-portal-hint" id="flight-wt-label">點地球航線或飛機 · 望向窗外</span>
               </button>
-
-              <div class="plane-window plane-window--porthole" id="flight-window" hidden>
-                <div class="pw-frame pw-frame--porthole">
-                  <div class="pw-scene">
-                    <video id="flight-window-video" class="pw-video" muted playsinline loop preload="metadata"></video>
-                    <div class="pw-glare" aria-hidden="true"></div>
-                  </div>
-                </div>
-                <p class="fly-window-cap">雲海仍在向前</p>
-              </div>
 
               <span class="sr-only" id="fl-duration" aria-live="polite">0 分鐘</span>
               <span class="sr-only" id="fl-distance">0 km</span>
@@ -174,8 +164,8 @@
         <div class="route-arc" id="bc-arc">
           <div class="ra-end">
             <span class="ra-dot"></span>
-            <span class="ra-flag" id="bc-dep-flag">🌍</span>
             <div class="ra-place">
+              <span class="ra-flag" id="bc-dep-flag">🌍</span>
               <span class="ra-city" id="bc-dep-city">—</span>
               <span class="ra-country" id="bc-dep-country">—</span>
             </div>
@@ -183,16 +173,15 @@
           <div class="ra-track"><span class="ra-plane">✈</span></div>
           <div class="ra-end ra-end-r">
             <div class="ra-place ra-place-r">
+              <span class="ra-flag" id="bc-arr-flag">🌍</span>
               <span class="ra-city" id="bc-arr-city">—</span>
               <span class="ra-country" id="bc-arr-country">—</span>
             </div>
-            <span class="ra-flag" id="bc-arr-flag">🌍</span>
             <span class="ra-dot ra-dot-arr"></span>
           </div>
         </div>
 
         <p class="landed-summary" id="bc-origin">—</p>
-        <p class="landed-music hidden" id="landed-music-label" aria-live="polite"></p>
         <span class="sr-only" id="bc-duration"></span>
         <span class="sr-only" id="bc-distance"></span>
 
@@ -203,7 +192,7 @@
                 <div class="pw-fallback" id="pw-fallback"></div>
                 <img id="scenery-img" class="scenery-img" alt="降落風景" hidden>
                 <div class="pw-glare" aria-hidden="true"></div>
-                <div class="scenery-loading hidden" id="scenery-loading">AI 正在繪製窗外風景</div>
+                <div class="scenery-loading hidden" id="scenery-loading">窗外漸漸亮了起來…</div>
               </div>
             </div>
             <div class="pw-meta">
@@ -215,32 +204,14 @@
             <span class="fly-portal-aura" aria-hidden="true"></span>
             <span class="fly-portal-lane" aria-hidden="true">
               <span class="fly-portal-shimmer"></span>
-              <span class="fly-portal-plane">✈</span>
             </span>
-            <span class="fly-portal-hint" id="wt-label">看看窗外風景</span>
           </button>
         </div>
 
-        <div class="landed-broadcast" id="bc-text">
-          <div class="broadcast-box">
-            <div class="bc-cap-row">
-              <span class="bc-cap">🎙 機長廣播</span>
-              <span class="voice-wave" id="voice-wave"><i></i><i></i><i></i><i></i><i></i></span>
-            </div>
-            <p class="landed-bc-body" id="bc-text-inner"></p>
-          </div>
-          <p class="social-cue hidden" id="bc-cue"></p>
-        </div>
-
-        <details class="landed-more">
-          <summary>當地小知識</summary>
-          <div class="culture-card" id="bc-culture">
-            <p class="culture-text" id="bc-culture-text">—</p>
-          </div>
-        </details>
+        <span class="voice-wave sr-only" id="voice-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
 
         <div class="panel-actions">
-          <button class="btn-soft" id="btn-close-landed">✓ 收進票夾，準備下一趟</button>
+          <button class="btn-soft" id="btn-close-landed">✓ 準備下一趟</button>
         </div>
       </div>
 
@@ -282,6 +253,24 @@
 
   </div>
 
+  <!-- 飛行巡航舷窗：從地球儀飛機／航線點擊處縮放展開 -->
+  <div id="flight-window-dismiss" class="flight-window-dismiss hidden" aria-hidden="true"></div>
+  <div id="flight-window" class="flight-window-float plane-window plane-window--porthole hidden" hidden style="--shade-lift: 0">
+    <div class="pw-frame pw-frame--porthole">
+      <div class="pw-scene">
+        <video id="flight-window-video" class="pw-video" muted playsinline loop preload="metadata"></video>
+        <div class="pw-glare" aria-hidden="true"></div>
+      </div>
+      <div class="pw-shade-sheet" id="flight-shade-sheet" aria-hidden="true">
+        <div class="pw-shade-fabric"></div>
+        <button type="button" class="pw-shade-rod" id="btn-flight-shade" aria-label="拉上舷窗遮帘，望向窗外">
+          <span class="pw-shade-knob" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
+    <p class="pw-shade-hint" id="flight-shade-hint">↑ 往上拉開舷窗</p>
+  </div>
+
   <!-- ════ Sheets ════ -->
   <div class="sheet-mask" id="sheet-mask"></div>
 
@@ -289,10 +278,11 @@
   <div class="sheet" id="compass-sheet">
     <div class="sheet-grip"></div>
     <div class="sheet-title">今晚的航向</div>
-    <div class="sheet-sub">拖動磁針、點方位，或讓命運決定</div>
+    <div class="sheet-sub">拖動磁針 · 藍點是小隊好友所在方位</div>
     <div class="compass-holder" id="compass-holder">
       <svg id="compass-svg" width="240" height="240" viewBox="0 0 240 240"></svg>
     </div>
+    <div class="compass-friends-legend" id="compass-friends-legend" hidden></div>
     <div class="compass-readout">
       <div class="d" id="compass-dir">自動</div>
       <div class="s" id="compass-hint">由系統為你選擇方向</div>
@@ -301,67 +291,6 @@
       <button class="btn-fate" id="btn-fate">⚓ 讓命運決定</button>
       <button class="btn-confirm" id="btn-compass-confirm">確認航向</button>
     </div>
-  </div>
-
-  <!-- 票夾 -->
-  <div class="sheet" id="tickets-sheet">
-    <div class="sheet-grip"></div>
-    <div class="sheet-title">🎫 我的航程收藏</div>
-    <div class="sheet-sub">每一晚的睡眠，都是一張機票</div>
-    <div class="tickets-shelf" id="tickets-list"></div>
-  </div>
-
-  <!-- 隊友航程詳情（點小隊看板成員開啟）-->
-  <div class="sheet" id="mate-sheet">
-    <div class="sheet-grip"></div>
-    <div class="mate-head">
-      <div class="mate-flag" id="mate-flag">🌍</div>
-      <div class="mate-headinfo">
-        <div class="mate-name" id="mate-name">—</div>
-        <div class="mate-status" id="mate-status">—</div>
-      </div>
-    </div>
-    <div class="mate-route" id="mate-route">—</div>
-    <div class="route-arc" id="mate-arc" hidden>
-      <div class="ra-end">
-        <span class="ra-dot"></span>
-        <span class="ra-flag" id="ma-dep-flag">🌍</span>
-        <div class="ra-place">
-          <span class="ra-city" id="ma-dep">—</span>
-          <span class="ra-country" id="ma-dep-country">—</span>
-        </div>
-      </div>
-      <div class="ra-track"><span class="ra-plane">✈</span></div>
-      <div class="ra-end ra-end-r">
-        <div class="ra-place ra-place-r">
-          <span class="ra-city" id="ma-arr">—</span>
-          <span class="ra-country" id="ma-arr-country">—</span>
-        </div>
-        <span class="ra-flag" id="ma-arc-flag">🌍</span>
-        <span class="ra-dot ra-dot-arr"></span>
-      </div>
-    </div>
-    <div class="landed-meta" id="mate-meta"></div>
-
-    <div class="plane-window plane-window--porthole" id="mate-window">
-      <div class="pw-frame pw-frame--porthole">
-        <div class="pw-scene" id="mate-scene">
-          <div class="pw-fallback" id="mate-fallback"></div>
-          <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
-          <div class="pw-glare" aria-hidden="true"></div>
-          <div class="scenery-loading hidden" id="mate-loading">讀取降落風景中</div>
-        </div>
-      </div>
-      <div class="pw-meta">
-        <span class="scenery-caption" id="mate-caption"></span>
-      </div>
-    </div>
-
-    <div class="broadcast-box" id="mate-bc">
-      <span class="bc-cap">🎙 機長廣播</span>
-      <span id="mate-bc-text">—</span>
-    </div>
-    <div class="social-cue hidden" id="mate-cue"></div>
   </div>
 
   <!-- 起飛過場：舷窗影片（等待塔台／機長廣播） -->
@@ -400,6 +329,8 @@
 
   <!-- 降落過場：舷窗影片（等待機長廣播／生圖） -->
   <div id="landing-fx" class="fx-overlay" aria-hidden="true">
+    <div class="fx-overlay-backdrop" id="landing-fx-backdrop" aria-hidden="true"></div>
+    <div class="fx-overlay-card">
     <div class="fx-porthole-wrap fx-porthole">
       <div class="fx-porthole pw-frame pw-frame--porthole">
         <div class="pw-scene" id="landing-fx-scene">
@@ -412,9 +343,9 @@
       <div class="fx-status">
         <div class="fx-title" id="landing-fx-title">開始下降…</div>
         <div class="fx-sub" id="landing-fx-sub">穿越雲層中，請稍後…</div>
-        <p class="fx-music hidden" id="landing-music-label" aria-live="polite">♪ 甦醒音景</p>
         <div class="fx-bar"><i></i></div>
       </div>
+    </div>
     </div>
   </div>
 
