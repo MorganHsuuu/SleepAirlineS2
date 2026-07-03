@@ -16,6 +16,10 @@
     <div class="glow glow-a"></div>
     <div class="glow glow-b"></div>
     <svg id="globe-svg"></svg>
+    <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
+      <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
+      <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
+    </div>
   </div>
 
   <!-- ════ 登入（浮在地球上） ════ -->
@@ -168,6 +172,7 @@
         </header>
 
         <p class="landed-summary" id="bc-origin">—</p>
+        <p class="landed-music hidden" id="landed-music-label" aria-live="polite"></p>
         <span class="sr-only" id="bc-duration"></span>
         <span class="sr-only" id="bc-distance"></span>
 
@@ -337,12 +342,29 @@
     <div class="fx-porthole-wrap fx-porthole">
       <div class="fx-porthole pw-frame pw-frame--porthole">
         <div class="pw-scene">
-          <video id="takeoff-fx-video" class="pw-video" muted playsinline loop preload="auto"></video>
+          <div class="pw-prep" id="takeoff-fx-prep" aria-hidden="true">
+            <div class="pw-prep-stars" aria-hidden="true"></div>
+            <div class="pw-prep-horizon" aria-hidden="true"></div>
+            <div class="pw-prep-runway" aria-hidden="true">
+              <span class="pw-prep-light"></span>
+              <span class="pw-prep-light"></span>
+              <span class="pw-prep-light"></span>
+              <span class="pw-prep-light"></span>
+              <span class="pw-prep-light"></span>
+            </div>
+            <div class="pw-prep-radar" aria-hidden="true">
+              <span class="pw-prep-radar-ring"></span>
+              <span class="pw-prep-radar-sweep"></span>
+              <span class="pw-prep-radar-dot"></span>
+            </div>
+            <span class="pw-prep-signal">塔台</span>
+          </div>
+          <video id="takeoff-fx-video" class="pw-video pw-video--takeoff" muted playsinline loop preload="auto"></video>
           <div class="pw-glare" aria-hidden="true"></div>
         </div>
       </div>
       <div class="fx-status">
-        <div class="fx-title">起飛中…</div>
+        <div class="fx-title" id="takeoff-fx-title">塔台連線中…</div>
         <div class="fx-sub" id="takeoff-fx-sub">正在與塔台確認 · 機長廣播準備中</div>
         <div class="fx-bar"><i></i></div>
       </div>
@@ -361,6 +383,7 @@
       <div class="fx-status">
         <div class="fx-title">降落中…</div>
         <div class="fx-sub" id="landing-fx-sub">正在生成機長廣播與窗外風景</div>
+        <p class="fx-music hidden" id="landing-music-label" aria-live="polite">♪ 甦醒音景</p>
         <div class="fx-bar"><i></i></div>
       </div>
     </div>
