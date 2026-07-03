@@ -1035,15 +1035,16 @@ body[data-theme="dusk"] .pw-frame {
     visibility 0s linear .72s,
     background .72s ease;
 }
-#takeoff-fx .fx-porthole-wrap,
-#landing-fx .fx-porthole-wrap {
+#takeoff-fx:not(.show):not(.is-leaving) .fx-porthole-wrap,
+#landing-fx:not(.show):not(.is-leaving) .fx-porthole-wrap {
   transform: translateY(14px) scale(.94);
   opacity: 0;
   transition:
     transform .72s cubic-bezier(.22, 1, .36, 1),
     opacity .55s ease;
 }
-.fx-overlay.show .fx-porthole-wrap {
+#takeoff-fx.show .fx-porthole-wrap,
+#landing-fx.show .fx-porthole-wrap {
   transform: translateY(0) scale(1);
   opacity: 1;
 }
