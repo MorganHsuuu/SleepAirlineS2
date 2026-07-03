@@ -36,19 +36,27 @@ if (!existsSync(isoDest) || statSync(src).mtimeMs > statSync(isoDest).mtimeMs) {
   }
 }
 
-// 同步飛行舷窗影片 scripts/*.mp4 → public/media/
+// 同步飛行媒體 scripts/* → public/media/
 const mediaDir = 'public/media';
 const mediaMap = [
   ['scripts/takeoff1.mp4', 'takeoff.mp4'],
   ['scripts/takeoff2.mp4', 'cruise.mp4'],
   ['scripts/landing.mp4', 'landing.mp4'],
 ];
+const audioMap = [
+  ['scripts/takeoff.mp3', 'takeoff.mp3'],
+  ['scripts/captain.mp3', 'captain.mp3'],
+  ['scripts/wakeup1.mp3', 'wakeup1.mp3'],
+  ['scripts/wakeup2.mp3', 'wakeup2.mp3'],
+  ['scripts/wakeup3.mp3', 'wakeup3.mp3'],
+  ['scripts/wakeup4.mp3', 'wakeup4.mp3'],
+];
 if (!existsSync(mediaDir)) mkdirSync(mediaDir, { recursive: true });
-for (const [srcMp4, name] of mediaMap) {
-  const destMp4 = join(mediaDir, name);
-  if (!existsSync(srcMp4)) continue;
-  if (!existsSync(destMp4) || statSync(srcMp4).mtimeMs > statSync(destMp4).mtimeMs) {
-    copyFileSync(srcMp4, destMp4);
-    console.log('sync-cities-public: copied →', destMp4);
+for (const [srcFile, name] of [...mediaMap, ...audioMap]) {
+  const destFile = join(mediaDir, name);
+  if (!existsSync(srcFile)) continue;
+  if (!existsSync(destFile) || statSync(srcFile).mtimeMs > statSync(destFile).mtimeMs) {
+    copyFileSync(srcFile, destFile);
+    console.log('sync-cities-public: copied →', destFile);
   }
 }
