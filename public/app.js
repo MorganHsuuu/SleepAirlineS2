@@ -929,16 +929,25 @@ function avatarColor(name) {
 
 // ── API Helper（workshop-local 相容）─────────────────────────────────────────
 
-async function api(method, url, body) {
+async function api(method, url, body, { timeoutMs = 0 } = {}) {
   if (window.WorkshopLocal?.isActive()) {
     return WorkshopLocal.handle(method, url, body);
   }
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
+  const controller = timeoutMs > 0 ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+  if (controller) opts.signal = controller.signal;
   let res;
   try {
     res = await fetch(url, opts);
   } catch (err) {
+    if (timer) clearTimeout(timer);
+    if (controller?.signal.aborted) {
+      throw new Error('伺服器回應逾時。請稍後再試，或重新整理頁面確認航班狀態。');
+    }
     if (window.WorkshopLocal) {
       WorkshopLocal.enable();
       return WorkshopLocal.handle(method, url, body);
@@ -948,14 +957,23 @@ async function api(method, url, body) {
     }
     throw err;
   }
+  if (timer) clearTimeout(timer);
   const text = await res.text();
   let data;
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
+    if (res.status === 504) {
+      throw new Error('伺服器處理逾時（504）。請重新整理後查看航班狀態，必要時再試一次。');
+    }
     throw new Error(res.ok ? '伺服器回應格式錯誤，請稍後再試。' : (text.slice(0, 120) || `伺服器錯誤 (${res.status})`));
   }
-  if (!res.ok) throw new Error(data.message || data.error || `伺服器錯誤 (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 504) {
+      throw new Error(data.message || data.error || '伺服器處理逾時（504）。請重新整理後查看航班狀態，必要時再試一次。');
+    }
+    throw new Error(data.message || data.error || `伺服器錯誤 (${res.status})`);
+  }
   return data;
 }
 
@@ -1541,7 +1559,22 @@ function celebrateArrival(flightId) {
 
 // ── 起飛／降落全螢幕舷窗過場 ─────────────────────────────────────────────────
 
-const TAKEOFF_FX_MS = { enter: 620, leave: 720, crossfade: 780, launchHold: 3000 };
+const TAKEOFF_FX_MS = { enter: 620, leave: 720, crossfade: 780, launchHold: 3000, prepMin: 1800 };
+const LANDING_FX_MS = { leave: 720, glideMin: 2800 };
+
+function startFxStatusCycle(elId, lines, intervalMs = 2600) {
+  if (!lines?.length) return null;
+  let i = 0;
+  const el = $(elId);
+  if (el) el.textContent = lines[0];
+  return setInterval(() => {
+    i = (i + 1) % lines.length;
+    animateFxLine(elId, lines[i]);
+  }, intervalMs);
+}
+function stopFxStatusCycle(timer) {
+  if (timer) clearInterval(timer);
+}
 
 function preloadTakeoffVideo() {
   const video = $('takeoff-fx-video');
@@ -1595,13 +1628,20 @@ function showTakeoffFx(sub, { phase = 'prep' } = {}) {
   requestAnimationFrame(() => fx.classList.add('show'));
   setTakeoffFxPhase(phase);
 }
-async function hideTakeoffFx() {
+async function hideTakeoffFx({ fast = false } = {}) {
   const fx = $('takeoff-fx');
   if (!fx?.classList.contains('show')) {
     pauseWindowVideo($('takeoff-fx-video'));
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
     setTakeoffFxPhase('prep');
     fx?.classList.remove('is-leaving');
+    return;
+  }
+  if (fast) {
+    fx.classList.remove('show', 'is-leaving');
+    pauseWindowVideo($('takeoff-fx-video'));
+    BroadcastAudio?.stopFlightSfx?.({ fade: false });
+    setTakeoffFxPhase('prep');
     return;
   }
   fx.classList.add('is-leaving');
@@ -1618,14 +1658,43 @@ async function hideTakeoffFx() {
 function showLandingFx(sub) {
   const fx = $('landing-fx');
   if (!fx) return;
-  if (sub) { const s = $('landing-fx-sub'); if (s) s.textContent = sub; }
-  fx.classList.add('show');
-  playWindowVideo($('landing-fx-video'), FLIGHT_MEDIA.landing);
-  startLandingMusic();
+  if (sub) animateFxLine('landing-fx-sub', sub);
+  fx.classList.remove('is-leaving');
+  requestAnimationFrame(() => {
+    fx.classList.add('show');
+    playWindowVideo($('landing-fx-video'), FLIGHT_MEDIA.landing);
+    startLandingMusic();
+  });
 }
-function hideLandingFx() {
-  $('landing-fx')?.classList.remove('show');
+async function hideLandingFx({ fast = false } = {}) {
+  const fx = $('landing-fx');
+  if (!fx) return;
+  if (fast || !fx.classList.contains('show')) {
+    fx.classList.remove('show', 'is-leaving');
+    pauseWindowVideo($('landing-fx-video'));
+    return;
+  }
+  fx.classList.add('is-leaving');
+  fx.classList.remove('show');
   pauseWindowVideo($('landing-fx-video'));
+  await waitMs(LANDING_FX_MS.leave);
+  fx.classList.remove('is-leaving');
+}
+
+function requestLandingScenery(flightId) {
+  if (!flightId || previewMode || window.WorkshopLocal?.isActive()) return;
+  api('POST', '/api/scenery/backfill', { flightIds: [flightId] })
+    .then((data) => {
+      const row = data.results?.[0];
+      if (!row?.imageUrl || lastLandedFlight?.flightId !== flightId) return;
+      landingScenery = {
+        imageUrl: row.imageUrl,
+        arrivalLocation: row.arrivalLocation || lastLandedFlight.arrivalLocation,
+        country: arrivalMeta(lastLandedFlight).country,
+      };
+      renderSceneryCard(false);
+    })
+    .catch(() => { /* 保留 SVG 晨景 fallback */ });
 }
 
 // ── 主 UI 狀態機 ─────────────────────────────────────────────────────────────
@@ -1731,14 +1800,24 @@ async function doTakeoff() {
   stopLandingMusic();
   const btn = $('btn-takeoff');
   btn.disabled = true;
-  showTakeoffFx('正在與塔台確認 · 機長廣播準備中', { phase: 'prep' });
+  showTakeoffFx('正在與塔台確認 · 讀取 Notion 航班', { phase: 'prep' });
+  const statusCycle = startFxStatusCycle('takeoff-fx-sub', [
+    '正在與塔台確認 · 讀取 Notion 航班',
+    '同步小隊看板資料…',
+    '機長撰寫起飛廣播…',
+  ]);
   try {
-    const data = await api('POST', '/api/flight/takeoff', {
-      passengerId: passenger.passengerId,
-      name: passenger.name,
-      groupId: passenger.groupId,
-      routeDirection: $('tk-direction').value,
-    });
+    const data = await Promise.all([
+      api('POST', '/api/flight/takeoff', {
+        passengerId: passenger.passengerId,
+        name: passenger.name,
+        groupId: passenger.groupId,
+        routeDirection: $('tk-direction').value,
+      }, { timeoutMs: 52000 }),
+      waitMs(TAKEOFF_FX_MS.prepMin),
+    ]).then(([result]) => result);
+    stopFxStatusCycle(statusCycle);
+
     activeFlight = data.flight;
     passenger.status = 'in_flight';
     lastLandedFlight = null;
@@ -1761,8 +1840,18 @@ async function doTakeoff() {
     await fetchBoard();
     startAutoRefresh();
   } catch (err) {
-    await hideTakeoffFx();
+    stopFxStatusCycle(statusCycle);
+    await hideTakeoffFx({ fast: true });
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
+    try {
+      await refreshProgress();
+      if (activeFlight && passenger?.status === 'in_flight') {
+        showMsg('main', 'error', '連線逾時，但航班似乎已建立。已恢復飛行畫面。');
+        updateUI();
+        startAutoRefresh();
+        return;
+      }
+    } catch { /* noop */ }
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
@@ -1778,13 +1867,20 @@ async function doLand() {
   const btn = $('btn-land');
   btn.disabled = true;
   renderSceneryCard(true);
-  showLandingFx('正在生成機長廣播與窗外風景');
+  showLandingFx('讀取 Notion · 計算抵達地點');
+  const statusCycle = startFxStatusCycle('landing-fx-sub', [
+    '讀取 Notion · 計算抵達地點',
+    '機長廣播與窗外風景生成中…',
+    '正在對準跑道 · 準備進場…',
+  ]);
   try {
     const data = await api('POST', '/api/flight/land', {
       passengerId: passenger.passengerId,
       name: passenger.name,
       groupId: passenger.groupId,
-    });
+    }, { timeoutMs: 52000 });
+    stopFxStatusCycle(statusCycle);
+
     const landed = data.flight;
     lastLandedFlight = landed;
     landingScenery = data.landingScenery || null;
@@ -1796,34 +1892,43 @@ async function doLand() {
     }
     saveTicket(ticketFromFlight(landed));
     archiveFlightTrail(landed);
-  stopFlightTicker();
-  stopLandingMusic();
-  BroadcastAudio?.stopFlightSfx?.();
-  delete $('landed-panel').dataset.dismissed;
+    stopFlightTicker();
+    delete $('landed-panel').dataset.dismissed;
 
-    // 降落滑行 → 抵達面板
+    await animateFxLine('landing-fx-sub', '正在對準跑道 · 機長廣播中…');
+
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      hideLandingFx();
-      activeFlight = null;
-      if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
-      updateUI();
-    };
-    if (arr && Globe.ok) Globe.glideToArrival(dep, arr, finish);
-    else finish();
-    // 保險：即使滑行動畫（requestAnimationFrame）因切換分頁被暫停，也一定抵達
-    setTimeout(finish, 2600);
+    const broadcastP = landed.captainBroadcast
+      ? playBroadcastWithWave(landed.captainBroadcast, landed.captainBroadcastStyle || landed.takeoffBroadcastStyle)
+      : Promise.resolve();
+    const glideP = new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      if (arr && Globe.ok) Globe.glideToArrival(dep, arr, finish);
+      else finish();
+      setTimeout(finish, LANDING_FX_MS.glideMin);
+    });
+    await Promise.all([broadcastP, glideP, waitMs(1200)]);
+
+    stopLandingMusic();
+    BroadcastAudio?.stopFlightSfx?.();
+    activeFlight = null;
+    if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
+    await hideLandingFx();
+    updateUI();
 
     await fetchBoard();
-    if (landed.captainBroadcast) {
-      playBroadcastWithWave(landed.captainBroadcast, landed.captainBroadcastStyle || landed.takeoffBroadcastStyle);
+    if (landed.flightId && !landingScenery?.imageUrl) {
+      requestLandingScenery(landed.flightId);
     }
   } catch (err) {
-    hideLandingFx();
+    stopFxStatusCycle(statusCycle);
+    hideLandingFx({ fast: true });
     stopLandingMusic();
     landingScenery = null;
     renderSceneryCard(false);

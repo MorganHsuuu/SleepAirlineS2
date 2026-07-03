@@ -61,30 +61,34 @@ export async function generateSocialCueText(
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
 
-  const completion = await client.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: 'system',
-        content: `你是「甦醒航班 Sleep Airline」的社交提示撰寫者。
+  try {
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `你是「甦醒航班 Sleep Airline」的社交提示撰寫者。
 - 繁體中文，1–2 句，40–70 字
 - 夜航、溫柔、有畫面感，像機長低聲對乘客說的同組動態
 - 只能使用提供的事實，不得編造地名、時間、人名
 - 每次用不同句式與意象，避免套話
 - 直接輸出提示正文，不加引號或標題`,
-      },
-      {
-        role: 'user',
-        content: `類型：${candidate.cueType}
+        },
+        {
+          role: 'user',
+          content: `類型：${candidate.cueType}
 ${factsToLines(candidate.facts)}
 
 請改寫成一句社交提示。`,
-      },
-    ],
-    max_tokens: 120,
-    temperature: 0.9,
-  });
+        },
+      ],
+      max_tokens: 120,
+      temperature: 0.9,
+    });
 
-  const text = completion.choices[0]?.message?.content?.trim();
-  return text && text.length > 0 ? text : fallbackSocialCueText(candidate);
+    const text = completion.choices[0]?.message?.content?.trim();
+    return text && text.length > 0 ? text : fallbackSocialCueText(candidate);
+  } catch {
+    return fallbackSocialCueText(candidate);
+  }
 }
