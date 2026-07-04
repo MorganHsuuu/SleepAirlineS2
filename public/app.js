@@ -48,7 +48,7 @@ const WAKEUP_TRACKS = [
   'media/wakeup4.mp3',
 ];
 const LANDING_MUSIC = {
-  volume: 0.38,
+  volume: 0.3,
   title: '甦醒音景',
 };
 let landingMusicPick = null;

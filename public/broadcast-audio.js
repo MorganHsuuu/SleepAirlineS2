@@ -3,12 +3,12 @@ let audioCtx = null;
 let currentAudio = null;
 let flightSfxAudio = null;
 let landingAudio = null;
-let landingVolume = 0.38;
+let landingVolume = 0.3;
 
 const CAPTAIN_SFX = {
   url: 'media/captain.mp3',
   seconds: 7,
-  volume: 0.88,
+  volume: 0.72,
 };
 
 async function ensureAudioCtx() {
@@ -142,7 +142,7 @@ async function playCaptainIntro() {
   if (!cfg.url) return false;
   const ok = await playTimedClip(cfg.url, {
     seconds: cfg.seconds ?? 7,
-    volume: cfg.volume ?? 0.88,
+    volume: cfg.volume ?? 0.72,
   });
   if (ok) return true;
   await playAttentionBeeps();
@@ -183,7 +183,7 @@ async function playLandingMusic(url, opts = {}) {
   if (!url) return false;
   await stopLandingMusic({ fade: false });
   await unlockMedia();
-  landingVolume = typeof opts.volume === 'number' ? opts.volume : 0.38;
+  landingVolume = typeof opts.volume === 'number' ? opts.volume : 0.3;
   const audio = new Audio(url);
   audio.loop = opts.loop !== false;
   audio.volume = 0;
@@ -213,11 +213,14 @@ async function stopLandingMusic({ fade = true, ms = 900 } = {}) {
 }
 
 function duckLandingMusic() {
-  if (landingAudio) landingAudio.volume = Math.min(landingVolume * 0.25, 0.1);
+  if (!landingAudio) return;
+  const target = Math.min(landingVolume * 0.08, 0.028);
+  fadeAudioVolume(landingAudio, landingAudio.volume, target, 450);
 }
 
 function restoreLandingMusic() {
-  if (landingAudio) landingAudio.volume = landingVolume;
+  if (!landingAudio) return;
+  fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 700);
 }
 
 let mediaUnlocked = false;
