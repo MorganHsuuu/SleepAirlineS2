@@ -1269,6 +1269,11 @@ body.sheet-open #main-section {
   animation: ma-fly 3.2s ease-in-out infinite;
 }
 #landed-panel .route-arc { margin: 8px 0 2px; }
+#landed-panel .route-arc .ra-plane {
+  animation: none;
+  left: 86%;
+  opacity: 1;
+}
 @keyframes ma-fly {
   0% { left: 14%; opacity: .5; }
   50% { left: 86%; opacity: 1; }
