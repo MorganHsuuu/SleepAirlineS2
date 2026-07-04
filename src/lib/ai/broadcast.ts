@@ -107,12 +107,12 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - 用「各位乘客」或「${pax}」稱呼對方
 
 地理（非常重要）：
-- 起飛時目的地是未知的：只能講出發地與航向，禁止推測、暗示航線會經過或抵達哪些城市、國家
-- 起飛廣播禁止提本班：飛行時長、預計抵達時間、公里數、ETA、「約 X 小時／分鐘」；能飛多久在起飛當下同樣未知
-- 【同組社交】裡的地名是「隊友」的位置，不是你的航線；提到時必須明確掛在隊友名字上，
-  禁止說成本機正飛過、穿越或靠近那些地方（例：隊友在東京 ≠ 你飛過東京）
-- 隊友已飛多久／飛多遠僅能描述隊友，禁止當成本班航程預估
-- 所有地理描述必須與「航線方向」一致，不得自相矛盾
+- 起飛時本班目的地未知：只講出發地與航向；「睡著後才決定醒在哪」類意思整段最多說一次，禁止換句話重複
+- 起飛廣播禁止提本班：飛行時長、預計抵達、公里數、ETA、約 X 分鐘／小時
+- 【同組社交】的地名都是隊友的，不是本班航線；必須掛在隊友名字後面
+- 隊友只能寫已發生：已起飛、已飛 X、已降落在 Y；禁止隊友「即將／X 分鐘內／快」降落、下降、抵達
+- 禁止把隊友的空域或距離換算成降落倒數
+- 所有地理描述須與本班航向一致，不得自相矛盾
 
 ${hasLocal ? `當地資訊（${isTakeoff ? '出發地' : '抵達地'}）：
 - 【當地資訊】中的文化、天氣僅供改寫融入，禁止整段照搬或列點
@@ -123,12 +123,17 @@ ${hasLocal ? `當地資訊（${isTakeoff ? '出發地' : '抵達地'}）：
 - 起飛廣播：若提供出發地天氣，最多一句帶過，勿喧賓奪主
 ` : ''}
 寫作：
-- 繁體中文，${isTakeoff ? '70–100' : '90–130'} 字，最多不超過 ${isTakeoff ? '120' : '160'} 字
-- 一句一重點，刪掉「有任何需求」「感謝選搭本航空」「祝您旅途愉快」等空泛套話
-- 甦醒航班語境：這是一趟「睡著飛行、醒來抵達」的夜航體驗
-- 社交資訊要改寫成自然、有趣的一兩句，融入廣播，不要整段照搬系統提示
-- 不得編造未提供的地名、時間、人名、氣溫；相關乘客只能使用系統提供的名字
+- 繁體中文，${isTakeoff ? '75–95' : '90–130'} 字，最多不超過 ${isTakeoff ? '105' : '160'} 字
+- ${isTakeoff ? '起飛廣播固定 3–4 句：①問候＋出發地＋航向 ②一句甦醒航班（睡著飛、醒來才知目的地，勿重複）③同組社交最多一句 ④輕聲祝眠' : '一句一重點'}
+- 刪掉「有任何需求」「感謝選搭本航空」「祝您旅途愉快」「期待美好瞬間」等套話
+- 甦醒航班：睡著飛行、醒來抵達
+- 社交資訊改寫後嵌入一句即可，禁止照搬【同組社交】原文
+- 不得編造未提供的地名、時間、人名；相關乘客只能用系統提供的名字
 - 直接輸出廣播正文，不加標題、引號或說明`;
+
+  const socialLine = input.socialCue.cueType === 'solo'
+    ? '（同組暫無其他航班，可略過社交句，或一句「小隊雷達上今晚只有你一人」）'
+    : buildSocialBlock(input.socialCue);
 
   const takeoffUser = `【起飛廣播】
 乘客：${pax}
@@ -136,10 +141,10 @@ ${hasLocal ? `當地資訊（${isTakeoff ? '出發地' : '抵達地'}）：
 航線方向：${direction}
 ${input.localContext ? `\n【當地資訊 · 出發地】\n${buildLocalBlock(input.localContext, 'takeoff')}\n` : ''}
 【同組社交】
-${buildSocialBlock(input.socialCue)}
+${socialLine}
 
-請宣布：夜航啟程、出發地、航向；說明目的地與本班飛行時間在起飛當下皆未知，唯有入睡後才決定醒來何處。
-自然帶入【同組社交】（隊友的時長／距離只能掛在隊友名字上；禁止對乘客說本班要飛多久、幾點到、幾公里）。`;
+請依「3–4 句」結構寫一段流暢口語廣播。甦醒航班概念只提一次。
+同組社交若有：用一句過去式／進行式帶過，禁止隊友降落倒數。`;
 
   const duration = formatDuration(input.flightDurationMinutes);
   const landingUser = `【降落廣播】
@@ -162,8 +167,8 @@ ${buildSocialBlock(input.socialCue)}
       { role: 'system', content: systemPrompt },
       { role: 'user', content: isTakeoff ? takeoffUser : landingUser },
     ],
-    max_tokens: 280,
-    temperature: 0.55,
+    max_tokens: isTakeoff ? 220 : 280,
+    temperature: isTakeoff ? 0.42 : 0.55,
   });
 
   return completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
@@ -183,8 +188,13 @@ export function fallbackCaptainBroadcast(
   const pax = passengerLabel(passengerName);
   const direction = DIRECTION_LABEL[routeDirection] ?? routeDirection;
   if (phase === 'takeoff') {
-    const wx = localContext?.weatherSummary ? ` ${localContext.localTimeLabel ?? '此刻'}${localContext.weatherSummary}，` : '';
-    return `各位乘客，甦醒航班即將自 ${departureLocation} 起飛，航向${direction}。${wx}${pax}，目的地與飛行時間皆尚未知曉，請安心入睡，讓夜航帶您前往未知。${socialCueText}`;
+    const wx = localContext?.weatherSummary
+      ? `${localContext.localTimeLabel ?? '此刻'}${localContext.weatherSummary}，`
+      : '';
+    const social = socialCueText?.trim() && !/獨自飛行|只有你一人/.test(socialCueText)
+      ? ` ${socialCueText.replace(/[。！？\s]+$/g, '')}。`
+      : '';
+    return `各位乘客，甦醒航班自 ${departureLocation} 起飛，航向${direction}。${wx ? wx : ''}請放心入睡——醒來時，目的地才會揭曉。${social}祝各位好眠。`;
   }
   const dur = formatDuration(durationMinutes);
   const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}！` : '';

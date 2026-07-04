@@ -217,6 +217,7 @@ async function stopLandingMusic({ fade = true, ms = 900 } = {}) {
 }
 
 let savedFlightSfxVolume = null;
+let landingPausedForCaptain = false;
 
 async function duckCeremonyBed() {
   const jobs = [];
@@ -236,13 +237,37 @@ async function duckCeremonyBed() {
   if (jobs.length) await Promise.all(jobs);
 }
 
+/** 機長 TTS 期間：甦醒音景完全靜音，凸顯人聲 */
+async function muteCeremonyBedForSpeech() {
+  const jobs = [];
+  if (landingAudio) {
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, 0, 280));
+  }
+  if (flightSfxAudio) {
+    if (savedFlightSfxVolume == null) savedFlightSfxVolume = flightSfxAudio.volume;
+    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, 0, 280));
+  }
+  if (jobs.length) await Promise.all(jobs);
+  if (landingAudio && !landingAudio.paused) {
+    landingPausedForCaptain = true;
+    landingAudio.pause();
+  }
+}
+
 async function restoreCeremonyBed() {
   const jobs = [];
   if (landingAudio) {
-    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 1000));
+    if (landingPausedForCaptain || landingAudio.paused) {
+      landingPausedForCaptain = false;
+      try {
+        landingAudio.volume = 0;
+        await landingAudio.play();
+      } catch { /* noop */ }
+    }
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 900));
   }
   if (flightSfxAudio && savedFlightSfxVolume != null) {
-    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, 1000));
+    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, 900));
     savedFlightSfxVolume = null;
   }
   if (jobs.length) await Promise.all(jobs);
@@ -489,10 +514,12 @@ async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
       ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
       : prepareCaptainSpeech(text, style);
     await playCaptainIntro();
+    await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
-    if (prepared) return playPreparedSpeech(prepared);
-    return speakText(text);
+    if (prepared) return await playPreparedSpeech(prepared);
+    return await speakText(text);
   } catch {
+    await muteCeremonyBedForSpeech();
     return speakText(text);
   } finally {
     await restoreCeremonyBed();
@@ -520,4 +547,6 @@ window.BroadcastAudio = {
   stopFlightSfx,
   playLandingMusic,
   stopLandingMusic,
+  duckCeremonyBed,
+  restoreCeremonyBed,
 };

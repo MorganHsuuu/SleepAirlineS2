@@ -30,6 +30,32 @@ export interface SocialCueCandidate {
   facts: Record<string, string | number | null>;
 }
 
+/** 起飛階段允許的 cue（排除空域／距離／進度類，避免機長誤寫降落倒數） */
+const TAKEOFF_SOCIAL_CUE_TYPES = new Set<SocialCueType>([
+  'teammate_arrival',
+  'teammate_departure',
+  'parallel_heading',
+  'same_departure',
+  'heading_contrast',
+  'squad_in_sky',
+  'fresh_arrival',
+  'first_of_night',
+]);
+
+const OPPOSITE_ROUTE_DIRECTIONS: Partial<Record<RouteDirection, RouteDirection[]>> = {
+  eastbound: ['westbound'],
+  westbound: ['eastbound'],
+  northbound: ['southbound'],
+  southbound: ['northbound'],
+  northeast: ['southwest'],
+  southwest: ['northeast'],
+  northwest: ['southeast'],
+  southeast: ['northwest'],
+};
+
+const FRESH_ARRIVAL_WINDOW_MS = 6 * 60 * 60 * 1000;
+const FIRST_OF_NIGHT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 function formatDuration(minutes: number | null): string {
   if (!minutes || minutes <= 0) return '';
   const h = Math.floor(minutes / 60);
@@ -188,6 +214,114 @@ function addParallelHeading(
   }
 }
 
+function addSameDeparture(
+  candidates: SocialCueCandidate[],
+  ctx: CurrentFlightContext,
+  others: Flight[]
+): void {
+  const selfLoc = ctx.departureLocation.trim();
+  if (!selfLoc) return;
+
+  for (const other of others) {
+    if (other.status !== 'in_flight' && other.status !== 'landed') continue;
+    if (other.departureLocation.trim() !== selfLoc) continue;
+    candidates.push({
+      cueType: 'same_departure',
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        departureLocation: selfLoc,
+        teammateStatus: other.status,
+      },
+    });
+  }
+}
+
+function addHeadingContrast(
+  candidates: SocialCueCandidate[],
+  ctx: CurrentFlightContext,
+  inFlightOthers: Flight[]
+): void {
+  if (!COMPARABLE_ROUTE_DIRECTIONS.includes(ctx.routeDirection)) return;
+  const opposites = OPPOSITE_ROUTE_DIRECTIONS[ctx.routeDirection];
+  if (!opposites) return;
+
+  for (const other of inFlightOthers) {
+    if (!opposites.includes(other.routeDirection)) continue;
+    candidates.push({
+      cueType: 'heading_contrast',
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        selfDirection: ctx.routeDirection,
+        teammateDirection: other.routeDirection,
+        selfDeparture: ctx.departureLocation,
+        teammateDeparture: other.departureLocation,
+      },
+    });
+  }
+}
+
+function addSquadInSky(
+  candidates: SocialCueCandidate[],
+  inFlightOthers: Flight[],
+  landedOthers: Flight[]
+): void {
+  if (inFlightOthers.length + landedOthers.length === 0) return;
+  candidates.push({
+    cueType: 'squad_in_sky',
+    relatedPassenger: null,
+    facts: {
+      inFlightCount: inFlightOthers.length,
+      landedCount: landedOthers.length,
+    },
+  });
+}
+
+function addFreshArrival(
+  candidates: SocialCueCandidate[],
+  landedOthers: Flight[]
+): void {
+  const since = Date.now() - FRESH_ARRIVAL_WINDOW_MS;
+  for (const other of landedOthers) {
+    if (!other.landingTime || !other.arrivalLocation) continue;
+    if (new Date(other.landingTime).getTime() < since) continue;
+    candidates.push({
+      cueType: 'fresh_arrival',
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        arrivalLocation: other.arrivalLocation,
+        flightDuration: formatDuration(other.flightDurationMinutes) || '一段時間',
+      },
+    });
+  }
+}
+
+function addFirstOfNight(
+  candidates: SocialCueCandidate[],
+  ctx: CurrentFlightContext,
+  groupFlights: Flight[]
+): void {
+  if (ctx.phase !== 'takeoff') return;
+
+  const myTs = new Date(ctx.takeoffTime).getTime();
+  const hasEarlierTakeoff = groupFlights.some(
+    (f) =>
+      f.passengerId !== ctx.passengerId
+      && (f.status === 'in_flight' || f.status === 'landed')
+      && myTs - new Date(f.takeoffTime).getTime() < FIRST_OF_NIGHT_WINDOW_MS
+      && new Date(f.takeoffTime).getTime() < myTs
+  );
+  if (hasEarlierTakeoff) return;
+
+  candidates.push({
+    cueType: 'first_of_night',
+    relatedPassenger: null,
+    facts: { passengerName: ctx.passengerName },
+  });
+}
+
 function addRelayFlight(
   candidates: SocialCueCandidate[],
   inFlightOthers: Flight[]
@@ -256,6 +390,11 @@ export function collectSocialCueCandidates(
   addRouteConvergence(candidates, current, trackableOthers);
   addTeammateInSky(candidates, inFlightOthers);
   addParallelHeading(candidates, current, inFlightOthers);
+  addSameDeparture(candidates, current, others);
+  addHeadingContrast(candidates, current, inFlightOthers);
+  addSquadInSky(candidates, inFlightOthers, landedOthers);
+  addFreshArrival(candidates, landedOthers);
+  addFirstOfNight(candidates, current, groupFlights);
 
   if (current.phase === 'landing' && current.landingTime) {
     addRelayFlight(candidates, inFlightOthers);
@@ -268,6 +407,11 @@ export function collectSocialCueCandidates(
     );
     addEarlyLanding(candidates, earlierLanders);
     addLateLanding(candidates, laterLanders);
+  }
+
+  // 起飛時排除易讓機長廣播誤寫成「隊友 X 分鐘後降落」的 cue（空域／距離／進度）
+  if (current.phase === 'takeoff') {
+    return candidates.filter((c) => TAKEOFF_SOCIAL_CUE_TYPES.has(c.cueType));
   }
 
   return candidates;

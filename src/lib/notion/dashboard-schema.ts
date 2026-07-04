@@ -29,7 +29,8 @@ const BROADCAST_STYLE_OPTIONS = [
 
 const SOCIAL_CUE_OPTIONS = [
   'teammate_arrival', 'teammate_departure', 'route_convergence', 'teammate_in_sky',
-  'parallel_heading', 'relay_flight', 'early_landing', 'late_landing', 'solo',
+  'parallel_heading', 'same_departure', 'heading_contrast', 'squad_in_sky',
+  'fresh_arrival', 'first_of_night', 'relay_flight', 'early_landing', 'late_landing', 'solo',
   // 舊版（保留以相容歷史紀錄）
   'same_sky', 'same_region', 'nearby_region',
 ].map((name, i) => ({

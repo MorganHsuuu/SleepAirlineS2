@@ -39,6 +39,19 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
       const dir = DIRECTION_LABEL[String(candidate.facts.routeDirection)] ?? String(candidate.facts.routeDirection);
       return `你和 ${name} 都選了${dir}——從 ${candidate.facts.selfDeparture} 與 ${candidate.facts.teammateDeparture} 出發的平行夜航。`;
     }
+    case 'same_departure':
+      return `你和 ${name} 都從 ${candidate.facts.departureLocation} 起飛——同城的夜航起點。`;
+    case 'heading_contrast': {
+      const selfDir = DIRECTION_LABEL[String(candidate.facts.selfDirection)] ?? String(candidate.facts.selfDirection);
+      const otherDir = DIRECTION_LABEL[String(candidate.facts.teammateDirection)] ?? String(candidate.facts.teammateDirection);
+      return `你航向${selfDir}，${name} 航向${otherDir}——小隊在夜空中走相反方向。`;
+    }
+    case 'squad_in_sky':
+      return `小隊雷達上現有 ${candidate.facts.inFlightCount} 人夜航、${candidate.facts.landedCount} 人已降落。`;
+    case 'fresh_arrival':
+      return `${name} 剛在 ${candidate.facts.arrivalLocation} 降落（飛行 ${candidate.facts.flightDuration}）。`;
+    case 'first_of_night':
+      return `${String(candidate.facts.passengerName ?? '你')} 是小隊今晚第一班起飛的航班。`;
     case 'relay_flight':
       return `你已降落，${name} 仍在夜航中（${candidate.facts.teammateDeparture} 出發，進度 ${candidate.facts.teammateProgress}%）。`;
     case 'early_landing':
@@ -51,8 +64,14 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
   }
 }
 
+const TAKEOFF_SOCIAL_RULES = `
+- 這是「起飛前」提示：只寫隊友已發生的事（已起飛、已飛多久、已降落在哪）
+- 禁止：即將、將要、X 分鐘內、快抵達、下降、預計到達、即將降落
+- 禁止把隊友所在城市／空域寫成「快要降落的地方」`;
+
 export async function generateSocialCueText(
-  candidate: SocialCueCandidate
+  candidate: SocialCueCandidate,
+  phase: 'takeoff' | 'landing' = 'landing'
 ): Promise<string> {
   if (!process.env.OPENAI_API_KEY) {
     return fallbackSocialCueText(candidate);
@@ -60,6 +79,7 @@ export async function generateSocialCueText(
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+  const isTakeoff = phase === 'takeoff';
 
   try {
     const completion = await client.chat.completions.create({
@@ -68,11 +88,10 @@ export async function generateSocialCueText(
         {
           role: 'system',
           content: `你是「甦醒航班 Sleep Airline」的社交提示撰寫者。
-- 繁體中文，1–2 句，40–70 字
-- 夜航、溫柔、有畫面感，像機長低聲對乘客說的同組動態
+- 繁體中文，1 句為主，最多 2 句，30–55 字
+- 夜航、溫柔、像機長低聲補一句同組動態
 - 只能使用提供的事實，不得編造地名、時間、人名
-- 每次用不同句式與意象，避免套話
-- 直接輸出提示正文，不加引號或標題`,
+- 直接輸出提示正文，不加引號或標題${isTakeoff ? TAKEOFF_SOCIAL_RULES : ''}`,
         },
         {
           role: 'user',

@@ -16,7 +16,7 @@ export async function resolveGroupSocialCue(
 ): Promise<SocialCue> {
   const candidates = collectSocialCueCandidates(current, groupFlights);
   const picked = pickRandomSocialCueCandidate(candidates) ?? soloSocialCueCandidate();
-  const cueText = await generateSocialCueText(picked);
+  const cueText = await generateSocialCueText(picked, current.phase);
 
   return {
     cueType: picked.cueType,

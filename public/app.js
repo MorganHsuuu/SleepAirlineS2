@@ -2341,10 +2341,12 @@ async function playLandingApproach() {
   if (fx) fx.dataset.phase = 'approach';
   animateFxLine('landing-fx-title', '即將抵達…');
   animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
-  BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 });
+  await BroadcastAudio?.duckCeremonyBed?.();
+  await BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 });
   await playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false });
   await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
   await BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 500 });
+  await BroadcastAudio?.restoreCeremonyBed?.();
 }
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');
@@ -2639,7 +2641,7 @@ async function doLand() {
       requestLandingScenery(landed.flightId);
     }
 
-    // ② 資料就緒：captain 前奏 + 機長廣播 + TTS（甦醒音景自動變小聲）
+    // ② 機長廣播（takeoff2 + wakeup；TTS 時 wakeup 完全靜音）
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
       await playBroadcastWithWave(
@@ -2649,26 +2651,22 @@ async function doLand() {
       );
     }
 
-    // ③ 準備降落
-    await animateFxLine('landing-fx-title', '準備降落');
-    await animateFxLine('landing-fx-sub', '甦醒航班即將降落，請回到座位…');
-    await waitMs(1200);
-
-    // ④ landing.mp4 + takeoff.mp3，地球儀滑向抵達地
+    // ③ 機長播完 → landing.mp4 + takeoff.mp3，地球儀滑向抵達地
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
     await Promise.all([
       playLandingApproach(),
-      glideToArrival(dep, arr),
+      arr ? glideToArrival(dep, arr) : Promise.resolve(),
     ]);
 
-    // ⑤ 等生圖完成並預載 → 絲滑切換皮克斯舷窗
+    // ④ landing 播完後才等生圖 → 風景顯影
+    await animateFxLine('landing-fx-sub', LANDING_SKY_WHISPERS[0]);
     if (sceneryPreload) await sceneryPreload;
     else await ensureLandingSceneryReady(landed);
     await showLandingFxScenery(landed);
     await waitLandingFxDismiss();
 
-    // ⑥ 顯示抵達面板（甦醒音景持續）
+    // ⑤ 顯示抵達面板（甦醒音景持續）
     if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
     await hideLandingFx();
     unlockDockForFx();
