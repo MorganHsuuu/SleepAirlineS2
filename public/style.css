@@ -1042,11 +1042,18 @@ body[data-theme="dusk"] .pw-frame {
 .pw-video {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
   background: #0e1730;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
-#landing-fx .pw-video { z-index: 2; transition: opacity .85s ease; }
+#landing-fx .pw-video { z-index: 2; }
 #landing-fx-scenery,
 #landing-fx-fallback { z-index: 1; }
-#landing-fx[data-phase="arrival"] .pw-video { opacity: 0; pointer-events: none; }
+#landing-fx[data-phase="arrival"] .pw-video {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .85s ease;
+}
 
 .scenery-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;

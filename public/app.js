@@ -1696,16 +1696,67 @@ function focusGroupMate(f) {
 
 // ── 舷窗影片 ─────────────────────────────────────────────────────────────────
 
+const seamlessLoopHandlers = new WeakMap();
+
+/** 在結尾前提前 seek 回開頭，避免原生 loop 跳回 0 的卡頓 */
+function enableSeamlessVideoLoop(video, { leadSec = 0.1, startSec = 0.033 } = {}) {
+  disableSeamlessVideoLoop(video);
+  const onTimeUpdate = () => {
+    const d = video.duration;
+    if (!d || !Number.isFinite(d) || d <= leadSec + startSec) return;
+    if (video.currentTime >= d - leadSec) {
+      try { video.currentTime = startSec; } catch { /* noop */ }
+    }
+  };
+  const onEnded = () => {
+    try { video.currentTime = startSec; } catch { /* noop */ }
+    video.play().catch(() => {});
+  };
+  video.addEventListener('timeupdate', onTimeUpdate);
+  video.addEventListener('ended', onEnded);
+  seamlessLoopHandlers.set(video, { onTimeUpdate, onEnded });
+}
+
+function disableSeamlessVideoLoop(video) {
+  const handlers = seamlessLoopHandlers.get(video);
+  if (!handlers) return;
+  video.removeEventListener('timeupdate', handlers.onTimeUpdate);
+  video.removeEventListener('ended', handlers.onEnded);
+  seamlessLoopHandlers.delete(video);
+}
+
+function primeLandingVideoElement(video) {
+  if (!video || video.dataset.src === FLIGHT_MEDIA.descent) return;
+  video.src = FLIGHT_MEDIA.descent;
+  video.dataset.src = FLIGHT_MEDIA.descent;
+  video.preload = 'auto';
+  video.load();
+}
+
 async function playWindowVideo(video, src, { loop = true } = {}) {
   if (!video || !src) return false;
   await BroadcastAudio?.unlockMedia?.();
   const srcChanged = video.dataset.src !== src;
+  const sameLooping =
+    !srcChanged
+    && loop
+    && seamlessLoopHandlers.has(video)
+    && !video.paused
+    && !video.ended
+    && video.readyState >= 2;
+  if (sameLooping) return true;
   if (srcChanged) {
     video.src = src;
     video.dataset.src = src;
     video.load();
   }
-  video.loop = loop;
+  if (loop) {
+    video.loop = false;
+    enableSeamlessVideoLoop(video);
+  } else {
+    video.loop = false;
+    disableSeamlessVideoLoop(video);
+  }
   video.muted = true;
   video.playsInline = true;
   if (srcChanged || !loop) {
@@ -1727,6 +1778,7 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
 
 function pauseWindowVideo(video) {
   if (!video) return;
+  disableSeamlessVideoLoop(video);
   video.pause();
 }
 
@@ -2041,14 +2093,15 @@ function preloadTakeoffVideo() {
     video.load();
   }
 }
-async function primeCeremonyMedia() {
+async function primeCeremonyMedia({ playTakeoffVideo = true } = {}) {
   await BroadcastAudio?.unlockMedia?.();
   preloadTakeoffVideo();
   preloadLandingVideos();
-  const takeoffVid = $('takeoff-fx-video');
-  const landingVid = $('landing-fx-video');
-  if (takeoffVid) playWindowVideo(takeoffVid, FLIGHT_MEDIA.takeoff);
-  if (landingVid) playWindowVideo(landingVid, FLIGHT_MEDIA.descent);
+  primeLandingVideoElement($('landing-fx-video'));
+  if (playTakeoffVideo) {
+    const takeoffVid = $('takeoff-fx-video');
+    if (takeoffVid) playWindowVideo(takeoffVid, FLIGHT_MEDIA.takeoff);
+  }
 }
 
 function preloadLandingVideos() {
@@ -2552,7 +2605,7 @@ async function doLand() {
   clearMsg('main');
   const btn = $('btn-land');
   btn.disabled = true;
-  await primeCeremonyMedia();
+  await primeCeremonyMedia({ playTakeoffVideo: false });
   renderSceneryCard(true);
 
   // ① 立刻進過場：甦醒音景 + takeoff2（API 背景跑，使用者不覺得在等）
