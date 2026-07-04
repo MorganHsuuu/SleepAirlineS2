@@ -188,7 +188,7 @@
 
   function fallbackBroadcast(phase, name, departure, arrival, durationMinutes, iso) {
     if (phase === 'takeoff') {
-      return `各位乘客，甦醒航班即將自 ${departure} 起飛。${name}，請繫好安全帶、調暗舷窗，準備進入今晚的夜航。`;
+      return `各位乘客，甦醒航班即將自 ${departure} 起飛。${name}，目的地與飛行時間皆尚未知曉，請繫好安全帶、調暗舷窗，安心入睡。`;
     }
     const h = durationMinutes ? Math.floor(durationMinutes / 60) : 0;
     const m = durationMinutes ? durationMinutes % 60 : 0;

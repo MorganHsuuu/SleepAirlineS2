@@ -108,8 +108,10 @@ ${STYLE_DESCRIPTIONS[input.style]}
 
 地理（非常重要）：
 - 起飛時目的地是未知的：只能講出發地與航向，禁止推測、暗示航線會經過或抵達哪些城市、國家
+- 起飛廣播禁止提本班：飛行時長、預計抵達時間、公里數、ETA、「約 X 小時／分鐘」；能飛多久在起飛當下同樣未知
 - 【同組社交】裡的地名是「隊友」的位置，不是你的航線；提到時必須明確掛在隊友名字上，
   禁止說成本機正飛過、穿越或靠近那些地方（例：隊友在東京 ≠ 你飛過東京）
+- 隊友已飛多久／飛多遠僅能描述隊友，禁止當成本班航程預估
 - 所有地理描述必須與「航線方向」一致，不得自相矛盾
 
 ${hasLocal ? `當地資訊（${isTakeoff ? '出發地' : '抵達地'}）：
@@ -136,8 +138,8 @@ ${input.localContext ? `\n【當地資訊 · 出發地】\n${buildLocalBlock(inp
 【同組社交】
 ${buildSocialBlock(input.socialCue)}
 
-請宣布：夜航啟程、出發地、航向（目的地未知，睡多久飛多遠），並自然帶入社交情境
-（若為 solo 可寫成「今夜天幕上只有你一人」之類，勿照搬；隊友的地點務必掛隊友的名字）。`;
+請宣布：夜航啟程、出發地、航向；說明目的地與本班飛行時間在起飛當下皆未知，唯有入睡後才決定醒來何處。
+自然帶入【同組社交】（隊友的時長／距離只能掛在隊友名字上；禁止對乘客說本班要飛多久、幾點到、幾公里）。`;
 
   const duration = formatDuration(input.flightDurationMinutes);
   const landingUser = `【降落廣播】
@@ -182,7 +184,7 @@ export function fallbackCaptainBroadcast(
   const direction = DIRECTION_LABEL[routeDirection] ?? routeDirection;
   if (phase === 'takeoff') {
     const wx = localContext?.weatherSummary ? ` ${localContext.localTimeLabel ?? '此刻'}${localContext.weatherSummary}，` : '';
-    return `各位乘客，甦醒航班即將自 ${departureLocation} 起飛，航向${direction}。${wx}${pax}，請準備進入夜航。${socialCueText}`;
+    return `各位乘客，甦醒航班即將自 ${departureLocation} 起飛，航向${direction}。${wx}${pax}，目的地與飛行時間皆尚未知曉，請安心入睡，讓夜航帶您前往未知。${socialCueText}`;
   }
   const dur = formatDuration(durationMinutes);
   const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}！` : '';
