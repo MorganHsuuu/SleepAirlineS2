@@ -293,6 +293,59 @@
     </div>
   </div>
 
+  <!-- 隊友航程詳情（點小隊看板成員開啟）-->
+  <div class="sheet" id="mate-sheet">
+    <div class="sheet-grip"></div>
+    <div class="mate-head">
+      <div class="mate-flag" id="mate-flag">🌍</div>
+      <div class="mate-headinfo">
+        <div class="mate-name" id="mate-name">—</div>
+        <div class="mate-status" id="mate-status">—</div>
+      </div>
+    </div>
+    <div class="mate-route" id="mate-route">—</div>
+    <div class="route-arc" id="mate-arc" hidden>
+      <div class="ra-end">
+        <span class="ra-dot"></span>
+        <div class="ra-place">
+          <span class="ra-flag" id="ma-dep-flag">🌍</span>
+          <span class="ra-city" id="ma-dep-city">—</span>
+          <span class="ra-country" id="ma-dep-country">—</span>
+        </div>
+      </div>
+      <div class="ra-track"><span class="ra-plane">✈</span></div>
+      <div class="ra-end ra-end-r">
+        <div class="ra-place ra-place-r">
+          <span class="ra-flag" id="ma-arr-flag">🌍</span>
+          <span class="ra-city" id="ma-arr-city">—</span>
+          <span class="ra-country" id="ma-arr-country">—</span>
+        </div>
+        <span class="ra-dot ra-dot-arr"></span>
+      </div>
+    </div>
+    <div class="landed-meta" id="mate-meta"></div>
+
+    <div class="plane-window plane-window--porthole" id="mate-window" hidden>
+      <div class="pw-frame pw-frame--porthole">
+        <div class="pw-scene" id="mate-scene">
+          <div class="pw-fallback" id="mate-fallback"></div>
+          <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
+          <div class="pw-glare" aria-hidden="true"></div>
+          <div class="scenery-loading hidden" id="mate-loading">讀取降落風景中…</div>
+        </div>
+      </div>
+      <div class="pw-meta">
+        <span class="scenery-caption" id="mate-caption"></span>
+      </div>
+    </div>
+
+    <div class="broadcast-box" id="mate-bc">
+      <span class="bc-cap">🎙 機長廣播</span>
+      <span id="mate-bc-text">—</span>
+    </div>
+    <div class="social-cue hidden" id="mate-cue"></div>
+  </div>
+
   <!-- 起飛過場：舷窗影片（等待塔台／機長廣播） -->
   <div id="takeoff-fx" class="fx-overlay" aria-hidden="true">
     <div class="fx-porthole-wrap fx-porthole">

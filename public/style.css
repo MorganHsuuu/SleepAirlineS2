@@ -1282,6 +1282,11 @@ body.sheet-open #main-section {
 #mate-sheet .landed-meta { margin-top: 0; margin-bottom: 4px; }
 #mate-sheet .plane-window { margin-top: 12px; }
 #mate-sheet .broadcast-box { margin-top: 12px; }
+#mate-sheet .route-arc .ra-plane {
+  animation: none;
+  left: 86%;
+  opacity: 1;
+}
 .pw-empty {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   text-align: center; padding: 0 20px;

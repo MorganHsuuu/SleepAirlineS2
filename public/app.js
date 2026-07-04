@@ -1657,7 +1657,112 @@ function renderSceneryCard(loading = false) {
   }
 }
 
-// ── 小隊看板：點成員 → 地球儀高亮航線 ───────────────────────────────────────
+// ── 小隊看板：點成員 → 地球儀高亮 + 隊友詳情 ─────────────────────────────────
+
+let mateSceneryToken = 0;
+
+function populateMateSheet(f) {
+  const meta = arrivalMeta(f);
+  const depMeta = departureMeta(f);
+  const landed = f.status === 'landed';
+  const flying = f.status === 'in_flight';
+
+  $('mate-flag').textContent = landed ? meta.flag : (flying ? '🛫' : '🧳');
+  $('mate-name').textContent = f.passengerName || '隊友';
+  $('mate-status').textContent = landed
+    ? `已降落 · ${meta.countryZh}`
+    : flying
+      ? `飛行中 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
+      : (STATUS_LABEL[f.status] || f.status);
+
+  const arc = $('mate-arc');
+  if (landed) {
+    arc.hidden = false;
+    fillRouteArc({
+      depFlag: 'ma-dep-flag',
+      depCity: 'ma-dep-city',
+      depCountry: 'ma-dep-country',
+      arrFlag: 'ma-arr-flag',
+      arrCity: 'ma-arr-city',
+      arrCountry: 'ma-arr-country',
+    }, depMeta, meta);
+    $('mate-route').textContent = meta.countryZh ? `抵達 ${meta.countryZh}` : '';
+    $('mate-route').classList.toggle('hidden', !meta.countryZh);
+  } else {
+    arc.hidden = true;
+    $('mate-route').classList.remove('hidden');
+    $('mate-route').textContent = flying
+      ? `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh} 出發 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
+      : `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh}`;
+  }
+
+  const chips = [];
+  if (landed) {
+    chips.push(`🌙 ${fmtDuration(f.flightDurationMinutes)}`);
+    if (f.estimatedFlightDistanceKm) {
+      chips.push(`📏 ${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
+    }
+  }
+  if (f.routeDirection && DIRECTION_LABEL[f.routeDirection]) {
+    chips.push(`🧭 ${DIRECTION_LABEL[f.routeDirection]}`);
+  }
+  $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
+
+  const bc = f.captainBroadcast || f.takeoffBroadcast;
+  $('mate-bc-text').textContent = bc || '這位隊友還沒有機長廣播。';
+  const cue = $('mate-cue');
+  cue.classList.toggle('hidden', !f.socialCueText);
+  cue.textContent = f.socialCueText ? '◎ ' + f.socialCueText : '';
+
+  renderMateScenery(f, meta, landed);
+}
+
+async function renderMateScenery(f, meta, landed) {
+  const win = $('mate-window');
+  if (!landed || !f.arrivalLocation) {
+    win.hidden = true;
+    return;
+  }
+  win.hidden = false;
+
+  const scene = $('mate-scene');
+  const img = $('mate-img');
+  const fallback = $('mate-fallback');
+  const token = ++mateSceneryToken;
+
+  $('mate-caption').textContent = '📍 ' + (meta.city || cityOnly(f.arrivalLocation)) +
+    (meta.countryZh ? ' · ' + meta.countryZh : '');
+  img.hidden = true;
+  img.removeAttribute('src');
+  fallback.innerHTML = '';
+  fallback.hidden = true;
+  scene.querySelector('.pw-empty')?.remove();
+  $('mate-loading').classList.remove('hidden');
+
+  let scenery = null;
+  try {
+    if (f.flightId) {
+      const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(f.flightId));
+      scenery = data.scenery || null;
+    }
+  } catch { scenery = null; }
+  if (token !== mateSceneryToken) return;
+
+  $('mate-loading').classList.add('hidden');
+  if (scenery?.imageUrl) {
+    fallback.hidden = true;
+    img.hidden = false;
+    scene.classList.add('developing');
+    img.onload = () => setTimeout(() => scene.classList.remove('developing'), 80);
+    img.src = scenery.imageUrl;
+    img.alt = f.arrivalLocation || '隊友降落風景';
+    if (img.complete) img.onload();
+  } else {
+    img.hidden = true;
+    fallback.hidden = false;
+    fallback.innerHTML = buildWindowScene(cityOnly(f.arrivalLocation) || 'sky');
+  }
+}
 
 function focusGroupMate(f) {
   if (!f) return;
@@ -1692,6 +1797,8 @@ function focusGroupMate(f) {
     Globe.clearMate();
     Globe.flyTo(dep, 900);
   }
+  populateMateSheet(f);
+  openSheet('mate-sheet');
 }
 
 // ── 舷窗影片 ─────────────────────────────────────────────────────────────────
