@@ -212,15 +212,44 @@ async function stopLandingMusic({ fade = true, ms = 900 } = {}) {
   audio.src = '';
 }
 
+let savedFlightSfxVolume = null;
+
+async function duckCeremonyBed() {
+  const jobs = [];
+  if (landingAudio) {
+    const target = Math.min(landingVolume * 0.03, 0.01);
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, target, 600));
+  }
+  if (flightSfxAudio) {
+    savedFlightSfxVolume = flightSfxAudio.volume;
+    jobs.push(fadeAudioVolume(
+      flightSfxAudio,
+      flightSfxAudio.volume,
+      Math.min(savedFlightSfxVolume * 0.05, 0.012),
+      600,
+    ));
+  }
+  if (jobs.length) await Promise.all(jobs);
+}
+
+async function restoreCeremonyBed() {
+  const jobs = [];
+  if (landingAudio) {
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 1000));
+  }
+  if (flightSfxAudio && savedFlightSfxVolume != null) {
+    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, 1000));
+    savedFlightSfxVolume = null;
+  }
+  if (jobs.length) await Promise.all(jobs);
+}
+
 function duckLandingMusic() {
-  if (!landingAudio) return;
-  const target = Math.min(landingVolume * 0.08, 0.028);
-  fadeAudioVolume(landingAudio, landingAudio.volume, target, 450);
+  void duckCeremonyBed();
 }
 
 function restoreLandingMusic() {
-  if (!landingAudio) return;
-  fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 700);
+  void restoreCeremonyBed();
 }
 
 let mediaUnlocked = false;
@@ -447,7 +476,7 @@ async function speakWithOpenAI(text, style) {
 async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
-  duckLandingMusic();
+  await duckCeremonyBed();
   try {
     await unlockMedia();
     const prepPromise = speechBase64
@@ -460,7 +489,7 @@ async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
   } catch {
     return speakText(text);
   } finally {
-    restoreLandingMusic();
+    await restoreCeremonyBed();
   }
 }
 
