@@ -1156,12 +1156,14 @@ function openSheet(id) {
   $('sheet-mask').classList.add('show');
   $(id).classList.add('show');
   document.body.classList.add('sheet-open');
+  document.body.dataset.openSheet = id;
   if (id === 'compass-sheet') Compass.refreshFriends();
 }
 function closeSheets() {
   $('sheet-mask')?.classList.remove('show');
   document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('show'));
   document.body.classList.remove('sheet-open');
+  delete document.body.dataset.openSheet;
   Globe.clearMate();
   restoreGlobeView();
 }
@@ -1842,7 +1844,6 @@ function primeLandingVideoElement(video) {
 
 async function playWindowVideo(video, src, { loop = true } = {}) {
   if (!video || !src) return false;
-  await BroadcastAudio?.unlockMedia?.();
   const srcChanged = video.dataset.src !== src;
   const sameLooping =
     !srcChanged
@@ -1934,21 +1935,18 @@ function toggleWindow() {
   setWindowOpen($('btn-window').getAttribute('aria-expanded') !== 'true');
 }
 
-let flightShadeLift = 0;
-let flightShadeDrag = null;
-let flightWindowOrigin = { x: 0, y: 0 };
+function flightWindowCenter() {
+  return { x: window.innerWidth / 2, y: window.innerHeight * 0.4 };
+}
 
 function positionFlightWindow(origin) {
   const win = $('flight-window');
   if (!win) return;
-  if (origin && Number.isFinite(origin.x) && Number.isFinite(origin.y)) {
-    flightWindowOrigin = { x: origin.x, y: origin.y };
-  }
-  const pad = 110;
-  const x = Math.max(pad, Math.min(window.innerWidth - pad, flightWindowOrigin.x));
-  const y = Math.max(pad, Math.min(window.innerHeight - pad, flightWindowOrigin.y));
-  win.style.setProperty('--fx-x', `${x}px`);
-  win.style.setProperty('--fx-y', `${y}px`);
+  const pt = (origin && Number.isFinite(origin.x) && Number.isFinite(origin.y))
+    ? origin
+    : flightWindowCenter();
+  win.style.setProperty('--fx-x', `${pt.x}px`);
+  win.style.setProperty('--fx-y', `${pt.y}px`);
 }
 
 function isFlightWindowVisible() {
@@ -1956,21 +1954,7 @@ function isFlightWindowVisible() {
   return !!(win && !win.hidden && !win.classList.contains('hidden'));
 }
 
-function applyFlightShadeLift(lift, { animate = true } = {}) {
-  const win = $('flight-window');
-  if (!win) return;
-  flightShadeLift = Math.max(0, Math.min(1, lift));
-  win.style.setProperty('--shade-lift', String(flightShadeLift));
-  win.classList.toggle('is-dragging-shade', !animate);
-  win.classList.toggle('is-shade-open', flightShadeLift > 0.72);
-
-  const hint = $('flight-shade-hint');
-  if (hint) hint.hidden = win.hidden || flightShadeLift > 0.15;
-
-  syncFlightWindowAria();
-}
-
-/** 舷窗打開後：後方 takeoff2 一直 loop，遮帘只負責擋住／拉開 */
+/** 舷窗打開後：takeoff2 一直 loop（無遮帘） */
 function ensureFlightWindowVideo() {
   const video = $('flight-window-video');
   if (!video || !isFlightWindowVisible()) return;
@@ -1981,41 +1965,35 @@ function syncFlightWindowAria() {
   const btn = $('btn-flight-window');
   const win = $('flight-window');
   if (!btn || !win) return;
-  const open = !win.hidden && flightShadeLift > 0.72;
+  const open = isFlightWindowVisible();
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   btn.setAttribute('aria-label', open ? '收起舷窗' : '望向窗外');
-  $('btn-flight-shade')?.setAttribute('aria-label',
-    flightShadeLift > 0.72 ? '拉下遮帘' : '拉上舷窗遮帘，望向窗外');
 }
 
-function syncFlightWindowBackdrop() {
-  const backdrop = $('flight-window-dismiss');
-  const win = $('flight-window');
-  if (!backdrop || !win) return;
-  const show = !win.hidden && !win.classList.contains('hidden');
-  backdrop.classList.toggle('hidden', !show);
-  backdrop.classList.toggle('show', show);
-  backdrop.setAttribute('aria-hidden', show ? 'false' : 'true');
+function stopCeremonyAudioForCruise() {
+  BroadcastAudio?.stopTowerSignalLoop?.();
+  BroadcastAudio?.stopFlightSfx?.({ fade: false });
+  BroadcastAudio?.stopPlayback?.();
+  BroadcastAudio?.releaseCeremonyMedia?.();
 }
 
 function setFlightWindowOpen(open, { origin } = {}) {
   const win = $('flight-window');
   if (!win) return;
+  const center = flightWindowCenter();
   if (open) {
     closeSheets();
-    positionFlightWindow(origin);
+    positionFlightWindow(center);
     win.hidden = false;
-    win.classList.remove('hidden');
-    win.classList.remove('is-closing', 'is-mounted');
+    win.classList.remove('hidden', 'is-closing', 'is-mounted');
     win.classList.add('is-mounting');
     void win.offsetWidth;
     requestAnimationFrame(() => {
       win.classList.remove('is-mounting');
       win.classList.add('is-mounted');
     });
-    applyFlightShadeLift(flightShadeLift > 0.05 ? flightShadeLift : 0, { animate: true });
     ensureFlightWindowVideo();
-    syncFlightWindowBackdrop();
+    syncFlightWindowAria();
     return;
   }
   let done = false;
@@ -2024,170 +2002,43 @@ function setFlightWindowOpen(open, { origin } = {}) {
     done = true;
     win.hidden = true;
     win.classList.add('hidden');
-    win.classList.remove('is-mounting', 'is-mounted', 'is-closing', 'is-shade-open', 'is-dragging-shade');
-    flightShadeLift = 0;
-    win.style.setProperty('--shade-lift', '0');
+    win.classList.remove('is-mounting', 'is-mounted', 'is-closing');
     pauseWindowVideo($('flight-window-video'));
     syncFlightWindowAria();
-    syncFlightWindowBackdrop();
-    const hint = $('flight-shade-hint');
-    if (hint) hint.hidden = true;
   };
-  const shrinkAway = () => {
-    positionFlightWindow(origin);
-    win.classList.remove('is-mounted');
-    win.classList.add('is-closing');
-    const onEnd = (e) => {
-      if (e.target !== win || e.propertyName !== 'transform') return;
-      win.removeEventListener('transitionend', onEnd);
-      hideWindow();
-    };
-    win.addEventListener('transitionend', onEnd);
-    setTimeout(hideWindow, 620);
-  };
-  if (flightShadeLift > 0.02) {
-    applyFlightShadeLift(0, { animate: true });
-    setTimeout(shrinkAway, 420);
-    return;
-  }
   if (win.hidden) {
     hideWindow();
     return;
   }
-  shrinkAway();
+  positionFlightWindow(center);
+  win.classList.remove('is-mounted');
+  win.classList.add('is-closing');
+  const onEnd = (e) => {
+    if (e.target !== win || e.propertyName !== 'transform') return;
+    win.removeEventListener('transitionend', onEnd);
+    hideWindow();
+  };
+  win.addEventListener('transitionend', onEnd);
+  setTimeout(hideWindow, 620);
 }
 
-function toggleFlightWindow(originEl) {
+function toggleFlightWindow() {
   if (passenger?.status !== 'in_flight') return;
   const win = $('flight-window');
-  let origin;
-  if (originEl?.getBoundingClientRect) {
-    const r = originEl.getBoundingClientRect();
-    origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-  if (!win || win.hidden) {
-    setFlightWindowOpen(true, { origin });
-    return;
-  }
-  if (flightShadeLift > 0.72) setFlightWindowOpen(false, { origin });
-  else applyFlightShadeLift(1, { animate: true });
+  if (!win || win.hidden) setFlightWindowOpen(true);
+  else setFlightWindowOpen(false);
 }
 
-function openFlightWindowFromGlobe(x, y) {
-  if (passenger?.status !== 'in_flight') return;
-  const win = $('flight-window');
-  const origin = { x, y };
-  if (!win?.hidden && flightShadeLift > 0.72) {
-    setFlightWindowOpen(false, { origin });
-    return;
-  }
-  setFlightWindowOpen(true, { origin });
+function openFlightWindowFromGlobe() {
+  toggleFlightWindow();
 }
 
 function bindFlightShadeDrag() {
-  const sheet = $('flight-shade-sheet');
-  const rod = $('btn-flight-shade');
-  const hint = $('flight-shade-hint');
-  if (!sheet || flightShadeDrag) return;
-
-  const shadeTravel = () => {
-    const scene = sheet.closest('.pw-frame')?.querySelector('.pw-scene');
-    return scene?.offsetHeight || sheet.offsetHeight || 240;
-  };
-
-  let dragging = false;
-  let moved = false;
-  let startY = 0;
-  let startLift = 0;
-  let activePointerId = null;
-
-  const finishDrag = (snapOpen) => {
-    dragging = false;
-    activePointerId = null;
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    document.removeEventListener('pointercancel', onUp);
-    if (typeof snapOpen === 'boolean') {
-      applyFlightShadeLift(snapOpen ? 1 : 0, { animate: true });
-    }
-  };
-
-  const onMove = (e) => {
-    if (!dragging || e.pointerId !== activePointerId) return;
-    e.preventDefault();
-    const dy = startY - e.clientY;
-    if (Math.abs(dy) > 4) moved = true;
-    applyFlightShadeLift(startLift + dy / shadeTravel(), { animate: false });
-  };
-
-  const onUp = (e) => {
-    if (!dragging || e.pointerId !== activePointerId) return;
-    e.preventDefault();
-    try { sheet.releasePointerCapture(e.pointerId); } catch { /* noop */ }
-    if (!moved) finishDrag(flightShadeLift <= 0.5);
-    else finishDrag(flightShadeLift >= 0.38);
-  };
-
-  const onDown = (e) => {
-    if (!isFlightWindowVisible() || passenger?.status !== 'in_flight') return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragging = true;
-    moved = false;
-    startY = e.clientY;
-    startLift = flightShadeLift;
-    activePointerId = e.pointerId;
-    try { sheet.setPointerCapture(e.pointerId); } catch { /* noop */ }
-    applyFlightShadeLift(startLift, { animate: false });
-    document.addEventListener('pointermove', onMove, { passive: false });
-    document.addEventListener('pointerup', onUp, { passive: false });
-    document.addEventListener('pointercancel', onUp, { passive: false });
-  };
-
-  sheet.addEventListener('pointerdown', onDown);
-  rod?.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    applyFlightShadeLift(flightShadeLift > 0.5 ? 0 : 1, { animate: true });
-  });
-  hint?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (!isFlightWindowVisible()) return;
-    applyFlightShadeLift(1, { animate: true });
-  });
-
-  flightShadeDrag = { sheet, onDown, onMove, onUp };
+  /* 飛行舷窗已改為無遮帘，保留空函式避免 init 報錯 */
 }
 
 function bindFlightWindowDismiss() {
-  const backdrop = $('flight-window-dismiss');
-  if (!backdrop || bindFlightWindowDismiss.done) return;
-  bindFlightWindowDismiss.done = true;
-
-  const closeWindow = () => {
-    if (passenger?.status !== 'in_flight') return;
-    const win = $('flight-window');
-    if (!win || win.hidden || win.classList.contains('hidden')) return;
-    const r = win.getBoundingClientRect();
-    setFlightWindowOpen(false, { origin: { x: r.left + r.width / 2, y: r.top + r.height / 2 } });
-  };
-
-  backdrop.addEventListener('pointerdown', (e) => {
-    if (!backdrop.classList.contains('show')) return;
-    e.preventDefault();
-    backdrop._dismissStart = { x: e.clientX, y: e.clientY, id: e.pointerId };
-    backdrop.setPointerCapture(e.pointerId);
-  });
-  backdrop.addEventListener('pointerup', (e) => {
-    if (!backdrop._dismissStart || backdrop._dismissStart.id !== e.pointerId) return;
-    backdrop._dismissStart = null;
-    try { backdrop.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
-    closeWindow();
-  });
-  backdrop.addEventListener('pointercancel', (e) => {
-    backdrop._dismissStart = null;
-  });
+  /* 已移除背景遮罩，點地球儀／dock 光帶 toggle 收起 */
 }
 
 // ── 抵達慶祝動畫 ─────────────────────────────────────────────────────────────
@@ -2319,7 +2170,7 @@ function setTakeoffFxPhase(phase) {
   fx.dataset.phase = phase;
   if (phase === 'prep') {
     preloadTakeoffVideo();
-    playWindowVideo(video, FLIGHT_MEDIA.takeoff);
+    pauseWindowVideo(video);
     animateFxLine('takeoff-fx-title', '塔台連線中…');
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
   } else if (phase === 'launch') {
@@ -2664,7 +2515,7 @@ async function doTakeoff() {
   closeSheets();
   const btn = $('btn-takeoff');
   btn.disabled = true;
-  await primeCeremonyMedia();
+  await primeCeremonyMedia({ playTakeoffVideo: false });
   lockDockForFx('takeoff');
   showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
   BroadcastAudio?.startTowerSignalLoop?.();
@@ -2708,6 +2559,7 @@ async function doTakeoff() {
     await waitMs(TAKEOFF_FX_MS.launchHold);
 
     await hideTakeoffFx();
+    stopCeremonyAudioForCruise();
     unlockDockForFx();
     await revealDockPanel('flight-panel');
 
@@ -2731,7 +2583,7 @@ async function doTakeoff() {
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
-    BroadcastAudio?.releaseCeremonyMedia?.();
+    stopCeremonyAudioForCruise();
   }
 }
 
@@ -2988,11 +2840,20 @@ $('bd-list').addEventListener('keydown', (e) => {
 
 $('btn-compass').addEventListener('click', () => openSheet('compass-sheet'));
 $('sheet-mask').addEventListener('click', closeSheets);
+$('btn-close-mate')?.addEventListener('click', closeSheets);
+document.querySelectorAll('.sheet .sheet-grip').forEach((grip) => {
+  if (grip.id === 'btn-close-mate') return;
+  grip.addEventListener('click', closeSheets);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !document.body.classList.contains('sheet-open')) return;
+  closeSheets();
+});
 $('btn-fate').addEventListener('click', () => Compass.fate());
 $('btn-compass-confirm').addEventListener('click', () => Compass.confirm());
 
 $('btn-window').addEventListener('click', toggleWindow);
-$('btn-flight-window').addEventListener('click', (e) => toggleFlightWindow(e.currentTarget));
+$('btn-flight-window').addEventListener('click', () => toggleFlightWindow());
 
 $('btn-close-landed').addEventListener('click', () => {
   stopLandingMusic();
@@ -3015,14 +2876,14 @@ $('btn-close-landed').addEventListener('click', () => {
   // 點地球儀上的隊友點 → 開啟該隊友航程詳情
   Globe.setFriendPick((idx) => { if (groupFlights[idx]) focusGroupMate(groupFlights[idx]); });
   // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
-  Globe.setPlanePick((x, y) => openFlightWindowFromGlobe(x, y));
+  Globe.setPlanePick(() => openFlightWindowFromGlobe());
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
   preloadLandingVideos();
   bindFlightShadeDrag();
   bindFlightWindowDismiss();
-  positionFlightWindow({ x: window.innerWidth / 2, y: window.innerHeight * 0.38 });
+  positionFlightWindow(flightWindowCenter());
   fillLoginForm(loadLoginProfile());
 
   const forceLogin = new URLSearchParams(location.search).has('login');

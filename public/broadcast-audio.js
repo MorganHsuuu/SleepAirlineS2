@@ -11,6 +11,10 @@ const CAPTAIN_SFX = {
   volume: 0.72,
 };
 
+/** 極短無聲 WAV：解鎖 HTML Audio 自動播放，不可聽見（勿用 captain.mp3 loop） */
+const SILENT_KEEPALIVE =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 async function ensureAudioCtx() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
@@ -255,7 +259,7 @@ function restoreLandingMusic() {
 let mediaUnlocked = false;
 let keepAliveAudio = null;
 
-/** 儀式期間維持極小聲 loop，避免 API 等待後 Audio / TTS 被瀏覽器擋住 */
+/** 儀式期間維持無聲 loop，避免 API 等待後 Audio / TTS 被瀏覽器擋住 */
 async function startMediaKeepAlive() {
   if (keepAliveAudio && !keepAliveAudio.paused) return true;
   if (keepAliveAudio?.paused) {
@@ -265,7 +269,8 @@ async function startMediaKeepAlive() {
       return true;
     } catch { /* recreate below */ }
   }
-  const audio = new Audio(CAPTAIN_SFX.url);
+  await ensureAudioCtx();
+  const audio = new Audio(SILENT_KEEPALIVE);
   audio.loop = true;
   audio.volume = 0.001;
   audio.preload = 'auto';
@@ -296,7 +301,7 @@ async function unlockMedia() {
   await ensureAudioCtx();
   if (await startMediaKeepAlive()) return true;
   try {
-    const probe = new Audio(CAPTAIN_SFX.url);
+    const probe = new Audio(SILENT_KEEPALIVE);
     probe.volume = 0.001;
     probe.preload = 'auto';
     probe.playsInline = true;
@@ -476,9 +481,10 @@ async function speakWithOpenAI(text, style) {
 async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
+  stopMediaKeepAlive();
   await duckCeremonyBed();
   try {
-    await unlockMedia();
+    await ensureAudioCtx();
     const prepPromise = speechBase64
       ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
       : prepareCaptainSpeech(text, style);

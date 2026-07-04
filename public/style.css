@@ -672,14 +672,14 @@ body[data-theme="dusk"] .pw-frame.pw-frame--porthole::before {
 #flight-window .pw-video {
   filter: none;
   image-rendering: auto;
+  opacity: 1;
 }
-#flight-window:not(.is-shade-open) .pw-glare { opacity: 0; }
-#flight-window.is-shade-open .pw-glare {
-  opacity: .16;
-  transition: opacity .35s ease;
+#flight-window .pw-glare {
+  opacity: 0.28;
 }
 
-/* 飛行舷窗：前方遮光屏（實色，不模糊） */
+/* 飛行舷窗遮帘（已移除 DOM；保留樣式供其它面板參考） */
+#flight-window .pw-shade-sheet { display: none !important; }
 #flight-window .pw-shade-fabric {
   background: linear-gradient(180deg, #eceff4 0%, #d8dee8 100%);
   box-shadow:
@@ -1211,6 +1211,11 @@ body[data-ui-phase="landed"] #sheet-mask.show {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+/* 隊友詳情：飛行／抵達階段仍可按遮罩或拖曳條收起 */
+body[data-open-sheet="mate-sheet"] #sheet-mask.show {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
 
 /* sheet 開啟時：底層 HUD／登入卡不攔截點擊 */
 body.sheet-open #login-section,
@@ -1218,7 +1223,23 @@ body.sheet-open #main-section {
   pointer-events: none;
 }
 
-.sheet-grip { width: 40px; height: 4px; border-radius: 3px; background: var(--divider); margin: 0 auto 14px; }
+.sheet-grip {
+  position: relative;
+  display: block;
+  width: 40px; height: 4px;
+  margin: 0 auto 14px; padding: 0;
+  border: none; border-radius: 3px;
+  background: var(--divider);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sheet-grip::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 72px; height: 32px;
+  transform: translate(-50%, -50%);
+}
 .sheet-title { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 4px; }
 .sheet-sub { text-align: center; font-size: 10px; color: var(--ink-faint); margin-bottom: 14px; }
 

@@ -253,22 +253,14 @@
 
   </div>
 
-  <!-- 飛行巡航舷窗：從地球儀飛機／航線點擊處縮放展開 -->
-  <div id="flight-window-dismiss" class="flight-window-dismiss hidden" aria-hidden="true"></div>
-  <div id="flight-window" class="flight-window-float plane-window plane-window--porthole hidden" hidden style="--shade-lift: 0">
+  <!-- 飛行巡航舷窗：點地球儀飛機／航線 → 畫面中央 takeoff2 循環 -->
+  <div id="flight-window" class="flight-window-float plane-window plane-window--porthole hidden" hidden>
     <div class="pw-frame pw-frame--porthole">
       <div class="pw-scene">
         <video id="flight-window-video" class="pw-video" muted playsinline loop preload="metadata"></video>
         <div class="pw-glare" aria-hidden="true"></div>
       </div>
-      <div class="pw-shade-sheet" id="flight-shade-sheet" aria-hidden="true">
-        <div class="pw-shade-fabric"></div>
-        <div class="pw-shade-rod" id="btn-flight-shade" role="button" tabindex="0" aria-label="拉上舷窗遮帘，望向窗外">
-          <span class="pw-shade-knob" aria-hidden="true"></span>
-        </div>
-      </div>
     </div>
-    <p class="pw-shade-hint" id="flight-shade-hint">↑ 往上拉開舷窗</p>
   </div>
 
   <!-- ════ Sheets ════ -->
@@ -295,7 +287,7 @@
 
   <!-- 隊友航程詳情（點小隊看板成員開啟）-->
   <div class="sheet" id="mate-sheet">
-    <div class="sheet-grip"></div>
+    <button type="button" class="sheet-grip" id="btn-close-mate" aria-label="收起隊友詳情"></button>
     <div class="mate-head">
       <div class="mate-flag" id="mate-flag">🌍</div>
       <div class="mate-headinfo">
