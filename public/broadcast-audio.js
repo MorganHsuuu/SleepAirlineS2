@@ -182,20 +182,23 @@ async function stopFlightSfx({ fade = true, ms = 550 } = {}) {
 async function playLandingMusic(url, opts = {}) {
   if (!url) return false;
   await stopLandingMusic({ fade: false });
+  await unlockMedia();
   landingVolume = typeof opts.volume === 'number' ? opts.volume : 0.38;
   const audio = new Audio(url);
   audio.loop = opts.loop !== false;
   audio.volume = 0;
+  audio.playsInline = true;
+  audio.preload = 'auto';
   landingAudio = audio;
   audio.onerror = () => { if (landingAudio === audio) landingAudio = null; };
-  try {
-    await audio.play();
-    await fadeAudioVolume(audio, 0, landingVolume, opts.fadeInMs ?? 1600);
-    return true;
-  } catch {
+  const ok = await playAudioElement(audio);
+  if (!ok) {
     if (landingAudio === audio) landingAudio = null;
     return false;
   }
+  stopMediaKeepAlive();
+  await fadeAudioVolume(audio, 0, landingVolume, opts.fadeInMs ?? 1600);
+  return true;
 }
 
 async function stopLandingMusic({ fade = true, ms = 900 } = {}) {

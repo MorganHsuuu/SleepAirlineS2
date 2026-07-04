@@ -2555,10 +2555,10 @@ async function doLand() {
   await primeCeremonyMedia();
   renderSceneryCard(true);
 
-  // ① 立刻進過場：takeoff2 + 甦醒音景（API 背景跑，使用者不覺得在等）
+  // ① 立刻進過場：甦醒音景 + takeoff2（API 背景跑，使用者不覺得在等）
   lockDockForFx('landing');
-  showLandingFx('穿越雲層中…', { phase: 'descent' });
   await startLandingMusic();
+  showLandingFx('穿越雲層中…', { phase: 'descent' });
   const statusCycle = startFxStatusCycle('landing-fx-sub', [
     '穿越雲層中…',
     '高度下降 · 窗外雲海翻湧…',
