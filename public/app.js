@@ -1860,11 +1860,14 @@ function applyFlightShadeLift(lift, { animate = true } = {}) {
   const hint = $('flight-shade-hint');
   if (hint) hint.hidden = win.hidden || flightShadeLift > 0.15;
 
-  const video = $('flight-window-video');
-  if (flightShadeLift > 0.18) playWindowVideo(video, FLIGHT_MEDIA.cruise);
-  else if (flightShadeLift < 0.08) pauseWindowVideo(video);
-
   syncFlightWindowAria();
+}
+
+/** 舷窗打開後：後方 takeoff2 一直 loop，遮帘只負責擋住／拉開 */
+function ensureFlightWindowVideo() {
+  const video = $('flight-window-video');
+  if (!video || !isFlightWindowVisible()) return;
+  playWindowVideo(video, FLIGHT_MEDIA.descent, { loop: true });
 }
 
 function syncFlightWindowAria() {
@@ -1904,6 +1907,7 @@ function setFlightWindowOpen(open, { origin } = {}) {
       win.classList.add('is-mounted');
     });
     applyFlightShadeLift(flightShadeLift > 0.05 ? flightShadeLift : 0, { animate: true });
+    ensureFlightWindowVideo();
     syncFlightWindowBackdrop();
     return;
   }
