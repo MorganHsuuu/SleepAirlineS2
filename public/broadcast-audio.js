@@ -11,17 +11,19 @@ const CAPTAIN_SFX = {
   volume: 0.88,
 };
 
-function getAudioCtx() {
+async function ensureAudioCtx() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
   if (!audioCtx) audioCtx = new Ctx();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') {
+    try { await audioCtx.resume(); } catch { /* noop */ }
+  }
   return audioCtx;
 }
 
 function tone(freq, startSec, durSec, volume = 0.12) {
-  const ctx = getAudioCtx();
-  if (!ctx) return;
+  const ctx = audioCtx;
+  if (!ctx || ctx.state !== 'running') return;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
@@ -65,12 +67,28 @@ function fadeAudioVolume(audio, from, to, ms) {
   });
 }
 
+async function playAudioElement(audio) {
+  try {
+    await audio.play();
+    return true;
+  } catch {
+    await unlockMedia();
+    try {
+      await audio.play();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}) {
   return new Promise((resolve) => {
     if (!url) { resolve(false); return; }
     const audio = new Audio(url);
     audio.volume = volume;
     audio.loop = loop;
+    audio.playsInline = true;
     currentAudio = audio;
     let done = false;
     let timer = null;
@@ -85,7 +103,7 @@ function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}) {
     if (seconds > 0) timer = setTimeout(() => finish(true), seconds * 1000);
     audio.onended = () => finish(true);
     audio.onerror = () => finish(false);
-    audio.play().catch(() => finish(false));
+    playAudioElement(audio).then((ok) => { if (!ok) finish(false); });
   });
 }
 
@@ -200,35 +218,71 @@ function restoreLandingMusic() {
 }
 
 let mediaUnlocked = false;
+let keepAliveAudio = null;
+
+/** 儀式期間維持極小聲 loop，避免 API 等待後 Audio / TTS 被瀏覽器擋住 */
+async function startMediaKeepAlive() {
+  if (keepAliveAudio && !keepAliveAudio.paused) return true;
+  if (keepAliveAudio?.paused) {
+    try {
+      await keepAliveAudio.play();
+      mediaUnlocked = true;
+      return true;
+    } catch { /* recreate below */ }
+  }
+  const audio = new Audio(CAPTAIN_SFX.url);
+  audio.loop = true;
+  audio.volume = 0.001;
+  audio.preload = 'auto';
+  audio.playsInline = true;
+  keepAliveAudio = audio;
+  try {
+    await audio.play();
+    mediaUnlocked = true;
+    return true;
+  } catch {
+    keepAliveAudio = null;
+    return false;
+  }
+}
+
+function stopMediaKeepAlive() {
+  if (!keepAliveAudio) return;
+  const audio = keepAliveAudio;
+  keepAliveAudio = null;
+  try { audio.pause(); } catch { /* noop */ }
+  try { audio.currentTime = 0; } catch { /* noop */ }
+  audio.removeAttribute('src');
+  audio.load();
+}
 
 /** 在使用者點擊當下解鎖 Audio / Video 自動播放（避免 API 等待後被瀏覽器擋住） */
 async function unlockMedia() {
-  const ctx = getAudioCtx();
-  if (ctx?.state === 'suspended') {
-    try { await ctx.resume(); } catch { /* noop */ }
-  }
-  if (mediaUnlocked) return true;
+  await ensureAudioCtx();
+  if (await startMediaKeepAlive()) return true;
   try {
     const probe = new Audio(CAPTAIN_SFX.url);
     probe.volume = 0.001;
     probe.preload = 'auto';
+    probe.playsInline = true;
     await probe.play();
     probe.pause();
     try { probe.currentTime = 0; } catch { /* noop */ }
     mediaUnlocked = true;
     return true;
   } catch {
-    try {
-      tone(440, 0, 0.04, 0.001);
-      mediaUnlocked = true;
-      return true;
-    } catch {
-      return false;
-    }
+    await ensureAudioCtx();
+    tone(440, 0, 0.04, 0.001);
+    return !!audioCtx;
   }
 }
 
+function releaseCeremonyMedia() {
+  stopMediaKeepAlive();
+}
+
 async function playAttentionBeeps() {
+  await ensureAudioCtx();
   tone(520, 0, 0.08, 0.09);
   await delay(200);
   tone(520, 0, 0.08, 0.09);
@@ -238,6 +292,7 @@ async function playAttentionBeeps() {
 }
 
 async function playPaChime() {
+  await ensureAudioCtx();
   tone(880, 0, 0.2, 0.13);
   tone(660, 0.24, 0.32, 0.13);
   await delay(620);
@@ -253,7 +308,7 @@ function pickZhVoice() {
   );
 }
 
-function speakText(text) {
+function speakTextOnce(text) {
   return new Promise((resolve) => {
     if (!text?.trim() || !window.speechSynthesis) {
       resolve(false);
@@ -272,10 +327,16 @@ function speakText(text) {
   });
 }
 
+async function speakText(text) {
+  if (await speakTextOnce(text)) return true;
+  await unlockMedia();
+  return speakTextOnce(text);
+}
+
 async function fetchOpenAISpeechBlob(text, style) {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     const res = await fetch('/api/broadcast/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -292,56 +353,81 @@ async function fetchOpenAISpeechBlob(text, style) {
   }
 }
 
+function base64ToMp3Blob(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: 'audio/mpeg' });
+}
+
+async function loadPreparedSpeechAudio(blob, text) {
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.preload = 'auto';
+  const ready = await new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      if (!ok) {
+        URL.revokeObjectURL(url);
+        resolve(null);
+        return;
+      }
+      resolve({ kind: 'openai', audio, url, fallbackText: text });
+    };
+    audio.oncanplaythrough = () => finish(true);
+    audio.onerror = () => finish(false);
+    audio.load();
+    setTimeout(() => finish(true), 1500);
+  });
+  return ready;
+}
+
+/** 後端已生成語音時直接使用，省掉第二趟 /api/broadcast/speech */
+async function prepareCaptainSpeechFromBase64(base64, text, style) {
+  if (!base64) return prepareCaptainSpeech(text, style);
+  try {
+    const ready = await loadPreparedSpeechAudio(base64ToMp3Blob(base64), text);
+    if (ready) return ready;
+  } catch { /* fallback below */ }
+  return prepareCaptainSpeech(text, style);
+}
+
 /** 先載入語音；OpenAI 失敗時標記可走瀏覽器 TTS。 */
 async function prepareCaptainSpeech(text, style) {
   const blob = await fetchOpenAISpeechBlob(text, style);
   if (blob) {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    const ready = await new Promise((resolve) => {
-      let done = false;
-      const finish = (ok) => {
-        if (done) return;
-        done = true;
-        if (!ok) {
-          URL.revokeObjectURL(url);
-          resolve(null);
-          return;
-        }
-        resolve({ kind: 'openai', audio, url });
-      };
-      audio.oncanplaythrough = () => finish(true);
-      audio.onerror = () => finish(false);
-      audio.load();
-      setTimeout(() => finish(true), 6000);
-    });
+    const ready = await loadPreparedSpeechAudio(blob, text);
     if (ready) return ready;
   }
-  if (text?.trim() && window.speechSynthesis) return { kind: 'browser', text };
+  if (text?.trim() && window.speechSynthesis) return { kind: 'browser', text, fallbackText: text };
   return null;
 }
 
-function playPreparedSpeech(prepared) {
-  if (!prepared) return Promise.resolve(false);
+async function playPreparedSpeech(prepared) {
+  if (!prepared) return false;
   if (prepared.kind === 'browser') return speakText(prepared.text);
   const { audio, url } = prepared;
+  audio.playsInline = true;
+  currentAudio = audio;
+  const ok = await playAudioElement(audio);
+  if (!ok) {
+    URL.revokeObjectURL(url);
+    if (currentAudio === audio) currentAudio = null;
+    return speakText(prepared.fallbackText || '');
+  }
   return new Promise((resolve) => {
-    currentAudio = audio;
     audio.onended = () => {
       URL.revokeObjectURL(url);
       if (currentAudio === audio) currentAudio = null;
       resolve(true);
     };
-    audio.onerror = () => {
+    audio.onerror = async () => {
       URL.revokeObjectURL(url);
       if (currentAudio === audio) currentAudio = null;
-      resolve(false);
+      resolve(await speakText(prepared.fallbackText || ''));
     };
-    audio.play().catch(() => {
-      URL.revokeObjectURL(url);
-      if (currentAudio === audio) currentAudio = null;
-      resolve(false);
-    });
   });
 }
 
@@ -352,13 +438,15 @@ async function speakWithOpenAI(text, style) {
   return playPreparedSpeech({ kind: 'openai', audio: new Audio(url), url });
 }
 
-async function playCaptainBroadcast(text, style) {
+async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
   duckLandingMusic();
   try {
     await unlockMedia();
-    const prepPromise = prepareCaptainSpeech(text, style);
+    const prepPromise = speechBase64
+      ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
+      : prepareCaptainSpeech(text, style);
     await playCaptainIntro();
     const prepared = await prepPromise;
     if (prepared) return playPreparedSpeech(prepared);
@@ -384,6 +472,9 @@ window.BroadcastAudio = {
   speakText,
   stopPlayback,
   unlockMedia,
+  startMediaKeepAlive,
+  stopMediaKeepAlive,
+  releaseCeremonyMedia,
   playFlightSfx,
   stopFlightSfx,
   playLandingMusic,

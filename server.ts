@@ -18,14 +18,12 @@ import { fetchLocalContext, resolveCountryIso } from './src/lib/flight/local-con
 import { resolveGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
-import { generateLandingScenery } from './src/lib/ai/scenery';
-import { saveLandingScenery, getLandscapeByFlightId } from './src/lib/notion/landscape-images';
+import { getLandscapeByFlightId } from './src/lib/notion/landscape-images';
 import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
 import { withTimeout } from './src/lib/with-timeout';
 import { getDataModeStatus } from './src/lib/data-mode';
 
 import type { RouteDirection, BroadcastStyle, NarrativeRegion, SocialCue } from './src/types';
-import type { Passenger } from './src/types';
 
 const SOLO_SOCIAL_CUE: SocialCue = {
   cueType: 'solo',
@@ -37,7 +35,7 @@ async function resolveSocialCueWithBudget(
   current: Parameters<typeof resolveGroupSocialCue>[0],
   groupFlights: Awaited<ReturnType<typeof getGroupFlights>>
 ): Promise<SocialCue> {
-  return withTimeout(resolveGroupSocialCue(current, groupFlights), 12_000, () => SOLO_SOCIAL_CUE);
+  return withTimeout(resolveGroupSocialCue(current, groupFlights), 8_000, () => SOLO_SOCIAL_CUE);
 }
 
 async function generateBroadcastWithBudget(
@@ -45,49 +43,26 @@ async function generateBroadcastWithBudget(
   fallback: () => string
 ): Promise<string> {
   try {
-    return await withTimeout(generateCaptainBroadcast(input), 18_000, fallback);
+    return await withTimeout(generateCaptainBroadcast(input), 12_000, fallback);
   } catch {
     return fallback();
   }
 }
 
-async function generateLandingSceneryWithBudget(
-  arrival: { city: string; country: string; displayName: string },
-  flight: {
-    flightId: string;
-    passengerId: string;
-    passengerName: string;
-    groupId: string;
-  },
-  passenger: Pick<Passenger, 'passengerId' | 'name' | 'groupId'>,
-  landingTime: string
-) {
-  return withTimeout(
-    (async () => {
-      const sceneryGen = await generateLandingScenery(
-        arrival.city,
-        arrival.country,
-        arrival.displayName,
-        flight.flightId
-      );
-      if (!sceneryGen) return null;
-      return saveLandingScenery({
-        flightId: flight.flightId,
-        passengerId: passenger.passengerId,
-        passengerName: passenger.name,
-        groupId: passenger.groupId,
-        arrivalLocation: arrival.displayName,
-        country: arrival.country,
-        imageBuffer: sceneryGen.imageBuffer,
-        filename: sceneryGen.filename,
-        contentType: sceneryGen.contentType,
-        imagePrompt: sceneryGen.imagePrompt,
-        landingTime,
-      });
-    })(),
-    42_000,
-    () => null
-  );
+async function generateSpeechWithBudget(
+  text: string,
+  style: BroadcastStyle
+): Promise<string | null> {
+  if (!process.env.OPENAI_API_KEY || !text?.trim()) return null;
+  try {
+    return await withTimeout(
+      generateBroadcastSpeech(text.trim(), style).then((buf) => buf.toString('base64')),
+      12_000,
+      () => null
+    );
+  } catch {
+    return null;
+  }
 }
 
 function parseDisplayLocation(displayName: string): { cityName: string; countryName: string } {
@@ -267,13 +242,16 @@ app.post('/api/flight/takeoff', async (req, res) => {
       )
     );
 
-    await updateFlight(flight.notionId, {
-      takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
-      takeoffBroadcast,
-      socialCueType: socialCue.cueType,
-      socialCueText: socialCue.cueText,
-      relatedPassenger: socialCue.relatedPassenger ?? '',
-    });
+    const [_, speechAudioBase64] = await Promise.all([
+      updateFlight(flight.notionId, {
+        takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
+        takeoffBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger ?? '',
+      }),
+      generateSpeechWithBudget(takeoffBroadcast, broadcastStyle as BroadcastStyle),
+    ]);
 
     res.json({
       flight: {
@@ -284,6 +262,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger,
       },
+      speechAudioBase64,
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
@@ -378,45 +357,40 @@ app.post('/api/flight/land', async (req, res) => {
       arrLocal
     );
 
-    const [captainBroadcast, landingScenery] = await Promise.all([
-      generateBroadcastWithBudget(
-        {
-          phase: 'landing',
-          passengerName: passenger.name,
-          departureLocation: activeFlight.departureLocation,
-          arrivalLocation: arrival.displayName,
-          narrativeRegion: region,
-          flightDurationMinutes: durationMinutes,
-          flightProgress: 100,
-          estimatedDistanceKm: distanceKm,
-          routeDirection: activeFlight.routeDirection,
-          socialCue,
-          style: broadcastStyle as BroadcastStyle,
-          localContext: arrLocal,
-        },
-        broadcastFallback
-      ),
-      generateLandingSceneryWithBudget(
-        { city: arrival.city, country: arrival.country, displayName: arrival.displayName },
-        activeFlight,
-        passenger,
-        landingTime
-      ),
-    ]);
+    const captainBroadcast = await generateBroadcastWithBudget(
+      {
+        phase: 'landing',
+        passengerName: passenger.name,
+        departureLocation: activeFlight.departureLocation,
+        arrivalLocation: arrival.displayName,
+        narrativeRegion: region,
+        flightDurationMinutes: durationMinutes,
+        flightProgress: 100,
+        estimatedDistanceKm: distanceKm,
+        routeDirection: activeFlight.routeDirection,
+        socialCue,
+        style: broadcastStyle as BroadcastStyle,
+        localContext: arrLocal,
+      },
+      broadcastFallback
+    );
 
-    await updateFlight(activeFlight.notionId, {
-      status: 'landed',
-      landingTime,
-      flightDurationMinutes: durationMinutes,
-      estimatedFlightDistanceKm: Math.round(distanceKm),
-      arrivalLocation: arrival.displayName,
-      arrivalLatitude: arrival.latitude,
-      arrivalLongitude: arrival.longitude,
-      captainBroadcast,
-      socialCueType: socialCue.cueType,
-      socialCueText: socialCue.cueText,
-      relatedPassenger: socialCue.relatedPassenger ?? '',
-    });
+    const [_, speechAudioBase64] = await Promise.all([
+      updateFlight(activeFlight.notionId, {
+        status: 'landed',
+        landingTime,
+        flightDurationMinutes: durationMinutes,
+        estimatedFlightDistanceKm: Math.round(distanceKm),
+        arrivalLocation: arrival.displayName,
+        arrivalLatitude: arrival.latitude,
+        arrivalLongitude: arrival.longitude,
+        captainBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger ?? '',
+      }),
+      generateSpeechWithBudget(captainBroadcast, broadcastStyle as BroadcastStyle),
+    ]);
 
     res.json({
       flight: {
@@ -435,7 +409,8 @@ app.post('/api/flight/land', async (req, res) => {
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger,
       },
-      landingScenery,
+      landingScenery: null,
+      speechAudioBase64,
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });

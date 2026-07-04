@@ -1515,7 +1515,7 @@ async function ensureLandingSceneryReady(landed, maxMs) {
   if (window.WorkshopLocal?.isActive?.()) return false;
   if (landingScenery?.imageUrl && await preloadImageUrl(landingScenery.imageUrl)) return true;
 
-  const waitCap = maxMs ?? (landingScenery?.imageUrl ? 90000 : 6500);
+  const waitCap = maxMs ?? (landingScenery?.imageUrl ? 90000 : 55000);
   const deadline = Date.now() + waitCap;
   let wi = 0;
   let lastWhisper = 0;
@@ -1550,12 +1550,12 @@ async function ensureLandingSceneryReady(landed, maxMs) {
 
 // ── 語音播放（含音波動畫）────────────────────────────────────────────────────
 
-async function playBroadcastWithWave(text, style, { maxMs = 0 } = {}) {
+async function playBroadcastWithWave(text, style, { maxMs = 0, speechBase64 } = {}) {
   if (!text || !window.BroadcastAudio) return;
   const wave = $('voice-wave');
   wave?.classList.add('speaking');
   try {
-    const play = BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain');
+    const play = BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain', { speechBase64 });
     if (maxMs > 0) {
       await Promise.race([
         play,
@@ -2507,7 +2507,7 @@ async function doTakeoff() {
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
         activeFlight.takeoffBroadcastStyle,
-        { maxMs: 45000 }
+        { maxMs: 45000, speechBase64: data.speechAudioBase64 },
       );
     }
 
@@ -2540,6 +2540,7 @@ async function doTakeoff() {
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
+    BroadcastAudio?.releaseCeremonyMedia?.();
   }
 }
 
@@ -2591,13 +2592,17 @@ async function doLand() {
     delete $('landed-panel').dataset.dismissed;
     activeFlight = null;
 
+    if (landed.flightId && !landingScenery?.imageUrl) {
+      requestLandingScenery(landed.flightId);
+    }
+
     // ② 資料就緒：captain 前奏 + 機長廣播 + TTS（甦醒音景自動變小聲）
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
       await playBroadcastWithWave(
         landed.captainBroadcast,
         landed.captainBroadcastStyle || landed.takeoffBroadcastStyle,
-        { maxMs: 45000 },
+        { maxMs: 45000, speechBase64: data.speechAudioBase64 },
       );
     }
 
@@ -2641,6 +2646,7 @@ async function doLand() {
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
+    BroadcastAudio?.releaseCeremonyMedia?.();
   }
 }
 

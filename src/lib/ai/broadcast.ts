@@ -160,8 +160,8 @@ ${buildSocialBlock(input.socialCue)}
       { role: 'system', content: systemPrompt },
       { role: 'user', content: isTakeoff ? takeoffUser : landingUser },
     ],
-    max_tokens: 512,
-    temperature: 0.65,
+    max_tokens: 280,
+    temperature: 0.55,
   });
 
   return completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
