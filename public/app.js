@@ -1844,6 +1844,11 @@ function positionFlightWindow(origin) {
   win.style.setProperty('--fx-y', `${y}px`);
 }
 
+function isFlightWindowVisible() {
+  const win = $('flight-window');
+  return !!(win && !win.hidden && !win.classList.contains('hidden'));
+}
+
 function applyFlightShadeLift(lift, { animate = true } = {}) {
   const win = $('flight-window');
   if (!win) return;
@@ -1856,8 +1861,8 @@ function applyFlightShadeLift(lift, { animate = true } = {}) {
   if (hint) hint.hidden = win.hidden || flightShadeLift > 0.15;
 
   const video = $('flight-window-video');
-  if (flightShadeLift > 0.55) playWindowVideo(video, FLIGHT_MEDIA.cruise);
-  else if (flightShadeLift < 0.1) pauseWindowVideo(video);
+  if (flightShadeLift > 0.18) playWindowVideo(video, FLIGHT_MEDIA.cruise);
+  else if (flightShadeLift < 0.08) pauseWindowVideo(video);
 
   syncFlightWindowAria();
 }
@@ -1970,55 +1975,77 @@ function openFlightWindowFromGlobe(x, y) {
 
 function bindFlightShadeDrag() {
   const sheet = $('flight-shade-sheet');
+  const rod = $('btn-flight-shade');
+  const hint = $('flight-shade-hint');
   if (!sheet || flightShadeDrag) return;
 
-  // 遮帘實際可移動距離 = 遮帘自身高度（1:1 跟手）
-  const shadeTravel = () => sheet.offsetHeight || 240;
+  const shadeTravel = () => {
+    const scene = sheet.closest('.pw-frame')?.querySelector('.pw-scene');
+    return scene?.offsetHeight || sheet.offsetHeight || 240;
+  };
+
   let dragging = false;
   let moved = false;
   let startY = 0;
   let startLift = 0;
+  let activePointerId = null;
 
-  const onDown = (e) => {
-    if (passenger?.status !== 'in_flight' || $('flight-window')?.hidden) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragging = true;
-    moved = false;
-    startY = e.clientY;
-    startLift = flightShadeLift;
-    sheet.setPointerCapture(e.pointerId);
-    applyFlightShadeLift(startLift, { animate: false });
+  const finishDrag = (snapOpen) => {
+    dragging = false;
+    activePointerId = null;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    if (typeof snapOpen === 'boolean') {
+      applyFlightShadeLift(snapOpen ? 1 : 0, { animate: true });
+    }
   };
 
   const onMove = (e) => {
-    if (!dragging) return;
+    if (!dragging || e.pointerId !== activePointerId) return;
     e.preventDefault();
-    e.stopPropagation();
     const dy = startY - e.clientY;
     if (Math.abs(dy) > 4) moved = true;
     applyFlightShadeLift(startLift + dy / shadeTravel(), { animate: false });
   };
 
   const onUp = (e) => {
-    if (!dragging) return;
+    if (!dragging || e.pointerId !== activePointerId) return;
+    e.preventDefault();
+    try { sheet.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (!moved) finishDrag(flightShadeLift <= 0.5);
+    else finishDrag(flightShadeLift >= 0.38);
+  };
+
+  const onDown = (e) => {
+    if (!isFlightWindowVisible() || passenger?.status !== 'in_flight') return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    dragging = false;
-    try { sheet.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
-    if (!moved) {
-      // 純點擊：在開／關之間切換
-      applyFlightShadeLift(flightShadeLift > 0.5 ? 0 : 1, { animate: true });
-      return;
-    }
-    // 拖曳放開：依當前位置吸附到最近端點
-    applyFlightShadeLift(flightShadeLift >= 0.5 ? 1 : 0, { animate: true });
+    dragging = true;
+    moved = false;
+    startY = e.clientY;
+    startLift = flightShadeLift;
+    activePointerId = e.pointerId;
+    try { sheet.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    applyFlightShadeLift(startLift, { animate: false });
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp, { passive: false });
+    document.addEventListener('pointercancel', onUp, { passive: false });
   };
 
   sheet.addEventListener('pointerdown', onDown);
-  sheet.addEventListener('pointermove', onMove);
-  sheet.addEventListener('pointerup', onUp);
-  sheet.addEventListener('pointercancel', onUp);
+  rod?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    applyFlightShadeLift(flightShadeLift > 0.5 ? 0 : 1, { animate: true });
+  });
+  hint?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!isFlightWindowVisible()) return;
+    applyFlightShadeLift(1, { animate: true });
+  });
+
   flightShadeDrag = { sheet, onDown, onMove, onUp };
 }
 
