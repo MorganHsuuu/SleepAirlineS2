@@ -1138,17 +1138,50 @@ function canPickCompass() {
   return !!passenger && passenger.status !== 'in_flight' && !isLandedPanelVisible();
 }
 
+function takeoffBlockedHint() {
+  if (!passenger) return '請先登入後再起飛。';
+  if (passenger.status === 'in_flight') return '你已在飛行中，請按「降落」。';
+  if (isLandedPanelVisible()) return '請先點「準備下一趟」，再選航向起飛。';
+  return '目前無法選擇航向，請重新整理頁面後再試。';
+}
+
 function onTakeoffClick() {
   if (!takeoffArmed) {
-    if (!canPickCompass()) return;
+    if (!canPickCompass()) {
+      showMsg('main', 'error', takeoffBlockedHint());
+      return;
+    }
+    if (
+      document.body.classList.contains('sheet-open')
+      && $('compass-sheet')?.classList.contains('show')
+    ) {
+      showMsg('main', 'error', '羅盤已開啟：請選好航向後按「確認航向」。');
+      return;
+    }
     openSheet('compass-sheet');
     return;
   }
   if (previewMode) {
-    showMsg('main', 'error', '示範模式無法真正起飛。請登入後再試。');
+    showMsg('main', 'error', '示範模式無法真正起飛。請登出後登入，再測試起飛。');
     return;
   }
-  doTakeoff();
+  void doTakeoff();
+}
+
+function onLandClick() {
+  if (previewMode) {
+    showMsg('main', 'error', '示範模式無法降落。請登出後登入，再測試降落。');
+    return;
+  }
+  if (passenger?.status !== 'in_flight') {
+    showMsg('main', 'error', '目前沒有飛行中的航班。');
+    return;
+  }
+  if (document.body.classList.contains('sheet-open')) {
+    showMsg('main', 'error', '請先收起隊友詳情（點背景或 Esc），再按降落。');
+    return;
+  }
+  void doLand();
 }
 
 function openSheet(id) {
@@ -2384,6 +2417,13 @@ function requestLandingScenery(flightId) {
 
 // ── 主 UI 狀態機 ─────────────────────────────────────────────────────────────
 
+function recoverFxDockState() {
+  if (!fxDockLock) return;
+  const fxVisible = !!$('takeoff-fx')?.classList.contains('show')
+    || !!$('landing-fx')?.classList.contains('show');
+  if (!fxVisible) fxDockLock = null;
+}
+
 function updateUI() {
   const loggedIn = !!passenger;
   $('login-section').classList.toggle('hidden', loggedIn);
@@ -2395,6 +2435,8 @@ function updateUI() {
     Globe.setIdle(true);
     return;
   }
+
+  recoverFxDockState();
 
   const isFlying = passenger.status === 'in_flight';
   const dismissed = !!$('landed-panel').dataset.dismissed;
@@ -2517,16 +2559,17 @@ async function doTakeoff() {
   closeSheets();
   const btn = $('btn-takeoff');
   btn.disabled = true;
-  await primeCeremonyMedia({ playTakeoffVideo: false });
-  lockDockForFx('takeoff');
-  showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
-  BroadcastAudio?.startTowerSignalLoop?.();
-  const statusCycle = startFxStatusCycle('takeoff-fx-sub', [
-    '塔台連線中 · 請稍候…',
-    '同步航線與小隊雷達…',
-    '機長整理起飛廣播…',
-  ]);
+  let statusCycle = null;
   try {
+    lockDockForFx('takeoff');
+    showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
+    BroadcastAudio?.startTowerSignalLoop?.();
+    statusCycle = startFxStatusCycle('takeoff-fx-sub', [
+      '塔台連線中 · 請稍候…',
+      '同步航線與小隊雷達…',
+      '機長整理起飛廣播…',
+    ]);
+    const mediaPrime = primeCeremonyMedia({ playTakeoffVideo: false });
     const data = await Promise.all([
       api('POST', '/api/flight/takeoff', {
         passengerId: passenger.passengerId,
@@ -2535,8 +2578,10 @@ async function doTakeoff() {
         routeDirection: $('tk-direction').value,
       }, { timeoutMs: 52000 }),
       waitMs(TAKEOFF_FX_MS.prepMin),
+      mediaPrime,
     ]).then(([result]) => result);
     stopFxStatusCycle(statusCycle);
+    statusCycle = null;
     BroadcastAudio?.stopTowerSignalLoop?.();
 
     activeFlight = data.flight;
@@ -2568,7 +2613,7 @@ async function doTakeoff() {
     await fetchBoard();
     startAutoRefresh();
   } catch (err) {
-    stopFxStatusCycle(statusCycle);
+    if (statusCycle) stopFxStatusCycle(statusCycle);
     BroadcastAudio?.stopTowerSignalLoop?.();
     unlockDockForFx();
     await hideTakeoffFx({ fast: true });
@@ -2597,28 +2642,28 @@ async function doLand() {
   clearMsg('main');
   const btn = $('btn-land');
   btn.disabled = true;
-  await primeCeremonyMedia({ playTakeoffVideo: false });
-  renderSceneryCard(true);
-
-  // ① 立刻進過場：甦醒音景 + takeoff2（API 背景跑，使用者不覺得在等）
-  lockDockForFx('landing');
-  await startLandingMusic();
-  showLandingFx('穿越雲層中…', { phase: 'descent' });
-  const statusCycle = startFxStatusCycle('landing-fx-sub', [
-    '穿越雲層中…',
-    '高度下降 · 窗外雲海翻湧…',
-    '甦醒航班正在接近目的地…',
-  ]);
-
-  const landPromise = api('POST', '/api/flight/land', {
-    passengerId: passenger.passengerId,
-    name: passenger.name,
-    groupId: passenger.groupId,
-  }, { timeoutMs: 52000 });
-
+  let statusCycle = null;
   try {
+    renderSceneryCard(true);
+    lockDockForFx('landing');
+    showLandingFx('穿越雲層中…', { phase: 'descent' });
+    statusCycle = startFxStatusCycle('landing-fx-sub', [
+      '穿越雲層中…',
+      '高度下降 · 窗外雲海翻湧…',
+      '甦醒航班正在接近目的地…',
+    ]);
+    const mediaPrime = primeCeremonyMedia({ playTakeoffVideo: false });
+    await Promise.all([startLandingMusic(), mediaPrime]);
+
+    const landPromise = api('POST', '/api/flight/land', {
+      passengerId: passenger.passengerId,
+      name: passenger.name,
+      groupId: passenger.groupId,
+    }, { timeoutMs: 52000 });
+
     const data = await landPromise;
     stopFxStatusCycle(statusCycle);
+    statusCycle = null;
 
     const landed = data.flight;
     lastLandedFlight = landed;
@@ -2677,7 +2722,7 @@ async function doLand() {
       requestLandingScenery(landed.flightId);
     }
   } catch (err) {
-    stopFxStatusCycle(statusCycle);
+    if (statusCycle) stopFxStatusCycle(statusCycle);
     unlockDockForFx();
     hideLandingFx({ fast: true });
     stopLandingMusic();
@@ -2813,7 +2858,7 @@ function stopAutoRefresh() {
 $('login-form').addEventListener('submit', doLogin);
 $('btn-preview')?.addEventListener('click', enterDemoPreview);
 $('btn-takeoff').addEventListener('click', onTakeoffClick);
-$('btn-land').addEventListener('click', doLand);
+$('btn-land').addEventListener('click', onLandClick);
 $('btn-logout').addEventListener('click', doLogout);
 $('btn-refresh').addEventListener('click', (e) => { e.stopPropagation(); fetchBoard(); });
 $('btn-theme').addEventListener('click', toggleTheme);
