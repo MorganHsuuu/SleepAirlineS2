@@ -2673,6 +2673,7 @@ async function doTakeoff() {
     delete $('landed-panel').dataset.dismissed;
 
     if (activeFlight.takeoffBroadcast) {
+      primeMediaOnUserGesture();
       await animateFxLine('takeoff-fx-sub', '機長廣播中…');
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
@@ -2768,6 +2769,7 @@ async function doLand() {
     }
 
     // ② 機長廣播（takeoff2 + wakeup；TTS 時 wakeup 完全靜音）
+    primeMediaOnUserGesture();
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
       await playBroadcastWithWave(

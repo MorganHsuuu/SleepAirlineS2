@@ -201,7 +201,7 @@ async function playLandingMusic(url, opts = {}) {
     if (landingAudio === audio) landingAudio = null;
     return false;
   }
-  stopMediaKeepAlive();
+  // 維持 keepalive，避免 iOS 在長 API 等待後無法播 TTS
   await fadeAudioVolume(audio, 0, landingVolume, opts.fadeInMs ?? 1600);
   return true;
 }
@@ -442,6 +442,7 @@ function speakTextOnce(text) {
 }
 
 async function speakText(text) {
+  await unlockMedia();
   if (await speakTextOnce(text)) return true;
   await unlockMedia();
   return speakTextOnce(text);
@@ -478,6 +479,7 @@ async function loadPreparedSpeechAudio(blob, text) {
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   audio.preload = 'auto';
+  audio.playsInline = true;
   const ready = await new Promise((resolve) => {
     let done = false;
     const finish = (ok) => {
@@ -522,6 +524,7 @@ async function prepareCaptainSpeech(text, style) {
 async function playPreparedSpeech(prepared) {
   if (!prepared) return false;
   if (prepared.kind === 'browser') return speakText(prepared.text);
+  await unlockMedia();
   const { audio, url } = prepared;
   audio.playsInline = true;
   currentAudio = audio;
@@ -569,7 +572,6 @@ async function speakWithOpenAI(text, style) {
 async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = true } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
-  stopMediaKeepAlive();
   await duckCeremonyBed();
   try {
     await ensureAudioCtx();
@@ -579,10 +581,12 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     await playCaptainIntro();
     await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
+    await unlockMedia();
     if (prepared) return await playPreparedSpeech(prepared);
     return await speakText(text);
   } catch {
     await muteCeremonyBedForSpeech();
+    await unlockMedia();
     return speakText(text);
   } finally {
     if (restoreBed) await restoreCeremonyBed();
