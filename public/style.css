@@ -1513,8 +1513,28 @@ body.sheet-open #main-section {
 }
 .fx-overlay.fx-dismissible { pointer-events: auto; }
 .fx-overlay.fx-dismissible .fx-overlay-backdrop {
-  pointer-events: auto; cursor: pointer;
+  pointer-events: none;
 }
+.fx-overlay.fx-dismissible .fx-overlay-card {
+  pointer-events: auto;
+  cursor: default;
+}
+.fx-dismiss-btn {
+  margin-top: 16px;
+  padding: 12px 28px;
+  border: none;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #0a1628;
+  background: linear-gradient(180deg, #ffe8b8 0%, #f5c76a 100%);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.fx-dismiss-btn:active { transform: scale(.97); }
 .fx-porthole-wrap {
   width: min(72vw, 220px);
   animation: none;

@@ -1165,7 +1165,14 @@ function onTakeoffClick() {
     showMsg('main', 'error', '示範模式無法真正起飛。請登出後登入，再測試起飛。');
     return;
   }
+  primeMediaOnUserGesture();
   void doTakeoff();
+}
+
+/** iOS Safari：必須在使用者點擊當下解鎖音訊，否則長時間 API 等待後廣播／影片會被擋 */
+function primeMediaOnUserGesture() {
+  void BroadcastAudio?.unlockMedia?.();
+  void BroadcastAudio?.startMediaKeepAlive?.();
 }
 
 function onLandClick() {
@@ -1181,6 +1188,7 @@ function onLandClick() {
     showMsg('main', 'error', '請先收起隊友詳情（點背景或 Esc），再按降落。');
     return;
   }
+  primeMediaOnUserGesture();
   void doLand();
 }
 
@@ -1265,7 +1273,7 @@ async function api(method, url, body, { timeoutMs = 0 } = {}) {
     if (controller?.signal.aborted) {
       throw new Error('伺服器回應逾時。請稍後再試，或重新整理頁面確認航班狀態。');
     }
-    if (window.WorkshopLocal) {
+    if (window.WorkshopLocal?.allowLocalFallback?.()) {
       WorkshopLocal.enable();
       return WorkshopLocal.handle(method, url, body);
     }
@@ -1585,21 +1593,27 @@ async function ensureLandingSceneryReady(landed, maxMs) {
 
 // ── 語音播放（含音波動畫）────────────────────────────────────────────────────
 
-async function playBroadcastWithWave(text, style, { maxMs = 0, speechBase64 } = {}) {
+async function playBroadcastWithWave(text, style, { maxMs = 0, speechBase64, restoreBed = true } = {}) {
   if (!text || !window.BroadcastAudio) return;
   const wave = $('voice-wave');
   wave?.classList.add('speaking');
+  const playPromise = BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain', {
+    speechBase64,
+    restoreBed,
+  });
   try {
-    const play = BroadcastAudio.playCaptainBroadcast(text, style || 'formal_captain', { speechBase64 });
     if (maxMs > 0) {
       await Promise.race([
-        play,
+        playPromise,
         waitMs(maxMs).then(() => { BroadcastAudio?.stopPlayback?.(); }),
       ]);
     } else {
-      await play;
+      await playPromise;
     }
-  } finally { wave?.classList.remove('speaking'); }
+  } finally {
+    await Promise.race([playPromise.catch(() => {}), waitMs(600)]);
+    wave?.classList.remove('speaking');
+  }
 }
 
 // ── 看板 ─────────────────────────────────────────────────────────────────────
@@ -1852,7 +1866,7 @@ function enableSeamlessVideoLoop(video, { leadSec = 0.1, startSec = 0.033 } = {}
   };
   const onEnded = () => {
     try { video.currentTime = startSec; } catch { /* noop */ }
-    video.play().catch(() => {});
+    video.play().catch(() => { });
   };
   video.addEventListener('timeupdate', onTimeUpdate);
   video.addEventListener('ended', onEnded);
@@ -1886,10 +1900,27 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
     && !video.ended
     && video.readyState >= 2;
   if (sameLooping) return true;
+  if (!loop) {
+    disableSeamlessVideoLoop(video);
+    video.pause();
+  }
   if (srcChanged) {
     video.src = src;
     video.dataset.src = src;
-    video.load();
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        video.removeEventListener('loadeddata', done);
+        video.removeEventListener('canplay', done);
+        resolve();
+      };
+      video.addEventListener('loadeddata', done, { once: true });
+      video.addEventListener('canplay', done, { once: true });
+      video.load();
+      setTimeout(done, 2800);
+    });
   }
   if (loop) {
     video.loop = false;
@@ -1900,16 +1931,17 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
   }
   video.muted = true;
   video.playsInline = true;
+  video.hidden = false;
   if (srcChanged || !loop) {
     try { video.currentTime = 0; } catch { /* noop */ }
   }
   try {
-    await video.play();
+    await Promise.race([video.play(), waitMs(1200)]);
     return true;
   } catch {
     try {
       await BroadcastAudio?.unlockMedia?.();
-      await video.play();
+      await Promise.race([video.play(), waitMs(1200)]);
       return true;
     } catch {
       return false;
@@ -1931,10 +1963,16 @@ function waitForVideoEnd(video, fallbackMs = 4000) {
       if (done) return;
       done = true;
       video.removeEventListener('ended', finish);
+      video.removeEventListener('timeupdate', onTime);
       resolve();
+    };
+    const onTime = () => {
+      const d = video.duration;
+      if (Number.isFinite(d) && d > 0 && video.currentTime >= d - 0.15) finish();
     };
     if (video.ended) { finish(); return; }
     video.addEventListener('ended', finish, { once: true });
+    video.addEventListener('timeupdate', onTime);
     setTimeout(finish, fallbackMs);
   });
 }
@@ -2189,6 +2227,10 @@ async function revealDockPanel(panelId) {
   updateUI();
   const panel = $(panelId);
   if (!panel || panel.classList.contains('hidden')) return;
+  if (panelId === 'landed-panel') {
+    landingMusicActive = false;
+    void BroadcastAudio?.fadeOutLandingMusic?.({ ms: 3200 });
+  }
   panel.classList.remove('dock-panel--enter');
   void panel.offsetWidth;
   panel.classList.add('dock-panel--enter');
@@ -2266,35 +2308,51 @@ function showLandingFx(sub, { phase = 'descent' } = {}) {
   });
 }
 
-/** 抵達風景顯影後：點擊背景關閉過場 */
+/** 抵達風景顯影後：點擊背景或「查看抵達」關閉過場（iPhone 需明確按鈕） */
 function waitLandingFxDismiss() {
   return new Promise((resolve) => {
     const fx = $('landing-fx');
-    const backdrop = $('landing-fx-backdrop');
+    const card = fx?.querySelector('.fx-overlay-card');
     if (!fx?.classList.contains('show')) { resolve(); return; }
 
     let done = false;
+    let dismissBtn = null;
+    const onKey = (e) => { if (e.key === 'Escape') finish(); };
+    const onOverlayTap = (e) => {
+      if (dismissBtn?.contains(e.target)) return;
+      if (card?.contains(e.target)) return;
+      finish();
+    };
     const finish = () => {
       if (done) return;
       done = true;
       fx.classList.remove('fx-dismissible');
-      backdrop?.removeEventListener('click', finish);
+      fx.removeEventListener('click', onOverlayTap);
+      fx.removeEventListener('touchend', onOverlayTap);
       document.removeEventListener('keydown', onKey);
+      dismissBtn?.remove();
       clearTimeout(safety);
       resolve();
     };
-    const onKey = (e) => { if (e.key === 'Escape') finish(); };
 
     (async () => {
       await waitMs(1200);
       if (done) return;
-      animateFxLine('landing-fx-sub', '點擊背景 · 查看抵達資訊');
+      animateFxLine('landing-fx-sub', '點擊背景 · 或按下方按鈕 · 查看抵達');
       fx.classList.add('fx-dismissible');
-      backdrop?.addEventListener('click', finish);
+      dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'fx-dismiss-btn';
+      dismissBtn.textContent = '查看抵達';
+      dismissBtn.addEventListener('click', (e) => { e.stopPropagation(); finish(); });
+      card?.appendChild(dismissBtn);
+      fx.addEventListener('click', onOverlayTap);
+      fx.addEventListener('touchend', onOverlayTap, { passive: true });
       document.addEventListener('keydown', onKey);
     })();
 
-    const safety = setTimeout(finish, 45000);
+    const safetyMs = window.matchMedia('(pointer: coarse)').matches ? 22000 : 45000;
+    const safety = setTimeout(finish, safetyMs);
   });
 }
 function resetLandingFxScenery() {
@@ -2366,11 +2424,26 @@ function setLandingFxPhase(phase) {
   }
 }
 
+/** 機長廣播結束 → 著陸段：清 TTS、解鎖媒體、停下降 loop，再接 landing.mp4 */
+async function bridgeAfterCaptainBroadcast() {
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  BroadcastAudio?.stopPlayback?.();
+  await BroadcastAudio?.unlockMedia?.();
+  await BroadcastAudio?.startMediaKeepAlive?.();
+  const video = $('landing-fx-video');
+  if (video) {
+    disableSeamlessVideoLoop(video);
+    pauseWindowVideo(video);
+    video.hidden = false;
+  }
+}
+
 /** 對準跑道：landing.mp4 一次 + takeoff.mp3 同步 */
 async function playLandingApproach() {
   const video = $('landing-fx-video');
   const fx = $('landing-fx');
   if (!video) return;
+  await BroadcastAudio?.unlockMedia?.();
   if (fx) fx.dataset.phase = 'approach';
   animateFxLine('landing-fx-title', '即將抵達…');
   animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
@@ -2379,7 +2452,7 @@ async function playLandingApproach() {
   await playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false });
   await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
   await BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 500 });
-  await BroadcastAudio?.restoreCeremonyBed?.();
+  await BroadcastAudio?.resumeLandingMusicAfterApproach?.();
 }
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');
@@ -2512,6 +2585,14 @@ function updateUI() {
 
   renderBoard();
   syncTrailControls();
+}
+
+function dismissLandedPanel() {
+  stopLandingMusic({ fade: false });
+  resetTakeoffPrep();
+  $('landed-panel').dataset.dismissed = '1';
+  if (passenger?.status === 'landed') passenger.status = 'not_started';
+  updateUI();
 }
 
 // ── 契約 API 動作（doLogin / doTakeoff / doLand / fetchBoard / refreshProgress）──
@@ -2692,11 +2773,12 @@ async function doLand() {
       await playBroadcastWithWave(
         landed.captainBroadcast,
         landed.captainBroadcastStyle || landed.takeoffBroadcastStyle,
-        { maxMs: 45000, speechBase64: data.speechAudioBase64 },
+        { maxMs: 45000, speechBase64: data.speechAudioBase64, restoreBed: false },
       );
     }
 
     // ③ 機長播完 → landing.mp4 + takeoff.mp3，地球儀滑向抵達地
+    await bridgeAfterCaptainBroadcast();
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
     await Promise.all([
@@ -2711,7 +2793,7 @@ async function doLand() {
     await showLandingFxScenery(landed);
     await waitLandingFxDismiss();
 
-    // ⑤ 顯示抵達面板（甦醒音景持續）
+    // ⑤ 顯示抵達面板（wakeup 漸弱）
     if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
     await hideLandingFx();
     unlockDockForFx();
@@ -2727,8 +2809,12 @@ async function doLand() {
     hideLandingFx({ fast: true });
     stopLandingMusic();
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
-    landingScenery = null;
     renderSceneryCard(false);
+    if (await tryRecoverLandedState()) {
+      showMsg('main', 'error', '此航班已在伺服器完成降落，已恢復抵達畫面。');
+      return;
+    }
+    landingScenery = null;
     showMsg('main', 'error', err.message);
   } finally {
     btn.disabled = false;
@@ -2759,6 +2845,43 @@ async function refreshProgress() {
     if (activeFlight) passenger.status = 'in_flight';
     if (!fxDockLock) updateUI();
   } catch { /* silent */ }
+}
+
+/** 降落 API 失敗／逾時時，若伺服器已寫入 landed，恢復抵達面板 */
+async function tryRecoverLandedState() {
+  if (!passenger || previewMode) return false;
+  try {
+    await refreshProgress();
+    if (activeFlight) return false;
+    const data = await api('POST', '/api/passenger', {
+      passengerId: passenger.passengerId,
+      name: passenger.name,
+      groupId: passenger.groupId,
+    });
+    const landed = data.lastLandedFlight;
+    if (!landed || landed.status !== 'landed') return false;
+
+    passenger = data.passenger;
+    lastLandedFlight = landed;
+    landingScenery = data.landingScenery || null;
+    activeFlight = null;
+    stopFlightTicker();
+    delete $('landed-panel').dataset.dismissed;
+    if (landed.arrivalLocation) passenger.currentLocation = landed.arrivalLocation;
+    if (typeof landed.arrivalLatitude === 'number') {
+      passenger.currentLatitude = landed.arrivalLatitude;
+      passenger.currentLongitude = landed.arrivalLongitude;
+    }
+    archiveFlightTrail(landed);
+    await fetchBoard();
+    const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
+    if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
+    Globe.flyTo(youCoord(), 1200);
+    updateUI();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── 登入資料記憶 ─────────────────────────────────────────────────────────────
@@ -2898,12 +3021,11 @@ $('btn-compass-confirm').addEventListener('click', () => Compass.confirm());
 $('btn-window').addEventListener('click', toggleWindow);
 $('btn-flight-window').addEventListener('click', () => toggleFlightWindow());
 
-$('btn-close-landed').addEventListener('click', () => {
-  stopLandingMusic();
-  resetTakeoffPrep();
-  $('landed-panel').dataset.dismissed = '1';
-  if (passenger?.status === 'landed') passenger.status = 'not_started';
-  updateUI();
+$('btn-close-landed').addEventListener('click', dismissLandedPanel);
+$('globe-svg')?.addEventListener('click', (e) => {
+  if (!isLandedPanelVisible()) return;
+  if (e.target.closest('.pt-pick')) return;
+  dismissLandedPanel();
 });
 
 // ── Init ─────────────────────────────────────────────────────────────────────

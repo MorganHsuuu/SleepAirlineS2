@@ -160,10 +160,11 @@ async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 }
   const audio = new Audio(url);
   audio.loop = loop;
   audio.volume = 0;
+  audio.playsInline = true;
   flightSfxAudio = audio;
   audio.onerror = () => { if (flightSfxAudio === audio) flightSfxAudio = null; };
   try {
-    await audio.play();
+    await Promise.race([audio.play(), delay(1200)]);
     await fadeAudioVolume(audio, 0, volume, fadeInMs);
     return true;
   } catch {
@@ -205,15 +206,54 @@ async function playLandingMusic(url, opts = {}) {
   return true;
 }
 
+let landingFadeOutPromise = null;
+
 async function stopLandingMusic({ fade = true, ms = 900 } = {}) {
+  landingFadeOutPromise = null;
   const audio = landingAudio;
   if (!audio) return;
   landingAudio = null;
   const vol = audio.volume;
-  if (fade) await fadeAudioVolume(audio, vol, 0, ms);
+  if (fade && vol > 0.001) await fadeAudioVolume(audio, vol, 0, ms);
   audio.pause();
   try { audio.currentTime = 0; } catch { /* noop */ }
   audio.src = '';
+}
+
+/** landing.mp4 播完：恢復 wakeup 甦醒音景（著陸音效結束後） */
+async function resumeLandingMusicAfterApproach() {
+  landingPausedForCaptain = false;
+  if (!landingAudio) return false;
+  await unlockMedia();
+  try {
+    if (landingAudio.paused) {
+      landingAudio.volume = 0;
+      await Promise.race([landingAudio.play(), delay(900)]);
+    }
+    await fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 1200);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 抵達面板出現時：wakeup 漸弱至停止 */
+async function fadeOutLandingMusic({ ms = 3200 } = {}) {
+  const audio = landingAudio;
+  if (!audio) return;
+  if (landingFadeOutPromise) return landingFadeOutPromise;
+  landingFadeOutPromise = (async () => {
+    const vol = audio.volume;
+    await fadeAudioVolume(audio, vol, 0, ms);
+    if (landingAudio === audio) {
+      landingAudio = null;
+      audio.pause();
+      try { audio.currentTime = 0; } catch { /* noop */ }
+      audio.src = '';
+    }
+    landingFadeOutPromise = null;
+  })();
+  return landingFadeOutPromise;
 }
 
 let savedFlightSfxVolume = null;
@@ -261,7 +301,7 @@ async function restoreCeremonyBed() {
       landingPausedForCaptain = false;
       try {
         landingAudio.volume = 0;
-        await landingAudio.play();
+        await Promise.race([landingAudio.play(), delay(900)]);
       } catch { /* noop */ }
     }
     jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, 900));
@@ -379,6 +419,15 @@ function speakTextOnce(text) {
       resolve(false);
       return;
     }
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const estMs = Math.min(90000, Math.max(12000, text.length * 220));
+    const timer = setTimeout(() => finish(true), estMs);
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = 'zh-TW';
@@ -386,8 +435,8 @@ function speakTextOnce(text) {
     utter.pitch = 0.95;
     const voice = pickZhVoice();
     if (voice) utter.voice = voice;
-    utter.onend = () => resolve(true);
-    utter.onerror = () => resolve(false);
+    utter.onend = () => finish(true);
+    utter.onerror = () => finish(false);
     speechSynthesis.speak(utter);
   });
 }
@@ -483,15 +532,29 @@ async function playPreparedSpeech(prepared) {
     return speakText(prepared.fallbackText || '');
   }
   return new Promise((resolve) => {
-    audio.onended = () => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      audio.removeEventListener('timeupdate', onTime);
       URL.revokeObjectURL(url);
       if (currentAudio === audio) currentAudio = null;
-      resolve(true);
+      resolve(ok);
     };
+    const onTime = () => {
+      const d = audio.duration;
+      if (Number.isFinite(d) && d > 0 && audio.currentTime >= d - 0.2) finish(true);
+    };
+    const textLen = prepared.fallbackText?.length || 0;
+    const estMs = Number.isFinite(audio.duration) && audio.duration > 0
+      ? Math.min(120000, audio.duration * 1000 + 2500)
+      : Math.min(90000, Math.max(12000, textLen * 180));
+    const timer = setTimeout(() => finish(true), estMs);
+    audio.addEventListener('timeupdate', onTime);
+    audio.onended = () => finish(true);
     audio.onerror = async () => {
-      URL.revokeObjectURL(url);
-      if (currentAudio === audio) currentAudio = null;
-      resolve(await speakText(prepared.fallbackText || ''));
+      finish(await speakText(prepared.fallbackText || ''));
     };
   });
 }
@@ -503,7 +566,7 @@ async function speakWithOpenAI(text, style) {
   return playPreparedSpeech({ kind: 'openai', audio: new Audio(url), url });
 }
 
-async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
+async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = true } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
   stopMediaKeepAlive();
@@ -522,7 +585,7 @@ async function playCaptainBroadcast(text, style, { speechBase64 } = {}) {
     await muteCeremonyBedForSpeech();
     return speakText(text);
   } finally {
-    await restoreCeremonyBed();
+    if (restoreBed) await restoreCeremonyBed();
   }
 }
 
@@ -547,6 +610,8 @@ window.BroadcastAudio = {
   stopFlightSfx,
   playLandingMusic,
   stopLandingMusic,
+  resumeLandingMusicAfterApproach,
+  fadeOutLandingMusic,
   duckCeremonyBed,
   restoreCeremonyBed,
 };

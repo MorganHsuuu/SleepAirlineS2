@@ -400,17 +400,29 @@
       active = true;
       return;
     }
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 2000);
-      const res = await fetch('/api/config', { signal: ctrl.signal });
-      clearTimeout(timer);
-      if (res.ok) {
-        active = false;
-        return;
-      }
-    } catch { /* fall through */ }
-    active = true;
+    const deployed = allowLocalFallback() === false;
+    const timeouts = deployed ? [4000, 8000] : [2000];
+    for (const ms of timeouts) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), ms);
+        const res = await fetch('/api/config', { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          active = false;
+          return;
+        }
+      } catch { /* retry */ }
+    }
+    active = !deployed;
+  }
+
+  /** 正式部署（Vercel）不應因網路閃斷切換成本機模式，避免與 Notion 不同步 */
+  function allowLocalFallback() {
+    const h = window.location.hostname;
+    if (window.location.protocol === 'file:') return true;
+    if (h === 'localhost' || h === '127.0.0.1') return true;
+    return false;
   }
 
   async function handle(method, url, body) {
@@ -437,6 +449,7 @@
     probe,
     isActive: () => active,
     enable: () => { active = true; },
+    allowLocalFallback,
     handle,
   };
 })();
