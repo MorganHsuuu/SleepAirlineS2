@@ -91,6 +91,7 @@ async function playAudioElement(audio) {
 
 const bufferCache = new Map();
 let flightSfxNode = null;
+let captainIntroNode = null;
 let speechNode = null;
 
 function preloadCeremonyMp3Buffers() {
@@ -126,10 +127,20 @@ function stopCeremonyWebAudio(tag) {
     stopNode(flightSfxNode);
     flightSfxNode = null;
   }
-  if (!tag || tag === 'speech' || tag === 'captain') {
+  if (!tag || tag === 'captain') {
+    stopNode(captainIntroNode);
+    captainIntroNode = null;
+  }
+  if (!tag || tag === 'speech') {
     stopNode(speechNode);
     speechNode = null;
   }
+}
+
+function detachCeremonyNode(node, tag) {
+  if (tag === 'flightSfx' && flightSfxNode === node) flightSfxNode = null;
+  if (tag === 'captain' && captainIntroNode === node) captainIntroNode = null;
+  if (tag === 'speech' && speechNode === node) speechNode = null;
 }
 
 /** 與塔台 bibibi 相同引擎：Web Audio 播 MP3（iOS 在 API 等待後仍可用） */
@@ -144,11 +155,13 @@ async function playWebAudioBuffer(buffer, {
   if (!ctx || !buffer) return false;
 
   if (tag === 'flightSfx') stopCeremonyWebAudio('flightSfx');
+  else if (tag === 'captain') stopCeremonyWebAudio('captain');
   else stopCeremonyWebAudio('speech');
 
   const source = ctx.createBufferSource();
   source.buffer = buffer;
-  source.loop = loop;
+  source.loop = !!(loop && maxSeconds <= 0);
+  const clipSec = maxSeconds > 0 ? Math.min(maxSeconds, buffer.duration) : 0;
   const gain = ctx.createGain();
   const targetVol = Math.max(volume, 0.0001);
   gain.gain.value = fadeInMs > 0 ? 0.0001 : targetVol;
@@ -157,25 +170,34 @@ async function playWebAudioBuffer(buffer, {
 
   const node = { source, gain, tag };
   if (tag === 'flightSfx') flightSfxNode = node;
+  else if (tag === 'captain') captainIntroNode = node;
   else speechNode = node;
+
+  const stopSource = () => {
+    try { source.stop(); } catch { /* noop */ }
+    try { source.disconnect(); } catch { /* noop */ }
+    try { gain.disconnect(); } catch { /* noop */ }
+  };
 
   return new Promise((resolve) => {
     let done = false;
+    let timer = null;
     const finish = (ok) => {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
-      if (tag === 'flightSfx' && flightSfxNode === node) flightSfxNode = null;
-      if (tag !== 'flightSfx' && speechNode === node) speechNode = null;
+      stopSource();
+      detachCeremonyNode(node, tag);
       resolve(ok);
     };
-    source.onended = () => { if (!loop) finish(true); };
-    const timerMs = maxSeconds > 0
-      ? maxSeconds * 1000
+    source.onended = () => { if (!source.loop) finish(true); };
+    const timerMs = clipSec > 0
+      ? clipSec * 1000 + 250
       : loop ? 0 : Math.min(120000, buffer.duration * 1000 + 800);
-    const timer = timerMs > 0 ? setTimeout(() => finish(true), timerMs) : null;
+    if (timerMs > 0) timer = setTimeout(() => finish(true), timerMs);
     try {
-      source.start(0);
+      if (clipSec > 0) source.start(0, 0, clipSec);
+      else source.start(0);
       if (fadeInMs > 0) {
         gain.gain.exponentialRampToValueAtTime(targetVol, ctx.currentTime + fadeInMs / 1000);
       }
@@ -203,8 +225,8 @@ async function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}
   await ensureAudioCtx();
   if (await playMp3Url(url, {
     volume,
-    loop,
-    maxSeconds: seconds,
+    loop: false,
+    maxSeconds: seconds > 0 ? seconds : 0,
     tag: 'captain',
   })) return true;
 
@@ -262,12 +284,15 @@ function stopTowerSignalLoop() {
 }
 
 async function playCaptainIntro() {
-  await unlockMedia();
+  stopCeremonyWebAudio('captain');
+  resetKeepAliveToSilent();
+  await ensureAudioCtx();
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
   const ok = await playTimedClip(cfg.url, {
     seconds: cfg.seconds ?? 7,
     volume: cfg.volume ?? 0.72,
+    loop: false,
   });
   if (ok) return true;
   await playAttentionBeeps();
@@ -509,6 +534,15 @@ function tryPlayKeepAlive(audio, src) {
   return audio.play();
 }
 
+function resetKeepAliveToSilent() {
+  const audio = keepAliveAudio || document.getElementById('ceremony-keepalive');
+  if (!audio) return;
+  if (audio.dataset.src === CAPTAIN_SFX.url || audio.dataset.src === TAKEOFF_SFX_URL) {
+    try { audio.pause(); } catch { /* noop */ }
+    tryPlayKeepAlive(audio, SILENT_KEEPALIVE);
+  }
+}
+
 /** 必須同步呼叫（click / touch 當下，不可 await）— iOS 才允許後續 captain / TTS / takeoff.mp3 */
 function primeFromUserGesture() {
   primeAudioContextSync();
@@ -525,14 +559,12 @@ function primeFromUserGesture() {
     playPromise = null;
   }
   if (playPromise && typeof playPromise.then === 'function') {
-    playPromise.then(() => { mediaUnlocked = true; }).catch(() => {
-      tryPlayKeepAlive(audio, CAPTAIN_SFX.url)?.catch?.(() => { /* noop */ });
-    });
+    playPromise.then(() => { mediaUnlocked = true; }).catch(() => { /* silent keepalive only */ });
     mediaUnlocked = true;
     return true;
   }
   try {
-    tryPlayKeepAlive(audio, CAPTAIN_SFX.url);
+    tryPlayKeepAlive(audio, SILENT_KEEPALIVE);
     mediaUnlocked = true;
     return true;
   } catch {
@@ -558,13 +590,7 @@ async function startMediaKeepAlive() {
     mediaUnlocked = true;
     return true;
   } catch {
-    try {
-      await tryPlayKeepAlive(ensureKeepAliveElement(), CAPTAIN_SFX.url);
-      mediaUnlocked = true;
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
@@ -594,21 +620,9 @@ async function unlockMedia() {
     mediaUnlocked = true;
     return true;
   } catch {
-    try {
-      const probe = new Audio(CAPTAIN_SFX.url);
-      probe.volume = 0.001;
-      probe.preload = 'auto';
-      markInlineAudio(probe);
-      await probe.play();
-      probe.pause();
-      try { probe.currentTime = 0; } catch { /* noop */ }
-      mediaUnlocked = true;
-      return true;
-    } catch {
-      await ensureAudioCtx();
-      tone(440, 0, 0.04, 0.001);
-      return !!audioCtx;
-    }
+    await ensureAudioCtx();
+    tone(440, 0, 0.04, 0.001);
+    return !!audioCtx;
   }
 }
 
@@ -745,6 +759,7 @@ async function prepareCaptainSpeech(text, style) {
 async function playPreparedSpeech(prepared) {
   if (!prepared) return false;
   if (prepared.kind === 'browser') return speakText(prepared.text);
+  stopCeremonyWebAudio('captain');
   await ensureAudioCtx();
   const blob = prepared.blob
     || (prepared.url ? await fetch(prepared.url).then((r) => r.blob()).catch(() => null) : null);
