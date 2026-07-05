@@ -1169,10 +1169,14 @@ function onTakeoffClick() {
   void doTakeoff();
 }
 
-/** iOS Safari：必須在使用者點擊當下解鎖音訊，否則長時間 API 等待後廣播／影片會被擋 */
+/** iOS Safari：必須在使用者點擊當下同步解鎖，不可 void async unlockMedia */
 function primeMediaOnUserGesture() {
-  void BroadcastAudio?.unlockMedia?.();
-  void BroadcastAudio?.startMediaKeepAlive?.();
+  BroadcastAudio?.primeFromUserGesture?.();
+}
+
+async function ensureMediaUnlocked() {
+  primeMediaOnUserGesture();
+  await BroadcastAudio?.unlockMedia?.();
 }
 
 function onLandClick() {
@@ -2605,6 +2609,7 @@ async function doLogin(e) {
   const groupId = $('input-group').value.trim();
   if (!passengerId || !name || !groupId) { showMsg('login', 'error', '請填寫所有欄位。'); return; }
 
+  primeMediaOnUserGesture();
   $('btn-login').disabled = true;
   try {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
@@ -2638,10 +2643,12 @@ async function doTakeoff() {
   clearMsg('main');
   stopLandingMusic();
   closeSheets();
+  primeMediaOnUserGesture();
   const btn = $('btn-takeoff');
   btn.disabled = true;
   let statusCycle = null;
   try {
+    await ensureMediaUnlocked();
     lockDockForFx('takeoff');
     showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
     BroadcastAudio?.startTowerSignalLoop?.();
@@ -2673,7 +2680,7 @@ async function doTakeoff() {
     delete $('landed-panel').dataset.dismissed;
 
     if (activeFlight.takeoffBroadcast) {
-      primeMediaOnUserGesture();
+      await ensureMediaUnlocked();
       await animateFxLine('takeoff-fx-sub', '機長廣播中…');
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
@@ -2722,10 +2729,12 @@ async function doLand() {
     return;
   }
   clearMsg('main');
+  primeMediaOnUserGesture();
   const btn = $('btn-land');
   btn.disabled = true;
   let statusCycle = null;
   try {
+    await ensureMediaUnlocked();
     renderSceneryCard(true);
     lockDockForFx('landing');
     showLandingFx('穿越雲層中…', { phase: 'descent' });
@@ -2769,7 +2778,7 @@ async function doLand() {
     }
 
     // ② 機長廣播（takeoff2 + wakeup；TTS 時 wakeup 完全靜音）
-    primeMediaOnUserGesture();
+    await ensureMediaUnlocked();
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
       await playBroadcastWithWave(
@@ -3018,7 +3027,10 @@ document.addEventListener('keydown', (e) => {
   closeSheets();
 });
 $('btn-fate').addEventListener('click', () => Compass.fate());
-$('btn-compass-confirm').addEventListener('click', () => Compass.confirm());
+$('btn-compass-confirm').addEventListener('click', () => {
+  primeMediaOnUserGesture();
+  Compass.confirm();
+});
 
 $('btn-window').addEventListener('click', toggleWindow);
 $('btn-flight-window').addEventListener('click', () => toggleFlightWindow());

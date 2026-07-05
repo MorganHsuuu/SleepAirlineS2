@@ -142,6 +142,7 @@ function stopTowerSignalLoop() {
 }
 
 async function playCaptainIntro() {
+  await unlockMedia();
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
   const ok = await playTimedClip(cfg.url, {
@@ -157,6 +158,7 @@ async function playCaptainIntro() {
 async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 } = {}) {
   stopFlightSfx({ fade: false });
   if (!url) return false;
+  await unlockMedia();
   const audio = new Audio(url);
   audio.loop = loop;
   audio.volume = 0;
@@ -324,66 +326,161 @@ function restoreLandingMusic() {
 let mediaUnlocked = false;
 let keepAliveAudio = null;
 
+function markInlineAudio(audio) {
+  if (!audio) return;
+  audio.playsInline = true;
+  audio.setAttribute('playsinline', '');
+  audio.setAttribute('webkit-playsinline', '');
+}
+
+/** 同步建立／喚醒 AudioContext（須在 click 堆疊內呼叫） */
+function primeAudioContextSync() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  if (!audioCtx) audioCtx = new Ctx();
+  if (audioCtx.state === 'suspended') {
+    try { void audioCtx.resume(); } catch { /* noop */ }
+  }
+}
+
+function ensureKeepAliveElement() {
+  if (keepAliveAudio) return keepAliveAudio;
+  keepAliveAudio = document.getElementById('ceremony-keepalive');
+  if (!keepAliveAudio) {
+    keepAliveAudio = document.createElement('audio');
+    keepAliveAudio.id = 'ceremony-keepalive';
+    keepAliveAudio.loop = true;
+    keepAliveAudio.preload = 'auto';
+    keepAliveAudio.style.display = 'none';
+    markInlineAudio(keepAliveAudio);
+    document.body.appendChild(keepAliveAudio);
+  }
+  return keepAliveAudio;
+}
+
+function tryPlayKeepAlive(audio, src) {
+  if (src && audio.dataset.src !== src) {
+    audio.src = src;
+    audio.dataset.src = src;
+    audio.load();
+  }
+  audio.loop = true;
+  audio.volume = 0.001;
+  markInlineAudio(audio);
+  return audio.play();
+}
+
+/** 必須同步呼叫（click / touch 當下，不可 await）— iOS 才允許後續 captain / TTS / takeoff.mp3 */
+function primeFromUserGesture() {
+  primeAudioContextSync();
+  const audio = ensureKeepAliveElement();
+  if (!audio.paused && audio.currentTime > 0) {
+    mediaUnlocked = true;
+    return true;
+  }
+  let playPromise;
+  try {
+    playPromise = tryPlayKeepAlive(audio, SILENT_KEEPALIVE);
+  } catch {
+    playPromise = null;
+  }
+  if (playPromise && typeof playPromise.then === 'function') {
+    playPromise.then(() => { mediaUnlocked = true; }).catch(() => {
+      tryPlayKeepAlive(audio, CAPTAIN_SFX.url)?.catch?.(() => { /* noop */ });
+    });
+    mediaUnlocked = true;
+    return true;
+  }
+  try {
+    tryPlayKeepAlive(audio, CAPTAIN_SFX.url);
+    mediaUnlocked = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 儀式期間維持無聲 loop，避免 API 等待後 Audio / TTS 被瀏覽器擋住 */
 async function startMediaKeepAlive() {
-  if (keepAliveAudio && !keepAliveAudio.paused) return true;
-  if (keepAliveAudio?.paused) {
+  primeFromUserGesture();
+  const audio = keepAliveAudio || ensureKeepAliveElement();
+  if (audio && !audio.paused) return true;
+  if (audio?.paused) {
     try {
-      await keepAliveAudio.play();
+      await tryPlayKeepAlive(audio, audio.dataset.src || SILENT_KEEPALIVE);
       mediaUnlocked = true;
       return true;
     } catch { /* recreate below */ }
   }
   await ensureAudioCtx();
-  const audio = new Audio(SILENT_KEEPALIVE);
-  audio.loop = true;
-  audio.volume = 0.001;
-  audio.preload = 'auto';
-  audio.playsInline = true;
-  keepAliveAudio = audio;
   try {
-    await audio.play();
+    await tryPlayKeepAlive(ensureKeepAliveElement(), SILENT_KEEPALIVE);
     mediaUnlocked = true;
     return true;
   } catch {
-    keepAliveAudio = null;
-    return false;
+    try {
+      await tryPlayKeepAlive(ensureKeepAliveElement(), CAPTAIN_SFX.url);
+      mediaUnlocked = true;
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
 function stopMediaKeepAlive() {
   if (!keepAliveAudio) return;
-  const audio = keepAliveAudio;
-  keepAliveAudio = null;
-  try { audio.pause(); } catch { /* noop */ }
-  try { audio.currentTime = 0; } catch { /* noop */ }
-  audio.removeAttribute('src');
-  audio.load();
+  try { keepAliveAudio.pause(); } catch { /* noop */ }
+  try { keepAliveAudio.currentTime = 0; } catch { /* noop */ }
 }
 
 /** 在使用者點擊當下解鎖 Audio / Video 自動播放（避免 API 等待後被瀏覽器擋住） */
 async function unlockMedia() {
+  primeFromUserGesture();
   await ensureAudioCtx();
+  if (keepAliveAudio && !keepAliveAudio.paused) {
+    mediaUnlocked = true;
+    return true;
+  }
   if (await startMediaKeepAlive()) return true;
   try {
     const probe = new Audio(SILENT_KEEPALIVE);
     probe.volume = 0.001;
     probe.preload = 'auto';
-    probe.playsInline = true;
+    markInlineAudio(probe);
     await probe.play();
     probe.pause();
     try { probe.currentTime = 0; } catch { /* noop */ }
     mediaUnlocked = true;
     return true;
   } catch {
-    await ensureAudioCtx();
-    tone(440, 0, 0.04, 0.001);
-    return !!audioCtx;
+    try {
+      const probe = new Audio(CAPTAIN_SFX.url);
+      probe.volume = 0.001;
+      probe.preload = 'auto';
+      markInlineAudio(probe);
+      await probe.play();
+      probe.pause();
+      try { probe.currentTime = 0; } catch { /* noop */ }
+      mediaUnlocked = true;
+      return true;
+    } catch {
+      await ensureAudioCtx();
+      tone(440, 0, 0.04, 0.001);
+      return !!audioCtx;
+    }
   }
 }
 
 function releaseCeremonyMedia() {
   stopMediaKeepAlive();
+  keepAliveAudio = null;
+  const el = document.getElementById('ceremony-keepalive');
+  if (el) {
+    try { el.pause(); } catch { /* noop */ }
+    el.removeAttribute('src');
+    el.load();
+  }
 }
 
 async function playAttentionBeeps() {
@@ -606,6 +703,7 @@ window.BroadcastAudio = {
   stopTowerSignalLoop,
   speakText,
   stopPlayback,
+  primeFromUserGesture,
   unlockMedia,
   startMediaKeepAlive,
   stopMediaKeepAlive,
