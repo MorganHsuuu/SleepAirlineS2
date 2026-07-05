@@ -11,6 +11,8 @@ const CAPTAIN_SFX = {
   volume: 0.72,
 };
 
+const TAKEOFF_SFX_URL = 'media/takeoff.mp3';
+
 /** 極短無聲 WAV：解鎖 HTML Audio 自動播放，不可聽見（勿用 captain.mp3 loop） */
 const SILENT_KEEPALIVE =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
@@ -46,6 +48,7 @@ function delay(ms) {
 }
 
 function stopPlayback() {
+  stopCeremonyWebAudio();
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
@@ -86,13 +89,130 @@ async function playAudioElement(audio) {
   }
 }
 
-function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}) {
+const bufferCache = new Map();
+let flightSfxNode = null;
+let speechNode = null;
+
+function preloadCeremonyMp3Buffers() {
+  void loadAudioBuffer(CAPTAIN_SFX.url).catch(() => { });
+  void loadAudioBuffer(TAKEOFF_SFX_URL).catch(() => { });
+}
+
+async function loadAudioBuffer(url) {
+  if (bufferCache.has(url)) return bufferCache.get(url);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`audio fetch ${res.status}`);
+  const ctx = await ensureAudioCtx();
+  if (!ctx) throw new Error('no audio ctx');
+  const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+  bufferCache.set(url, buffer);
+  return buffer;
+}
+
+async function decodeBlobToBuffer(blob) {
+  const ctx = await ensureAudioCtx();
+  if (!ctx || !blob) return null;
+  return ctx.decodeAudioData(await blob.arrayBuffer());
+}
+
+function stopCeremonyWebAudio(tag) {
+  const stopNode = (node) => {
+    if (!node) return;
+    try { node.source.stop(); } catch { /* noop */ }
+    try { node.source.disconnect(); } catch { /* noop */ }
+    try { node.gain.disconnect(); } catch { /* noop */ }
+  };
+  if (!tag || tag === 'flightSfx') {
+    stopNode(flightSfxNode);
+    flightSfxNode = null;
+  }
+  if (!tag || tag === 'speech' || tag === 'captain') {
+    stopNode(speechNode);
+    speechNode = null;
+  }
+}
+
+/** 與塔台 bibibi 相同引擎：Web Audio 播 MP3（iOS 在 API 等待後仍可用） */
+async function playWebAudioBuffer(buffer, {
+  volume = 1,
+  loop = false,
+  maxSeconds = 0,
+  fadeInMs = 0,
+  tag = 'speech',
+} = {}) {
+  const ctx = await ensureAudioCtx();
+  if (!ctx || !buffer) return false;
+
+  if (tag === 'flightSfx') stopCeremonyWebAudio('flightSfx');
+  else stopCeremonyWebAudio('speech');
+
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = loop;
+  const gain = ctx.createGain();
+  const targetVol = Math.max(volume, 0.0001);
+  gain.gain.value = fadeInMs > 0 ? 0.0001 : targetVol;
+  source.connect(gain);
+  gain.connect(ctx.destination);
+
+  const node = { source, gain, tag };
+  if (tag === 'flightSfx') flightSfxNode = node;
+  else speechNode = node;
+
   return new Promise((resolve) => {
-    if (!url) { resolve(false); return; }
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (tag === 'flightSfx' && flightSfxNode === node) flightSfxNode = null;
+      if (tag !== 'flightSfx' && speechNode === node) speechNode = null;
+      resolve(ok);
+    };
+    source.onended = () => { if (!loop) finish(true); };
+    const timerMs = maxSeconds > 0
+      ? maxSeconds * 1000
+      : loop ? 0 : Math.min(120000, buffer.duration * 1000 + 800);
+    const timer = timerMs > 0 ? setTimeout(() => finish(true), timerMs) : null;
+    try {
+      source.start(0);
+      if (fadeInMs > 0) {
+        gain.gain.exponentialRampToValueAtTime(targetVol, ctx.currentTime + fadeInMs / 1000);
+      }
+      if (loop) finish(true);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+async function playMp3Url(url, opts = {}) {
+  const buffer = await loadAudioBuffer(url).catch(() => null);
+  if (!buffer) return false;
+  return playWebAudioBuffer(buffer, opts);
+}
+
+async function playMp3Blob(blob, opts = {}) {
+  const buffer = await decodeBlobToBuffer(blob).catch(() => null);
+  if (!buffer) return false;
+  return playWebAudioBuffer(buffer, opts);
+}
+
+async function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}) {
+  if (!url) return false;
+  await ensureAudioCtx();
+  if (await playMp3Url(url, {
+    volume,
+    loop,
+    maxSeconds: seconds,
+    tag: 'captain',
+  })) return true;
+
+  return new Promise((resolve) => {
     const audio = new Audio(url);
     audio.volume = volume;
     audio.loop = loop;
-    audio.playsInline = true;
+    markInlineAudio(audio);
     currentAudio = audio;
     let done = false;
     let timer = null;
@@ -158,11 +278,19 @@ async function playCaptainIntro() {
 async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 } = {}) {
   stopFlightSfx({ fade: false });
   if (!url) return false;
+  await ensureAudioCtx();
+  if (await playMp3Url(url, {
+    volume,
+    loop,
+    fadeInMs,
+    tag: 'flightSfx',
+  })) return true;
+
   await unlockMedia();
   const audio = new Audio(url);
   audio.loop = loop;
   audio.volume = 0;
-  audio.playsInline = true;
+  markInlineAudio(audio);
   flightSfxAudio = audio;
   audio.onerror = () => { if (flightSfxAudio === audio) flightSfxAudio = null; };
   try {
@@ -176,6 +304,17 @@ async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 }
 }
 
 async function stopFlightSfx({ fade = true, ms = 550 } = {}) {
+  if (flightSfxNode) {
+    const { source, gain } = flightSfxNode;
+    if (fade && gain && audioCtx) {
+      try {
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + ms / 1000);
+        await delay(ms);
+      } catch { /* noop */ }
+    }
+    try { source.stop(); } catch { /* noop */ }
+    flightSfxNode = null;
+  }
   if (!flightSfxAudio) return;
   const audio = flightSfxAudio;
   const vol = audio.volume;
@@ -373,6 +512,7 @@ function tryPlayKeepAlive(audio, src) {
 /** 必須同步呼叫（click / touch 當下，不可 await）— iOS 才允許後續 captain / TTS / takeoff.mp3 */
 function primeFromUserGesture() {
   primeAudioContextSync();
+  preloadCeremonyMp3Buffers();
   const audio = ensureKeepAliveElement();
   if (!audio.paused && audio.currentTime > 0) {
     mediaUnlocked = true;
@@ -573,28 +713,12 @@ function base64ToMp3Blob(base64) {
 }
 
 async function loadPreparedSpeechAudio(blob, text) {
+  if (!blob?.size) return null;
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
   audio.preload = 'auto';
-  audio.playsInline = true;
-  const ready = await new Promise((resolve) => {
-    let done = false;
-    const finish = (ok) => {
-      if (done) return;
-      done = true;
-      if (!ok) {
-        URL.revokeObjectURL(url);
-        resolve(null);
-        return;
-      }
-      resolve({ kind: 'openai', audio, url, fallbackText: text });
-    };
-    audio.oncanplaythrough = () => finish(true);
-    audio.onerror = () => finish(false);
-    audio.load();
-    setTimeout(() => finish(true), 1500);
-  });
-  return ready;
+  markInlineAudio(audio);
+  return { kind: 'openai', audio, url, blob, fallbackText: text };
 }
 
 /** 後端已生成語音時直接使用，省掉第二趟 /api/broadcast/speech */
@@ -621,9 +745,20 @@ async function prepareCaptainSpeech(text, style) {
 async function playPreparedSpeech(prepared) {
   if (!prepared) return false;
   if (prepared.kind === 'browser') return speakText(prepared.text);
+  await ensureAudioCtx();
+  const blob = prepared.blob
+    || (prepared.url ? await fetch(prepared.url).then((r) => r.blob()).catch(() => null) : null);
+  if (blob) {
+    const ok = await playMp3Blob(blob, { volume: 1, tag: 'speech' });
+    if (ok) {
+      if (prepared.url) URL.revokeObjectURL(prepared.url);
+      return true;
+    }
+  }
+
   await unlockMedia();
   const { audio, url } = prepared;
-  audio.playsInline = true;
+  markInlineAudio(audio);
   currentAudio = audio;
   const ok = await playAudioElement(audio);
   if (!ok) {
