@@ -1,0 +1,17 @@
+{
+  "name": "甦醒航班 | Sleep Airline",
+  "short_name": "Sleep Airline",
+  "description": "加入 Sleep Airline Terminal，一起展開一趟甦醒航班。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#142644",
+  "theme_color": "#142644",
+  "icons": [
+    {
+      "src": "/media/sleep-airline-logo.png?v=20260708",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
