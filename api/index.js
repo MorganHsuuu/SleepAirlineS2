@@ -107549,7 +107549,9 @@ function fallbackSocialCueText(candidate) {
 var TAKEOFF_SOCIAL_RULES = `
 - \u9019\u662F\u300C\u8D77\u98DB\u524D\u300D\u63D0\u793A\uFF1A\u53EA\u5BEB\u968A\u53CB\u5DF2\u767C\u751F\u7684\u4E8B\uFF08\u5DF2\u8D77\u98DB\u3001\u5DF2\u98DB\u591A\u4E45\u3001\u5DF2\u964D\u843D\u5728\u54EA\uFF09
 - \u7981\u6B62\uFF1A\u5373\u5C07\u3001\u5C07\u8981\u3001X \u5206\u9418\u5167\u3001\u5FEB\u62B5\u9054\u3001\u4E0B\u964D\u3001\u9810\u8A08\u5230\u9054\u3001\u5373\u5C07\u964D\u843D
-- \u7981\u6B62\u628A\u968A\u53CB\u6240\u5728\u57CE\u5E02\uFF0F\u7A7A\u57DF\u5BEB\u6210\u300C\u5FEB\u8981\u964D\u843D\u7684\u5730\u65B9\u300D`;
+- \u7981\u6B62\u628A\u968A\u53CB\u6240\u5728\u57CE\u5E02\uFF0F\u7A7A\u57DF\u5BEB\u6210\u300C\u5FEB\u8981\u964D\u843D\u7684\u5730\u65B9\u300D
+- \u5982\u679C teammateStatus \u662F\u300C\u98DB\u884C\u4E2D\u300D\uFF0C\u7981\u6B62\u5BEB\u6210\u5DF2\u964D\u843D
+- \u5982\u679C\u53EA\u63D0\u4F9B\u4E00\u4F4D teammateName\uFF0C\u7981\u6B62\u5BEB\u6210\u300C\u968A\u53CB\u5011\u300D\u6216\u300C\u5927\u5BB6\u90FD\u300D`;
 async function generateSocialCueText(candidate, phase = "landing") {
   if (!process.env.OPENAI_API_KEY) {
     return fallbackSocialCueText(candidate);
@@ -107567,6 +107569,9 @@ async function generateSocialCueText(candidate, phase = "landing") {
 - \u7E41\u9AD4\u4E2D\u6587\uFF0C1 \u53E5\u70BA\u4E3B\uFF0C\u6700\u591A 2 \u53E5\uFF0C30\u201355 \u5B57
 - \u591C\u822A\u3001\u6EAB\u67D4\u3001\u50CF\u6A5F\u9577\u4F4E\u8072\u88DC\u4E00\u53E5\u540C\u7D44\u52D5\u614B
 - \u53EA\u80FD\u4F7F\u7528\u63D0\u4F9B\u7684\u4E8B\u5BE6\uFF0C\u4E0D\u5F97\u7DE8\u9020\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D
+- \u56B4\u683C\u4FDD\u7559 teammateStatus\uFF1A\u98DB\u884C\u4E2D\u5C31\u53EA\u80FD\u8AAA\u4ECD\u5728\u98DB\uFF0F\u5DF2\u98DB\u591A\u4E45\uFF1B\u5DF2\u964D\u843D\u624D\u53EF\u8AAA\u964D\u843D
+- \u56B4\u683C\u4FDD\u7559\u6578\u91CF\uFF1AinFlightCount / landedCount \u662F 0 \u6642\uFF0C\u4E0D\u5F97\u6539\u5BEB\u6210\u6709\u4EBA\u98DB\u884C\u6216\u6709\u4EBA\u964D\u843D
+- \u4E0D\u8981\u628A\u55AE\u4E00\u968A\u53CB\u64F4\u5BEB\u6210\u5168\u9AD4\u968A\u53CB\uFF1B\u4E0D\u8981\u628A\u90E8\u5206\u968A\u53CB\u72C0\u614B\u64F4\u5BEB\u6210\u300C\u968A\u53CB\u5011\u90FD\u300D
 - \u76F4\u63A5\u8F38\u51FA\u63D0\u793A\u6B63\u6587\uFF0C\u4E0D\u52A0\u5F15\u865F\u6216\u6A19\u984C${isTakeoff ? TAKEOFF_SOCIAL_RULES : ""}`
         },
         {
@@ -107723,6 +107728,10 @@ function formatDuration(minutes) {
 function elapsedMinutesSince(isoTime) {
   return Math.max(0, Math.round((Date.now() - new Date(isoTime).getTime()) / 6e4));
 }
+function eventTimeMs(flight) {
+  const iso = flight.status === "landed" && flight.landingTime ? flight.landingTime : flight.takeoffTime;
+  return new Date(iso).getTime();
+}
 function currentPosition(ctx) {
   if (ctx.phase === "landing" && ctx.arrivalLatitude != null && ctx.arrivalLongitude != null) {
     return { lat: ctx.arrivalLatitude, lng: ctx.arrivalLongitude };
@@ -107741,10 +107750,12 @@ function addTeammateArrival(candidates, landedOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u5DF2\u964D\u843D",
         departureLocation: other.departureLocation,
         arrivalLocation: other.arrivalLocation,
         flightDuration: formatDuration(other.flightDurationMinutes) || "\u4E00\u6BB5\u6642\u9593",
-        flightDurationMinutes: other.flightDurationMinutes
+        flightDurationMinutes: other.flightDurationMinutes,
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107757,10 +107768,12 @@ function addTeammateDeparture(candidates, inFlightOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u98DB\u884C\u4E2D",
         departureLocation: other.departureLocation,
         routeDirection: other.routeDirection,
         elapsedMinutes: elapsed,
-        elapsedLabel: formatDuration(elapsed) || "\u525B\u525B"
+        elapsedLabel: formatDuration(elapsed) || "\u525B\u525B",
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107787,10 +107800,12 @@ function addRouteConvergence(candidates, ctx, others) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: other.status === "landed" ? "\u5DF2\u964D\u843D" : "\u98DB\u884C\u4E2D",
         teammatePlace: placeLabel,
         distanceKm,
         suggestDirection,
-        selfLocation: ctx.phase === "takeoff" ? ctx.departureLocation : ctx.arrivalLocation ?? ctx.departureLocation
+        selfLocation: ctx.phase === "takeoff" ? ctx.departureLocation : ctx.arrivalLocation ?? ctx.departureLocation,
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107806,11 +107821,13 @@ function addTeammateInSky(candidates, inFlightOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u98DB\u884C\u4E2D",
         elapsedMinutes: elapsed,
         elapsedLabel: formatDuration(elapsed) || "\u525B\u525B",
         flightProgress: progress,
         skyRegion: place?.country ?? "\u672A\u77E5",
-        nearestCity: place?.displayName ?? null
+        nearestCity: place?.displayName ?? null,
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107824,9 +107841,11 @@ function addParallelHeading(candidates, ctx, inFlightOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u98DB\u884C\u4E2D",
         routeDirection: ctx.routeDirection,
         selfDeparture: ctx.departureLocation,
-        teammateDeparture: other.departureLocation
+        teammateDeparture: other.departureLocation,
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107843,7 +107862,8 @@ function addSameDeparture(candidates, ctx, others) {
       facts: {
         teammateName: other.passengerName,
         departureLocation: selfLoc,
-        teammateStatus: other.status
+        teammateStatus: other.status === "landed" ? "\u5DF2\u964D\u843D" : "\u98DB\u884C\u4E2D",
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107859,10 +107879,12 @@ function addHeadingContrast(candidates, ctx, inFlightOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u98DB\u884C\u4E2D",
         selfDirection: ctx.routeDirection,
         teammateDirection: other.routeDirection,
         selfDeparture: ctx.departureLocation,
-        teammateDeparture: other.departureLocation
+        teammateDeparture: other.departureLocation,
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107888,8 +107910,10 @@ function addFreshArrival(candidates, landedOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u5DF2\u964D\u843D",
         arrivalLocation: other.arrivalLocation,
-        flightDuration: formatDuration(other.flightDurationMinutes) || "\u4E00\u6BB5\u6642\u9593"
+        flightDuration: formatDuration(other.flightDurationMinutes) || "\u4E00\u6BB5\u6642\u9593",
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107914,8 +107938,10 @@ function addRelayFlight(candidates, inFlightOthers) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: "\u98DB\u884C\u4E2D",
         teammateDeparture: other.departureLocation,
-        teammateProgress: Math.round(other.flightProgress)
+        teammateProgress: Math.round(other.flightProgress),
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107927,7 +107953,9 @@ function addEarlyLanding(candidates, earlierLanders) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
-        arrivalLocation: other.arrivalLocation ?? "\u76EE\u7684\u5730"
+        teammateStatus: "\u5DF2\u964D\u843D",
+        arrivalLocation: other.arrivalLocation ?? "\u76EE\u7684\u5730",
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107939,7 +107967,9 @@ function addLateLanding(candidates, laterLanders) {
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
-        arrivalLocation: other.arrivalLocation ?? "\u76EE\u7684\u5730"
+        teammateStatus: "\u5DF2\u964D\u843D",
+        arrivalLocation: other.arrivalLocation ?? "\u76EE\u7684\u5730",
+        eventTimeMs: eventTimeMs(other)
       }
     });
   }
@@ -107980,6 +108010,8 @@ function collectSocialCueCandidates(current, groupFlights) {
 }
 function pickRandomSocialCueCandidate(candidates) {
   if (candidates.length === 0) return null;
+  const latest = [...candidates].filter((candidate) => typeof candidate.facts.eventTimeMs === "number").sort((a, b) => Number(b.facts.eventTimeMs) - Number(a.facts.eventTimeMs))[0];
+  if (latest) return latest;
   const index = Math.floor(Math.random() * candidates.length);
   return candidates[index] ?? null;
 }
@@ -108040,6 +108072,20 @@ function formatDuration2(minutes) {
   if (h > 0) return `${h} \u5C0F\u6642`;
   return `${m} \u5206\u9418`;
 }
+function hasChinese(value) {
+  return /[\u4e00-\u9fff]/.test(value);
+}
+function broadcastLocationLabel(location, localContext) {
+  const raw = (location ?? "").trim();
+  if (!raw) return "\u76EE\u524D\u822A\u7AD9";
+  const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+  const city = parts[0] ?? raw;
+  const country = parts[parts.length - 1] ?? "";
+  if (hasChinese(city)) return raw;
+  if (localContext?.countryName && hasChinese(localContext.countryName)) return `${localContext.countryName}\u4E00\u5E36`;
+  if (hasChinese(country)) return `${country}\u4E00\u5E36`;
+  return "\u7576\u5730\u822A\u7AD9";
+}
 function buildSocialBlock(cue) {
   const lines = [`\u985E\u578B\uFF1A${cue.cueType}`, `\u7CFB\u7D71\u63D0\u793A\uFF1A${cue.cueText}`];
   if (cue.relatedPassenger) lines.push(`\u76F8\u95DC\u4E58\u5BA2\uFF1A${cue.relatedPassenger}`);
@@ -108071,20 +108117,25 @@ async function generateCaptainBroadcast(input) {
   const pax = passengerLabel(input.passengerName);
   const direction = DIRECTION_LABEL2[input.routeDirection] ?? input.routeDirection;
   const hasLocal = !!input.localContext;
+  const departureLabel = broadcastLocationLabel(input.departureLocation, isTakeoff ? input.localContext : null);
+  const arrivalLabel = broadcastLocationLabel(input.arrivalLocation, !isTakeoff ? input.localContext : null);
   const systemPrompt = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u6A5F\u9577\uFF0C\u6B63\u5728\u5C0D\u6A5F\u4E0A\u4E58\u5BA2\u505A\u591C\u9593\u5EE3\u64AD\u3002
 ${STYLE_DESCRIPTIONS[input.style]}
 
 \u8EAB\u5206\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
 - \u4F60\u662F\u6A5F\u9577\uFF0C\u5728\u5C0D\u300C\u4E58\u5BA2\u300D\u8AAA\u8A71\uFF1B\u4E58\u5BA2\u59D3\u540D\u53EA\u662F\u5C0D\u8C61\uFF0C\u4E0D\u662F\u4F60\u7684\u540D\u5B57
+- \u7B2C\u4E00\u53E5\u5FC5\u9808\u81EA\u7136\u5305\u542B\u300C\u6B61\u8FCE\u642D\u4E58 Sleep Airline\u300D\u8207\u300C\u9019\u88E1\u662F\u6A5F\u9577\u300D
 - \u7981\u6B62\u5BEB\u300C\u6211\u662F\u6A5F\u9577\u3007\u3007\u300D\u82E5\u3007\u3007\u662F\u4E58\u5BA2\u59D3\u540D
 - \u7981\u6B62\u5192\u5145\u4E58\u5BA2\u3001\u7981\u6B62\u7528\u7B2C\u4E00\u4EBA\u7A31\u4EE3\u66FF\u4E58\u5BA2\u8AAA\u8A71
-- \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9
+- \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9\uFF1B\u4E0D\u8981\u7A31\u81EA\u5DF1\u70BA\u4E58\u5BA2\u59D3\u540D
 
 \u5730\u7406\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
-- \u8D77\u98DB\u6642\u672C\u73ED\u76EE\u7684\u5730\u672A\u77E5\uFF1A\u53EA\u8B1B\u51FA\u767C\u5730\u8207\u822A\u5411\uFF1B\u300C\u7761\u8457\u5F8C\u624D\u6C7A\u5B9A\u9192\u5728\u54EA\u300D\u985E\u610F\u601D\u6574\u6BB5\u6700\u591A\u8AAA\u4E00\u6B21\uFF0C\u7981\u6B62\u63DB\u53E5\u8A71\u91CD\u8907
+- \u4F7F\u7528\u3010\u5EE3\u64AD\u7528\u5730\u540D\u3011\uFF1B\u4E0D\u8981\u7167\u5FF5\u96E3\u61C2\u7684\u7F85\u99AC\u5B57\u3001\u97F3\u6A19\u3001\u6487\u865F\u5730\u540D
+- \u8D77\u98DB\u6642\u672C\u73ED\u76EE\u7684\u5730\u672A\u77E5\uFF1A\u53EA\u8B1B\u51FA\u767C\u5730\u8207\u822A\u5411\uFF1B\u300C\u9192\u4F86\u624D\u77E5\u9053\u76EE\u7684\u5730\u300D\u985E\u610F\u601D\u6700\u591A\u81EA\u7136\u5E36\u904E\u4E00\u6B21
 - \u8D77\u98DB\u5EE3\u64AD\u7981\u6B62\u63D0\u672C\u73ED\uFF1A\u98DB\u884C\u6642\u9577\u3001\u9810\u8A08\u62B5\u9054\u3001\u516C\u91CC\u6578\u3001ETA\u3001\u7D04 X \u5206\u9418\uFF0F\u5C0F\u6642
 - \u3010\u540C\u7D44\u793E\u4EA4\u3011\u7684\u5730\u540D\u90FD\u662F\u968A\u53CB\u7684\uFF0C\u4E0D\u662F\u672C\u73ED\u822A\u7DDA\uFF1B\u5FC5\u9808\u639B\u5728\u968A\u53CB\u540D\u5B57\u5F8C\u9762
 - \u968A\u53CB\u53EA\u80FD\u5BEB\u5DF2\u767C\u751F\uFF1A\u5DF2\u8D77\u98DB\u3001\u5DF2\u98DB X\u3001\u5DF2\u964D\u843D\u5728 Y\uFF1B\u7981\u6B62\u968A\u53CB\u300C\u5373\u5C07\uFF0FX \u5206\u9418\u5167\uFF0F\u5FEB\u300D\u964D\u843D\u3001\u4E0B\u964D\u3001\u62B5\u9054
+- \u82E5\u3010\u540C\u7D44\u793E\u4EA4\u3011\u986F\u793A\u6709\u4EBA\u4ECD\u5728\u98DB\u6216\u53EA\u6709\u90E8\u5206\u4EBA\u964D\u843D\uFF0C\u7981\u6B62\u6539\u5BEB\u6210\u300C\u968A\u53CB\u5011\u90FD\u5DF2\u6210\u529F\u964D\u843D\u300D
 - \u7981\u6B62\u628A\u968A\u53CB\u7684\u7A7A\u57DF\u6216\u8DDD\u96E2\u63DB\u7B97\u6210\u964D\u843D\u5012\u6578
 - \u6240\u6709\u5730\u7406\u63CF\u8FF0\u9808\u8207\u672C\u73ED\u822A\u5411\u4E00\u81F4\uFF0C\u4E0D\u5F97\u81EA\u76F8\u77DB\u76FE
 
@@ -108098,16 +108149,17 @@ ${hasLocal ? `\u7576\u5730\u8CC7\u8A0A\uFF08${isTakeoff ? "\u51FA\u767C\u5730" :
 ` : ""}
 \u5BEB\u4F5C\uFF1A
 - \u7E41\u9AD4\u4E2D\u6587\uFF0C${isTakeoff ? "75\u201395" : "90\u2013130"} \u5B57\uFF0C\u6700\u591A\u4E0D\u8D85\u904E ${isTakeoff ? "105" : "160"} \u5B57
-- ${isTakeoff ? "\u8D77\u98DB\u5EE3\u64AD\u56FA\u5B9A 3\u20134 \u53E5\uFF1A\u2460\u554F\u5019\uFF0B\u51FA\u767C\u5730\uFF0B\u822A\u5411 \u2461\u4E00\u53E5\u7526\u9192\u822A\u73ED\uFF08\u7761\u8457\u98DB\u3001\u9192\u4F86\u624D\u77E5\u76EE\u7684\u5730\uFF0C\u52FF\u91CD\u8907\uFF09\u2462\u540C\u7D44\u793E\u4EA4\u6700\u591A\u4E00\u53E5 \u2463\u8F15\u8072\u795D\u7720" : "\u4E00\u53E5\u4E00\u91CD\u9EDE"}
+- ${isTakeoff ? "\u8D77\u98DB\u5EE3\u64AD\u56FA\u5B9A 3\u20134 \u53E5\uFF1A\u2460\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0B\u6A5F\u9577\u8EAB\u5206\uFF0B\u51FA\u767C\u5730\uFF0B\u822A\u5411 \u2461\u4E00\u53E5\u591C\u822A\u5165\u7761/\u9192\u4F86\u62B5\u9054\u7684\u8A69\u610F\u63D0\u9192 \u2462\u540C\u7D44\u793E\u4EA4\u6700\u591A\u4E00\u53E5 \u2463\u8F15\u8072\u795D\u7720" : "\u4E00\u53E5\u4E00\u91CD\u9EDE"}
 - \u522A\u6389\u300C\u6709\u4EFB\u4F55\u9700\u6C42\u300D\u300C\u611F\u8B1D\u9078\u642D\u672C\u822A\u7A7A\u300D\u300C\u795D\u60A8\u65C5\u9014\u6109\u5FEB\u300D\u300C\u671F\u5F85\u7F8E\u597D\u77AC\u9593\u300D\u7B49\u5957\u8A71
-- \u7526\u9192\u822A\u73ED\uFF1A\u7761\u8457\u98DB\u884C\u3001\u9192\u4F86\u62B5\u9054
+- \u7981\u6B62\u8F38\u51FA\u300C\u9019\u662F\u4E00\u500B\u7526\u9192\u822A\u73ED\uFF0C\u7761\u8457\u98DB\u884C\uFF0C\u9192\u4F86\u62B5\u9054\u300D\u9019\u7A2E\u76F4\u767D\u6A19\u8A9E\uFF1B\u8981\u6539\u6210\u6709\u756B\u9762\u7684\u6A5F\u9577\u5EE3\u64AD
 - \u793E\u4EA4\u8CC7\u8A0A\u6539\u5BEB\u5F8C\u5D4C\u5165\u4E00\u53E5\u5373\u53EF\uFF0C\u7981\u6B62\u7167\u642C\u3010\u540C\u7D44\u793E\u4EA4\u3011\u539F\u6587
 - \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
 - \u76F4\u63A5\u8F38\u51FA\u5EE3\u64AD\u6B63\u6587\uFF0C\u4E0D\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E`;
   const socialLine = input.socialCue.cueType === "solo" ? "\uFF08\u540C\u7D44\u66AB\u7121\u5176\u4ED6\u822A\u73ED\uFF0C\u53EF\u7565\u904E\u793E\u4EA4\u53E5\uFF0C\u6216\u4E00\u53E5\u300C\u5C0F\u968A\u96F7\u9054\u4E0A\u4ECA\u665A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\uFF09" : buildSocialBlock(input.socialCue);
   const takeoffUser = `\u3010\u8D77\u98DB\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
-\u51FA\u767C\u5730\uFF1A${input.departureLocation}
+\u51FA\u767C\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.departureLocation}
+\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${departureLabel}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
 ${input.localContext ? `
 \u3010\u7576\u5730\u8CC7\u8A0A \xB7 \u51FA\u767C\u5730\u3011
@@ -108116,13 +108168,15 @@ ${buildLocalBlock(input.localContext, "takeoff")}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
 ${socialLine}
 
-\u8ACB\u4F9D\u300C3\u20134 \u53E5\u300D\u7D50\u69CB\u5BEB\u4E00\u6BB5\u6D41\u66A2\u53E3\u8A9E\u5EE3\u64AD\u3002\u7526\u9192\u822A\u73ED\u6982\u5FF5\u53EA\u63D0\u4E00\u6B21\u3002
+\u8ACB\u4F9D\u300C3\u20134 \u53E5\u300D\u7D50\u69CB\u5BEB\u4E00\u6BB5\u6D41\u66A2\u53E3\u8A9E\u5EE3\u64AD\uFF0C\u7B2C\u4E00\u53E5\u4EE5\u300C\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\u300D\u958B\u982D\u3002
 \u540C\u7D44\u793E\u4EA4\u82E5\u6709\uFF1A\u7528\u4E00\u53E5\u904E\u53BB\u5F0F\uFF0F\u9032\u884C\u5F0F\u5E36\u904E\uFF0C\u7981\u6B62\u968A\u53CB\u964D\u843D\u5012\u6578\u3002`;
   const duration = formatDuration2(input.flightDurationMinutes);
   const landingUser = `\u3010\u964D\u843D\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
-\u51FA\u767C\u5730\uFF1A${input.departureLocation}
-\u62B5\u9054\u5730\uFF1A${input.arrivalLocation ?? "\u672A\u77E5"}
+\u51FA\u767C\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.departureLocation}
+\u51FA\u767C\u5730\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${broadcastLocationLabel(input.departureLocation)}
+\u62B5\u9054\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.arrivalLocation ?? "\u672A\u77E5"}
+\u62B5\u9054\u5730\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${arrivalLabel}
 \u98DB\u884C\u6642\u9577\uFF1A${duration || "\u672A\u77E5"}
 \u822A\u7A0B\uFF1A${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} \u516C\u91CC` : "\u672A\u77E5"}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
@@ -108134,7 +108188,7 @@ ${buildLocalBlock(input.localContext, "landing")}
 ${buildSocialBlock(input.socialCue)}
 
 \u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF1B\u7B2C\u4E00\u53E5\u4EE5\u7576\u5730\u8A9E\u8A00\u65E9\u5B89\u958B\u982D\uFF0C\u5FC5\u9808\u878D\u5165\u4E00\u7B46\u7576\u5730\u6587\u5316\u6216\u5929\u6C23\uFF08\u6539\u5BEB\uFF09\uFF0C
-\u4E26\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF0C\u5408\u4F75\u6210\u4E00\u6BB5\u6D41\u66A2\u5EE3\u64AD\uFF0C\u52FF\u5217\u9EDE\u3001\u52FF\u7167\u642C\u3002`;
+\u4E26\u5728\u7B2C\u4E00\u53E5\u6216\u7B2C\u4E8C\u53E5\u81EA\u7136\u5305\u542B\u300C\u6B61\u8FCE\u642D\u4E58 Sleep Airline\u300D\u8207\u300C\u9019\u88E1\u662F\u6A5F\u9577\u300D\uFF1B\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF0C\u5408\u4F75\u6210\u4E00\u6BB5\u6D41\u66A2\u5EE3\u64AD\uFF0C\u52FF\u5217\u9EDE\u3001\u52FF\u7167\u642C\u3002`;
   const completion = await client.chat.completions.create({
     model,
     messages: [
@@ -108149,17 +108203,19 @@ ${buildSocialBlock(input.socialCue)}
 function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arrivalLocation, routeDirection, durationMinutes, socialCueText, localContext) {
   const pax = passengerLabel(passengerName);
   const direction = DIRECTION_LABEL2[routeDirection] ?? routeDirection;
+  const departureLabel = broadcastLocationLabel(departureLocation, phase === "takeoff" ? localContext : null);
+  const arrivalLabel = broadcastLocationLabel(arrivalLocation, phase === "landing" ? localContext : null);
   if (phase === "takeoff") {
     const wx = localContext?.weatherSummary ? `${localContext.localTimeLabel ?? "\u6B64\u523B"}${localContext.weatherSummary}\uFF0C` : "";
     const social = socialCueText?.trim() && !/獨自飛行|只有你一人/.test(socialCueText) ? ` ${socialCueText.replace(/[。！？\s]+$/g, "")}\u3002` : "";
-    return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u81EA ${departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx ? wx : ""}\u8ACB\u653E\u5FC3\u5165\u7761\u2014\u2014\u9192\u4F86\u6642\uFF0C\u76EE\u7684\u5730\u624D\u6703\u63ED\u66C9\u3002${social}\u795D\u5404\u4F4D\u597D\u7720\u3002`;
+    return `\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\uFF0C\u5404\u4F4D\u4E58\u5BA2\uFF0C\u672C\u73ED\u81EA ${departureLabel} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx ? wx : ""}\u8ACB\u5B89\u5FC3\u5165\u7761\uFF0C\u7A97\u5916\u7684\u591C\u8272\u6703\u66FF\u6211\u5011\u4FDD\u7BA1\u76EE\u7684\u5730\u3002${social}\u795D\u5404\u4F4D\u597D\u7720\u3002`;
   }
   const dur = formatDuration2(durationMinutes);
   const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}\uFF01` : "";
   const timeBit = localContext?.localTimeLabel ? `${localContext.localTimeLabel}\uFF0C` : "\u672C\u5730\u6642\u9593\u6E05\u6668\uFF0C";
   const wxBit = localContext?.weatherSummary ? `\u7A97\u5916${localContext.weatherSummary}\u3002` : "";
   const cultureBit = localContext?.culture ? localContext.culture.split("\uFF1B")[0]?.split("\u3002")[0] + "\u3002" : "\u8D70\u51FA\u8259\u9580\uFF0C\u5411\u7576\u5730\u4EBA\u5FAE\u7B11\u554F\u597D\u5427\u3002";
-  return `${greet}\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u5E73\u5B89\u964D\u843D ${arrivalLocation ?? "\u76EE\u7684\u5730"}\uFF0C${timeBit}${wxBit}${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u5171\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${cultureBit} ${socialCueText}`;
+  return `${greet}\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\uFF0C\u5404\u4F4D\u4E58\u5BA2\uFF0C\u672C\u73ED\u5DF2\u5E73\u5B89\u964D\u843D ${arrivalLabel}\uFF0C${timeBit}${wxBit}${pax} \u81EA ${departureLabel} \u51FA\u767C\uFF0C\u5171\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${cultureBit} ${socialCueText}`;
 }
 
 // src/lib/ai/speech.ts

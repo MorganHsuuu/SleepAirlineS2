@@ -67,7 +67,9 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
 const TAKEOFF_SOCIAL_RULES = `
 - 這是「起飛前」提示：只寫隊友已發生的事（已起飛、已飛多久、已降落在哪）
 - 禁止：即將、將要、X 分鐘內、快抵達、下降、預計到達、即將降落
-- 禁止把隊友所在城市／空域寫成「快要降落的地方」`;
+- 禁止把隊友所在城市／空域寫成「快要降落的地方」
+- 如果 teammateStatus 是「飛行中」，禁止寫成已降落
+- 如果只提供一位 teammateName，禁止寫成「隊友們」或「大家都」`;
 
 export async function generateSocialCueText(
   candidate: SocialCueCandidate,
@@ -91,6 +93,9 @@ export async function generateSocialCueText(
 - 繁體中文，1 句為主，最多 2 句，30–55 字
 - 夜航、溫柔、像機長低聲補一句同組動態
 - 只能使用提供的事實，不得編造地名、時間、人名
+- 嚴格保留 teammateStatus：飛行中就只能說仍在飛／已飛多久；已降落才可說降落
+- 嚴格保留數量：inFlightCount / landedCount 是 0 時，不得改寫成有人飛行或有人降落
+- 不要把單一隊友擴寫成全體隊友；不要把部分隊友狀態擴寫成「隊友們都」
 - 直接輸出提示正文，不加引號或標題${isTakeoff ? TAKEOFF_SOCIAL_RULES : ''}`,
         },
         {

@@ -69,6 +69,11 @@ function elapsedMinutesSince(isoTime: string): number {
   return Math.max(0, Math.round((Date.now() - new Date(isoTime).getTime()) / 60000));
 }
 
+function eventTimeMs(flight: Flight): number {
+  const iso = flight.status === 'landed' && flight.landingTime ? flight.landingTime : flight.takeoffTime;
+  return new Date(iso).getTime();
+}
+
 function currentPosition(ctx: CurrentFlightContext): { lat: number; lng: number } {
   if (
     ctx.phase === 'landing' &&
@@ -96,10 +101,12 @@ function addTeammateArrival(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '已降落',
         departureLocation: other.departureLocation,
         arrivalLocation: other.arrivalLocation,
         flightDuration: formatDuration(other.flightDurationMinutes) || '一段時間',
         flightDurationMinutes: other.flightDurationMinutes,
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -116,10 +123,12 @@ function addTeammateDeparture(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '飛行中',
         departureLocation: other.departureLocation,
         routeDirection: other.routeDirection,
         elapsedMinutes: elapsed,
         elapsedLabel: formatDuration(elapsed) || '剛剛',
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -158,10 +167,12 @@ function addRouteConvergence(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: other.status === 'landed' ? '已降落' : '飛行中',
         teammatePlace: placeLabel,
         distanceKm,
         suggestDirection,
         selfLocation: ctx.phase === 'takeoff' ? ctx.departureLocation : ctx.arrivalLocation ?? ctx.departureLocation,
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -182,11 +193,13 @@ function addTeammateInSky(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '飛行中',
         elapsedMinutes: elapsed,
         elapsedLabel: formatDuration(elapsed) || '剛剛',
         flightProgress: progress,
         skyRegion: place?.country ?? '未知',
         nearestCity: place?.displayName ?? null,
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -206,9 +219,11 @@ function addParallelHeading(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '飛行中',
         routeDirection: ctx.routeDirection,
         selfDeparture: ctx.departureLocation,
         teammateDeparture: other.departureLocation,
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -231,7 +246,8 @@ function addSameDeparture(
       facts: {
         teammateName: other.passengerName,
         departureLocation: selfLoc,
-        teammateStatus: other.status,
+        teammateStatus: other.status === 'landed' ? '已降落' : '飛行中',
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -253,10 +269,12 @@ function addHeadingContrast(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '飛行中',
         selfDirection: ctx.routeDirection,
         teammateDirection: other.routeDirection,
         selfDeparture: ctx.departureLocation,
         teammateDeparture: other.departureLocation,
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -291,8 +309,10 @@ function addFreshArrival(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '已降落',
         arrivalLocation: other.arrivalLocation,
         flightDuration: formatDuration(other.flightDurationMinutes) || '一段時間',
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -332,8 +352,10 @@ function addRelayFlight(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '飛行中',
         teammateDeparture: other.departureLocation,
         teammateProgress: Math.round(other.flightProgress),
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -349,7 +371,9 @@ function addEarlyLanding(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '已降落',
         arrivalLocation: other.arrivalLocation ?? '目的地',
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -365,7 +389,9 @@ function addLateLanding(
       relatedPassenger: other.passengerName,
       facts: {
         teammateName: other.passengerName,
+        teammateStatus: '已降落',
         arrivalLocation: other.arrivalLocation ?? '目的地',
+        eventTimeMs: eventTimeMs(other),
       },
     });
   }
@@ -421,6 +447,10 @@ export function pickRandomSocialCueCandidate(
   candidates: SocialCueCandidate[]
 ): SocialCueCandidate | null {
   if (candidates.length === 0) return null;
+  const latest = [...candidates]
+    .filter((candidate) => typeof candidate.facts.eventTimeMs === 'number')
+    .sort((a, b) => Number(b.facts.eventTimeMs) - Number(a.facts.eventTimeMs))[0];
+  if (latest) return latest;
   const index = Math.floor(Math.random() * candidates.length);
   return candidates[index] ?? null;
 }

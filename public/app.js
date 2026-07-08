@@ -8,6 +8,11 @@
 
 'use strict';
 
+// iOS Safari 仍可能觸發整頁 pinch zoom；地球本身有 pointer 手勢縮放，不依賴瀏覽器縮放。
+['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
+  document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+});
+
 // ── 常數與顯示對照 ────────────────────────────────────────────────────────────
 
 const DIRECTION_LABEL = {
