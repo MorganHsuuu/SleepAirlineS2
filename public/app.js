@@ -2494,15 +2494,11 @@ async function playLandingApproach() {
     BroadcastAudio?.duckCeremonyBed?.(),
   ]);
   await Promise.all([
-    BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 }),
+    BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 900 }),
     playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false }),
   ]);
   await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
-  // takeoff 漸弱 ↔ wakeup 漸強（交叉淡入淡出）
-  await Promise.all([
-    BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 900 }),
-    BroadcastAudio?.resumeLandingMusicAfterApproach?.(),
-  ]);
+  await BroadcastAudio?.crossfadeApproachSfxToWakeup?.();
 }
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');

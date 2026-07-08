@@ -13,15 +13,9 @@ const CAPTAIN_SFX = {
 
 const TAKEOFF_SFX_URL = 'media/takeoff.mp3';
 
-/** 儀式音景交叉淡入淡出（wakeup ↔ captain ↔ TTS） */
-const CEREMONY_FADE = {
-  bedOut: 800,
-  bedRestore: 1400,
-  captainIn: 520,
-  captainOut: 480,
-  speechIn: 450,
-  sfxHandoff: 900,
-};
+/** 儀式音景切換：wakeup ↔ captain ↔ TTS */
+const CEREMONY_CROSSFADE_MS = 900;
+const CEREMONY_RESTORE_MS = 1400;
 
 /** 極短無聲 WAV：解鎖 HTML Audio 自動播放，不可聽見（勿用 captain.mp3 loop） */
 const SILENT_KEEPALIVE =
@@ -173,7 +167,6 @@ async function playWebAudioBuffer(buffer, {
   loop = false,
   maxSeconds = 0,
   fadeInMs = 0,
-  fadeOutMs = 0,
   tag = 'speech',
 } = {}) {
   const ctx = await ensureAudioCtx();
@@ -190,8 +183,7 @@ async function playWebAudioBuffer(buffer, {
   const clipSec = maxSeconds > 0 && bufDur > 0 ? Math.min(maxSeconds, bufDur) : (maxSeconds > 0 ? maxSeconds : 0);
   const gain = ctx.createGain();
   const targetVol = Math.max(volume, 0.0001);
-  const t0 = ctx.currentTime;
-  gain.gain.setValueAtTime(fadeInMs > 0 ? 0.0001 : targetVol, t0);
+  gain.gain.value = fadeInMs > 0 ? 0.0001 : targetVol;
   source.connect(gain);
   gain.connect(ctx.destination);
 
@@ -228,12 +220,7 @@ async function playWebAudioBuffer(buffer, {
       if (clipSec > 0) source.start(0, 0, clipSec);
       else source.start(0);
       if (fadeInMs > 0) {
-        gain.gain.exponentialRampToValueAtTime(targetVol, t0 + fadeInMs / 1000);
-      }
-      if (fadeOutMs > 0 && clipSec > fadeOutMs / 1000 + 0.08) {
-        const fadeOutStart = t0 + clipSec - fadeOutMs / 1000;
-        gain.gain.setValueAtTime(targetVol, fadeOutStart);
-        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + clipSec);
+        gain.gain.exponentialRampToValueAtTime(targetVol, ctx.currentTime + fadeInMs / 1000);
       }
       // Looping ambience/SFX should keep playing until stopCeremonyWebAudio/stopFlightSfx is called.
       if (loop) resolve(true);
@@ -255,21 +242,20 @@ async function playMp3Blob(blob, opts = {}) {
   return playWebAudioBuffer(buffer, opts);
 }
 
-async function playTimedClip(url, { seconds = 0, volume = 1, loop = false, fadeInMs = 0, fadeOutMs = 0 } = {}) {
+async function playTimedClip(url, { seconds = 0, volume = 1, loop = false, fadeInMs = 0 } = {}) {
   if (!url) return false;
   await ensureAudioCtx();
   if (await playMp3Url(url, {
     volume,
     loop: false,
     maxSeconds: seconds > 0 ? seconds : 0,
-    fadeInMs,
-    fadeOutMs,
     tag: 'captain',
+    fadeInMs,
   })) return true;
 
   return new Promise((resolve) => {
     const audio = new Audio(url);
-    audio.volume = volume;
+    audio.volume = fadeInMs > 0 ? 0 : volume;
     audio.loop = false;
     markInlineAudio(audio);
     currentAudio = audio;
@@ -293,7 +279,10 @@ async function playTimedClip(url, { seconds = 0, volume = 1, loop = false, fadeI
     }
     audio.onended = () => finish(true);
     audio.onerror = () => finish(false);
-    playAudioElement(audio).then((ok) => { if (!ok) finish(false); });
+    playAudioElement(audio).then(async (ok) => {
+      if (!ok) { finish(false); return; }
+      if (fadeInMs > 0) await fadeAudioVolume(audio, 0, volume, fadeInMs);
+    });
   });
 }
 
@@ -327,10 +316,43 @@ function stopTowerSignalLoop() {
   }
 }
 
-async function playCaptainIntro({ fadeInMs = CEREMONY_FADE.captainIn, fadeOutMs = CEREMONY_FADE.captainOut } = {}) {
-  stopCaptainIntro();
-  resetKeepAliveToSilent();
-  await ensureAudioCtx();
+async function fadeOutCeremonyTag(tag, ms = 450) {
+  const node = tag === 'flightSfx' ? flightSfxNode
+    : tag === 'captain' ? captainIntroNode
+      : speechNode;
+  if (!node?.gain || !audioCtx) {
+    stopCeremonyWebAudio(tag);
+    return;
+  }
+  try {
+    const g = node.gain.gain;
+    const cur = Math.max(g.value, 0.0001);
+    g.cancelScheduledValues(0);
+    g.setValueAtTime(cur, audioCtx.currentTime);
+    g.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + ms / 1000);
+    await delay(ms);
+  } catch { /* noop */ }
+  stopCeremonyWebAudio(tag);
+}
+
+async function fadeLandingBedVolume(target, ms = CEREMONY_CROSSFADE_MS) {
+  if (!landingAudio) return;
+  const vol = landingAudio.volume;
+  if (Math.abs(vol - target) < 0.002) {
+    if (target <= 0.001 && !landingAudio.paused) {
+      landingPausedForCaptain = true;
+      landingAudio.pause();
+    }
+    return;
+  }
+  await fadeAudioVolume(landingAudio, vol, target, ms);
+  if (target <= 0.001 && landingAudio && !landingAudio.paused) {
+    landingPausedForCaptain = true;
+    landingAudio.pause();
+  }
+}
+
+async function playCaptainIntro({ fadeInMs = 0 } = {}) {
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
   const sec = Math.max(0.5, Math.min(30, Number(cfg.seconds) || 7));
@@ -340,12 +362,29 @@ async function playCaptainIntro({ fadeInMs = CEREMONY_FADE.captainIn, fadeOutMs 
       volume: cfg.volume ?? 0.72,
       loop: false,
       fadeInMs,
-      fadeOutMs,
     }),
-    delay(sec * 1000 + fadeOutMs + 180),
+    delay(sec * 1000 + 180),
   ]);
-  stopCaptainIntro();
+  await fadeOutCeremonyTag('captain', Math.min(450, fadeInMs || 450));
   return true;
+}
+
+/** wakeup 漸弱 + captain 前段漸強（同一時間軸） */
+async function crossfadeLandingToCaptainIntro() {
+  const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
+  if (!cfg.url) {
+    await fadeLandingBedVolume(0, CEREMONY_CROSSFADE_MS);
+    return false;
+  }
+  stopCaptainIntro();
+  resetKeepAliveToSilent();
+  await ensureAudioCtx();
+  const ms = CEREMONY_CROSSFADE_MS;
+  const [, ok] = await Promise.all([
+    fadeLandingBedVolume(0, ms),
+    playCaptainIntro({ fadeInMs: ms }),
+  ]);
+  return ok;
 }
 
 async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 } = {}) {
@@ -434,8 +473,19 @@ async function stopLandingMusic({ fade = true, ms = 900 } = {}) {
   audio.src = '';
 }
 
-/** landing.mp4 播完：takeoff 漸弱 ↔ wakeup 漸強 */
-async function resumeLandingMusicAfterApproach({ fadeInMs = CEREMONY_FADE.bedRestore } = {}) {
+/** landing.mp4 播完：takeoff 音效漸弱 + wakeup 漸強（同一時間軸） */
+async function crossfadeApproachSfxToWakeup({
+  sfxFadeMs = CEREMONY_CROSSFADE_MS,
+  musicFadeMs = CEREMONY_RESTORE_MS,
+} = {}) {
+  await Promise.all([
+    stopFlightSfx({ fade: true, ms: sfxFadeMs }),
+    resumeLandingMusicAfterApproach({ fadeMs: musicFadeMs }),
+  ]);
+}
+
+/** landing.mp4 播完：恢復 wakeup 甦醒音景（著陸音效結束後） */
+async function resumeLandingMusicAfterApproach({ fadeMs = CEREMONY_RESTORE_MS } = {}) {
   landingPausedForCaptain = false;
   if (!landingAudio) return false;
   await unlockMedia();
@@ -444,7 +494,7 @@ async function resumeLandingMusicAfterApproach({ fadeInMs = CEREMONY_FADE.bedRes
       landingAudio.volume = 0;
       await Promise.race([landingAudio.play(), delay(900)]);
     }
-    await fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, fadeInMs);
+    await fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, fadeMs);
     return true;
   } catch {
     return false;
@@ -473,29 +523,6 @@ async function fadeOutLandingMusic({ ms = 3200 } = {}) {
 let savedFlightSfxVolume = null;
 let landingPausedForCaptain = false;
 
-/** 機長廣播前：wakeup 漸弱至靜音（給 captain 讓路） */
-async function fadeCeremonyBedOut(ms = CEREMONY_FADE.bedOut) {
-  const jobs = [];
-  if (landingAudio && landingAudio.volume > 0.001) {
-    jobs.push(
-      fadeAudioVolume(landingAudio, landingAudio.volume, 0, ms).then(() => {
-        if (landingAudio && !landingAudio.paused) {
-          landingPausedForCaptain = true;
-          landingAudio.pause();
-        }
-      }),
-    );
-  } else if (landingAudio && !landingAudio.paused) {
-    landingPausedForCaptain = true;
-    landingAudio.pause();
-  }
-  if (flightSfxAudio && flightSfxAudio.volume > 0.001) {
-    if (savedFlightSfxVolume == null) savedFlightSfxVolume = flightSfxAudio.volume;
-    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, 0, ms));
-  }
-  if (jobs.length) await Promise.all(jobs);
-}
-
 async function duckCeremonyBed() {
   const jobs = [];
   if (landingAudio) {
@@ -514,15 +541,14 @@ async function duckCeremonyBed() {
   if (jobs.length) await Promise.all(jobs);
 }
 
-/** 機長 TTS 期間：甦醒音景完全靜音，凸顯人聲 */
+/** 機長 TTS 期間：甦醒音景維持靜音（通常已在 captain 段淡出） */
 async function muteCeremonyBedForSpeech() {
-  if (landingAudio && landingAudio.volume <= 0.001 && landingPausedForCaptain) return;
-  const ms = 600;
+  const ms = Math.min(600, CEREMONY_CROSSFADE_MS);
   const jobs = [];
-  if (landingAudio && landingAudio.volume > 0.001) {
-    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, 0, ms));
+  if (landingAudio && landingAudio.volume > 0.002) {
+    jobs.push(fadeLandingBedVolume(0, ms));
   }
-  if (flightSfxAudio && flightSfxAudio.volume > 0.001) {
+  if (flightSfxAudio) {
     if (savedFlightSfxVolume == null) savedFlightSfxVolume = flightSfxAudio.volume;
     jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, 0, ms));
   }
@@ -533,7 +559,7 @@ async function muteCeremonyBedForSpeech() {
   }
 }
 
-async function restoreCeremonyBed({ fadeMs = CEREMONY_FADE.bedRestore } = {}) {
+async function restoreCeremonyBed({ ms = CEREMONY_RESTORE_MS } = {}) {
   const jobs = [];
   if (landingAudio) {
     if (landingPausedForCaptain || landingAudio.paused) {
@@ -543,10 +569,10 @@ async function restoreCeremonyBed({ fadeMs = CEREMONY_FADE.bedRestore } = {}) {
         await Promise.race([landingAudio.play(), delay(900)]);
       } catch { /* noop */ }
     }
-    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, fadeMs));
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, ms));
   }
   if (flightSfxAudio && savedFlightSfxVolume != null) {
-    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, fadeMs));
+    jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, 900));
     savedFlightSfxVolume = null;
   }
   if (jobs.length) await Promise.all(jobs);
@@ -831,7 +857,7 @@ async function prepareCaptainSpeech(text, style) {
   return null;
 }
 
-async function playPreparedSpeech(prepared, { fadeInMs = CEREMONY_FADE.speechIn } = {}) {
+async function playPreparedSpeech(prepared) {
   if (!prepared) return false;
   if (prepared.kind === 'browser') return speakText(prepared.text);
   stopCeremonyWebAudio('captain');
@@ -839,7 +865,7 @@ async function playPreparedSpeech(prepared, { fadeInMs = CEREMONY_FADE.speechIn 
   const blob = prepared.blob
     || (prepared.url ? await fetch(prepared.url).then((r) => r.blob()).catch(() => null) : null);
   if (blob) {
-    const ok = await playMp3Blob(blob, { volume: 1, tag: 'speech', fadeInMs });
+    const ok = await playMp3Blob(blob, { volume: 1, tag: 'speech', fadeInMs: 400 });
     if (ok) {
       if (prepared.url) URL.revokeObjectURL(prepared.url);
       return true;
@@ -849,7 +875,6 @@ async function playPreparedSpeech(prepared, { fadeInMs = CEREMONY_FADE.speechIn 
   await unlockMedia();
   const { audio, url } = prepared;
   markInlineAudio(audio);
-  audio.volume = 0;
   currentAudio = audio;
   const ok = await playAudioElement(audio);
   if (!ok) {
@@ -857,7 +882,6 @@ async function playPreparedSpeech(prepared, { fadeInMs = CEREMONY_FADE.speechIn 
     if (currentAudio === audio) currentAudio = null;
     return speakText(prepared.fallbackText || '');
   }
-  if (fadeInMs > 0) await fadeAudioVolume(audio, 0, 1, fadeInMs);
   return new Promise((resolve) => {
     let done = false;
     const finish = (ok) => {
@@ -901,10 +925,8 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     const prepPromise = speechBase64
       ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
       : prepareCaptainSpeech(text, style);
-    // wakeup 漸弱 → captain 漸強 → TTS 漸強
-    await fadeCeremonyBedOut(CEREMONY_FADE.bedOut);
-    await playCaptainIntro();
-    stopCaptainIntro();
+    await crossfadeLandingToCaptainIntro();
+    await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
     await unlockMedia();
     if (!prepared) return await speakText(text);
@@ -916,7 +938,7 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     return speakText(text);
   } finally {
     stopCaptainIntro();
-    if (restoreBed) await restoreCeremonyBed();
+    if (restoreBed) await restoreCeremonyBed({ ms: CEREMONY_RESTORE_MS });
   }
 }
 
@@ -945,8 +967,8 @@ window.BroadcastAudio = {
   playLandingMusic,
   stopLandingMusic,
   resumeLandingMusicAfterApproach,
+  crossfadeApproachSfxToWakeup,
   fadeOutLandingMusic,
   duckCeremonyBed,
-  fadeCeremonyBedOut,
   restoreCeremonyBed,
 };
