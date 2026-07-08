@@ -108507,7 +108507,7 @@ function buildSceneryPrompt(city, country, displayName) {
     `No close-up people, no text, no watermark, no logos.`
   ].join(" ");
 }
-var SCENERY_IMAGE_SIZE = "1536x1024";
+var SCENERY_IMAGE_SIZE = "1024x1024";
 function safeFilename(city, flightId) {
   const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
   return `landing-${slug2}-${flightId.slice(-8)}.png`;

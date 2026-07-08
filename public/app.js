@@ -1903,6 +1903,27 @@ function primeLandingVideoElement(video) {
   video.load();
 }
 
+/** 只換源並等到可播放，不開始播 — 讓音效與影片能同一刻起跑 */
+async function prepareWindowVideo(video, src) {
+  if (!video || !src || video.dataset.src === src) return;
+  video.src = src;
+  video.dataset.src = src;
+  await new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener('loadeddata', done);
+      video.removeEventListener('canplay', done);
+      resolve();
+    };
+    video.addEventListener('loadeddata', done, { once: true });
+    video.addEventListener('canplay', done, { once: true });
+    video.load();
+    setTimeout(done, 2800);
+  });
+}
+
 async function playWindowVideo(video, src, { loop = true } = {}) {
   if (!video || !src) return false;
   const srcChanged = video.dataset.src !== src;
@@ -1918,24 +1939,7 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
     disableSeamlessVideoLoop(video);
     video.pause();
   }
-  if (srcChanged) {
-    video.src = src;
-    video.dataset.src = src;
-    await new Promise((resolve) => {
-      let settled = false;
-      const done = () => {
-        if (settled) return;
-        settled = true;
-        video.removeEventListener('loadeddata', done);
-        video.removeEventListener('canplay', done);
-        resolve();
-      };
-      video.addEventListener('loadeddata', done, { once: true });
-      video.addEventListener('canplay', done, { once: true });
-      video.load();
-      setTimeout(done, 2800);
-    });
-  }
+  if (srcChanged) await prepareWindowVideo(video, src);
   if (loop) {
     video.loop = false;
     enableSeamlessVideoLoop(video);
@@ -2411,14 +2415,15 @@ async function showLandingFxScenery(landed) {
 
   if (hasAI && img) {
     if (fallback) fallback.hidden = true;
-    img.hidden = false;
+    // 先不帶過渡直接套上模糊，圖載好後再開啟過渡移除 → 保證每次都有「顯影」模糊轉清楚
+    img.style.transition = 'none';
     scene.classList.add('developing');
+    img.hidden = false;
     await new Promise((resolve) => {
       let done = false;
       const finish = () => {
         if (done) return;
         done = true;
-        setTimeout(() => scene.classList.remove('developing'), 80);
         resolve();
       };
       img.onload = finish;
@@ -2428,6 +2433,10 @@ async function showLandingFxScenery(landed) {
       if (img.complete) finish();
       setTimeout(finish, 3500);
     });
+    void img.offsetWidth;
+    img.style.transition = '';
+    await waitMs(120);
+    scene.classList.remove('developing');
   } else if (fallback) {
     if (img) img.hidden = true;
     fallback.hidden = false;
@@ -2479,9 +2488,15 @@ async function playLandingApproach() {
   if (fx) fx.dataset.phase = 'approach';
   animateFxLine('landing-fx-title', '即將抵達…');
   animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
-  await BroadcastAudio?.duckCeremonyBed?.();
-  await BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 });
-  await playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false });
+  // 先把 landing.mp4 載到可播、音景壓低，音效與影片才會同一刻開始
+  await Promise.all([
+    prepareWindowVideo(video, FLIGHT_MEDIA.landing),
+    BroadcastAudio?.duckCeremonyBed?.(),
+  ]);
+  await Promise.all([
+    BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 500 }),
+    playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false }),
+  ]);
   await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
   await BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 500 });
   await BroadcastAudio?.resumeLandingMusicAfterApproach?.();

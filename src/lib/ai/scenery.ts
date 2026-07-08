@@ -24,8 +24,8 @@ export function buildSceneryPrompt(city: string, country: string, displayName: s
   ].join(' ');
 }
 
-/** Landscape aspect ratio suits the night-window composition. */
-export const SCENERY_IMAGE_SIZE = '1536x1024';
+/** 1024x1024 生成明顯快於 1536x1024；舷窗以 object-fit: cover 裁切，方圖即可。 */
+export const SCENERY_IMAGE_SIZE = '1024x1024';
 
 function safeFilename(city: string, flightId: string): string {
   const slug = city.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'landing';
