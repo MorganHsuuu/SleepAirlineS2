@@ -109008,7 +109008,18 @@ app.get("/api/board", async (req, res) => {
       if (f.status !== "in_flight") return f;
       const progress = calculateFlightProgress(f.takeoffTime);
       const region = getNarrativeRegion(progress);
-      return { ...f, flightProgress: progress, narrativeRegion: region };
+      return {
+        ...f,
+        arrivalLocation: null,
+        arrivalLatitude: null,
+        arrivalLongitude: null,
+        landingTime: null,
+        flightDurationMinutes: null,
+        estimatedFlightDistanceKm: null,
+        captainBroadcast: null,
+        flightProgress: progress,
+        narrativeRegion: region
+      };
     });
     res.json({ flights: enriched });
   } catch (err) {

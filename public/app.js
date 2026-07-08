@@ -254,15 +254,58 @@ function arrivalMeta(f) {
   };
 }
 
-/** 航線 arc：起點與終點皆顯示國旗 + 城市 + 中文國名 */
-function fillRouteArc(ids, depMeta, arrMeta) {
+/** 航線 arc：起點與終點皆顯示國旗 + 城市 + 中文國名；飛行中終點留空 */
+function fillRouteArc(ids, depMeta, arrMeta, { inFlight = false } = {}) {
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text || '—'; };
-  set(ids.depFlag, depMeta.flag);
-  set(ids.depCity, depMeta.city);
-  set(ids.depCountry, depMeta.countryZh);
-  set(ids.arrFlag, arrMeta.flag);
-  set(ids.arrCity, arrMeta.city);
-  set(ids.arrCountry, arrMeta.countryZh);
+  set(ids.depFlag, depMeta?.flag || '🌍');
+  set(ids.depCity, depMeta?.city || '—');
+  set(ids.depCountry, depMeta?.countryZh || '—');
+  if (inFlight || !arrMeta) {
+    set(ids.arrFlag, '✈');
+    set(ids.arrCity, '飛行中');
+    set(ids.arrCountry, '目的地待揭曉');
+  } else {
+    set(ids.arrFlag, arrMeta.flag || '🌍');
+    set(ids.arrCity, arrMeta.city || '—');
+    set(ids.arrCountry, arrMeta.countryZh || '—');
+  }
+}
+
+function formatPlaceLine(meta) {
+  if (!meta || meta.city === '—') return '—';
+  return `${meta.flag} ${meta.city} · ${meta.countryZh}`;
+}
+
+/** 看板列表：起點 → 終點（飛行中僅起點） */
+function formatBoardRouteLine(f) {
+  const depM = departureMeta(f);
+  const depLine = formatPlaceLine(depM);
+  if (f.status === 'in_flight') {
+    const elapsed = fmtDuration(minutesSince(f.takeoffTime));
+    return `${depLine} → … · 已飛 ${elapsed}`;
+  }
+  if (f.status === 'landed' && f.arrivalLocation) {
+    const arrM = arrivalMeta(f);
+    const dur = fmtDuration(f.flightDurationMinutes);
+    return `${depLine} → ${formatPlaceLine(arrM)} · 飛了 ${dur}`;
+  }
+  if (f.status === 'not_started') return `${depLine} · 待起飛`;
+  return STATUS_LABEL[f.status] || f.status;
+}
+
+/** 飛行中不帶抵達地（避免 Notion 舊資料誤顯示終點） */
+function sanitizeBoardFlight(f) {
+  if (!f || f.status !== 'in_flight') return f;
+  return {
+    ...f,
+    arrivalLocation: null,
+    arrivalLatitude: null,
+    arrivalLongitude: null,
+    landingTime: null,
+    flightDurationMinutes: null,
+    estimatedFlightDistanceKm: null,
+    captainBroadcast: null,
+  };
 }
 
 /** 離線 / 無 AI 圖時：以城市名產生一張「機窗晨景」SVG（依日夜主題變化）*/
@@ -1646,13 +1689,7 @@ function renderBoard() {
   listEl.innerHTML = groupFlights.map((f, i) => {
     const initial = (f.passengerName || '?').slice(0, 1);
     const flying = f.status === 'in_flight';
-    const depM = departureMeta(f);
-    const arrM = arrivalMeta(f);
-    const sub = flying
-      ? `${depM.flag} ${depM.city} · ${depM.countryZh} 出發 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
-      : f.status === 'landed'
-        ? `${arrM.flag} ${arrM.city} · ${arrM.countryZh} · 飛了 ${fmtDuration(f.flightDurationMinutes)}`
-        : STATUS_LABEL[f.status] || f.status;
+    const sub = formatBoardRouteLine(f);
     const tag = flying
       ? '<span class="tag-fly">✈ 飛行中</span>'
       : f.status === 'landed' ? '<span class="tag-land">✓ 抵達</span>' : '';
@@ -1725,22 +1762,24 @@ function renderSceneryCard(loading = false) {
 let mateSceneryToken = 0;
 
 function populateMateSheet(f) {
-  const meta = arrivalMeta(f);
   const depMeta = departureMeta(f);
   const landed = f.status === 'landed';
   const flying = f.status === 'in_flight';
+  const meta = landed && f.arrivalLocation ? arrivalMeta(f) : null;
 
-  $('mate-flag').textContent = landed ? meta.flag : (flying ? '🛫' : '🧳');
+  $('mate-flag').textContent = landed && meta ? meta.flag : (flying ? '🛫' : '🧳');
   $('mate-name').textContent = f.passengerName || '隊友';
-  $('mate-status').textContent = landed
+  $('mate-status').textContent = landed && meta
     ? `已降落 · ${meta.countryZh}`
     : flying
       ? `飛行中 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
       : (STATUS_LABEL[f.status] || f.status);
 
   const arc = $('mate-arc');
-  if (landed) {
+  const hasDeparture = !!(f.departureLocation && depMeta.city !== '—');
+  if (hasDeparture && (landed || flying)) {
     arc.hidden = false;
+    arc.classList.toggle('in-flight', flying);
     fillRouteArc({
       depFlag: 'ma-dep-flag',
       depCity: 'ma-dep-city',
@@ -1748,15 +1787,15 @@ function populateMateSheet(f) {
       arrFlag: 'ma-arr-flag',
       arrCity: 'ma-arr-city',
       arrCountry: 'ma-arr-country',
-    }, depMeta, meta);
-    $('mate-route').textContent = meta.countryZh ? `抵達 ${meta.countryZh}` : '';
-    $('mate-route').classList.toggle('hidden', !meta.countryZh);
+    }, depMeta, meta, { inFlight: flying });
+    $('mate-route').classList.add('hidden');
   } else {
     arc.hidden = true;
+    arc.classList.remove('in-flight');
     $('mate-route').classList.remove('hidden');
     $('mate-route').textContent = flying
-      ? `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh} 出發 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
-      : `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh}`;
+      ? `${formatPlaceLine(depMeta)} → … · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
+      : formatPlaceLine(depMeta);
   }
 
   const chips = [];
@@ -1829,27 +1868,27 @@ async function renderMateScenery(f, meta, landed) {
 
 function focusGroupMate(f) {
   if (!f) return;
-  const meta = arrivalMeta(f);
   const depMeta = departureMeta(f);
-  const landed = f.status === 'landed';
+  const landed = f.status === 'landed' && !!f.arrivalLocation;
   const flying = f.status === 'in_flight';
   const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
-  const arr = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+  const arr = landed ? coordOf(f, 'arrivalLatitude', 'arrivalLongitude') : null;
   closeSheets();
   if (landed && dep && arr) {
     Globe.focusMate(
       dep, arr,
-      `${meta.flag} ${meta.city} · ${meta.countryZh}`,
-      `${depMeta.flag} ${depMeta.city} · ${depMeta.countryZh}`,
+      formatPlaceLine(arrivalMeta(f)),
+      formatPlaceLine(depMeta),
       groupFlights.indexOf(f),
     );
   } else if (flying && dep) {
     const pos = flightPlaneCoord(f);
+    const depLabel = formatPlaceLine(depMeta);
     if (pos) {
       Globe.focusMate(
         dep, pos.c,
-        `${f.passengerName} ✈`,
-        cityOnly(f.departureLocation),
+        '✈ 飛行中',
+        depLabel,
         groupFlights.indexOf(f),
       );
     } else {
@@ -3059,7 +3098,7 @@ async function fetchBoard() {
         ].filter(Boolean).join('|');
         if (seen.has(key)) continue;
         seen.add(key);
-        flights.push(flight);
+        flights.push(sanitizeBoardFlight(flight));
       }
     }
     if (flights.length || results.some((r) => r.status === 'fulfilled')) {
