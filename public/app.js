@@ -2498,20 +2498,24 @@ async function hideLandingFx({ fast = false } = {}) {
   resetLandingFxScenery();
 }
 
-function requestLandingScenery(flightId) {
-  if (!flightId || previewMode || window.WorkshopLocal?.isActive()) return;
-  api('POST', '/api/scenery/backfill', { flightIds: [flightId] })
-    .then((data) => {
-      const row = data.results?.[0];
-      if (!row?.imageUrl || lastLandedFlight?.flightId !== flightId) return;
-      landingScenery = {
-        imageUrl: row.imageUrl,
-        arrivalLocation: row.arrivalLocation || lastLandedFlight.arrivalLocation,
-        country: arrivalMeta(lastLandedFlight).country,
-      };
-      renderSceneryCard(false);
-    })
-    .catch(() => { /* 保留 SVG 晨景 fallback */ });
+async function requestLandingScenery(flightId) {
+  if (!flightId || previewMode || window.WorkshopLocal?.isActive()) return false;
+  try {
+    const data = await api('POST', '/api/scenery/backfill', { flightIds: [flightId] }, { timeoutMs: 68000 });
+    const row = data.results?.[0];
+    if (row?.error) console.warn('[landing scenery]', row.error);
+    if (!row?.imageUrl || lastLandedFlight?.flightId !== flightId) return false;
+    landingScenery = {
+      imageUrl: row.imageUrl,
+      arrivalLocation: row.arrivalLocation || lastLandedFlight.arrivalLocation,
+      country: arrivalMeta(lastLandedFlight).country,
+    };
+    renderSceneryCard(false);
+    return true;
+  } catch (err) {
+    console.warn('[landing scenery]', err);
+    return false;
+  }
 }
 
 // ── 主 UI 狀態機 ─────────────────────────────────────────────────────────────
@@ -2604,6 +2608,11 @@ function updateUI() {
     $('bc-origin').textContent = `${dur} · ${dist}`;
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
+    const broadcastEl = $('bc-broadcast');
+    if (broadcastEl) {
+      broadcastEl.textContent = lastLandedFlight.captainBroadcast
+        || '機長廣播正在整理中，請稍候。';
+    }
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
@@ -2930,9 +2939,12 @@ async function doLand() {
     delete $('landed-panel').dataset.dismissed;
     activeFlight = null;
 
-    if (landed.flightId && !landingScenery?.imageUrl) {
-      requestLandingScenery(landed.flightId);
-    }
+    // 語音檔已隨 landing API 回來；從這一刻開始生圖，讓 captain intro、TTS、landing 影片都成為生圖時間。
+    const sceneryStartedAt = Date.now();
+    const sceneryMaxMs = 68000;
+    const sceneryJob = landed.flightId && !landingScenery?.imageUrl
+      ? requestLandingScenery(landed.flightId)
+      : Promise.resolve(!!landingScenery?.imageUrl);
 
     // ② 機長廣播（takeoff2 + wakeup；TTS 時 wakeup 完全靜音）
     await ensureMediaUnlocked();
@@ -2957,7 +2969,13 @@ async function doLand() {
     // ④ landing 播完後才等生圖 → 風景顯影
     await animateFxLine('landing-fx-sub', LANDING_SKY_WHISPERS[0]);
     if (sceneryPreload) await sceneryPreload;
-    else await ensureLandingSceneryReady(landed);
+    else {
+      const remainingSceneryMs = Math.max(0, sceneryMaxMs - (Date.now() - sceneryStartedAt));
+      await Promise.race([
+        sceneryJob.catch(() => false),
+        ensureLandingSceneryReady(landed, remainingSceneryMs),
+      ]);
+    }
     await showLandingFxScenery(landed);
     await waitLandingFxDismiss();
 
@@ -2968,9 +2986,7 @@ async function doLand() {
     await revealDockPanel('landed-panel');
 
     await fetchBoard();
-    if (landed.flightId && !landingScenery?.imageUrl) {
-      requestLandingScenery(landed.flightId);
-    }
+    void sceneryJob;
   } catch (err) {
     if (statusCycle) stopFxStatusCycle(statusCycle);
     unlockDockForFx();
