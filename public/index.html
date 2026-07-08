@@ -37,40 +37,58 @@
       <div id="login-success" class="msg msg-success"></div>
 
       <form id="login-form">
-        <div class="field">
-          <div class="field-label">乘客 ID</div>
-          <input class="input" id="input-pid" placeholder="例：p_g01_morgan" required>
+        <div class="field terminal-field">
+          <div class="terminal-card">
+            <div class="terminal-card-head">
+              <div>
+                <div class="field-label terminal-kicker">Terminal 航站</div>
+                <div class="terminal-title">建立你的登機房間</div>
+              </div>
+              <span class="terminal-chip">4 DIGITS</span>
+            </div>
+            <label class="terminal-input-wrap" aria-label="四位數 Terminal 航站代碼">
+              <span class="terminal-prefix" aria-hidden="true">T-</span>
+              <input class="input terminal-input" id="input-group" inputmode="numeric" autocomplete="off"
+                maxlength="4" pattern="[0-9]{4}" placeholder="0000" required aria-describedby="terminal-hint">
+            </label>
+            <div class="terminal-actions">
+              <button type="button" class="terminal-btn terminal-btn--create" id="btn-create-terminal" title="建立新 Terminal">
+                <span class="terminal-btn-icon" aria-hidden="true">✦</span>
+                <span>建立 Terminal</span>
+              </button>
+              <button type="button" class="terminal-btn terminal-btn--share" id="btn-share-terminal" title="分享 Terminal 連結">
+                <svg class="terminal-share-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>分享邀請</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="field">
-          <div class="field-label">姓名</div>
-          <input class="input" id="input-name" placeholder="你的名字" required>
-        </div>
-        <div class="field">
-          <div class="field-label">小隊</div>
-          <select class="select" id="input-group" required>
-            <option value="">請選擇小隊</option>
-            <option value="group_01">第一組</option>
-            <option value="group_02">第二組</option>
-            <option value="group_03">第三組</option>
-            <option value="group_04">第四組</option>
-            <option value="group_05">第五組</option>
-            <option value="group_06">第六組</option>
-            <option value="group_07">第七組</option>
-            <option value="group_08">第八組</option>
-            <option value="group_09">第九組</option>
-            <option value="group_10">第十組</option>
-            <option value="group_11">第十一組</option>
-            <option value="group_12">第十二組</option>
-            <option value="group_13">第十三組</option>
-            <option value="group_14">第十四組</option>
-            <option value="group_15">第十五組</option>
-          </select>
+        <div class="passport-card" aria-label="乘客護照資料">
+          <div class="passport-stamp" aria-hidden="true">PASSPORT</div>
+          <div class="passport-head">
+            <div>
+              <div class="field-label passport-kicker">Boarding Identity</div>
+              <div class="passport-title">我的護照</div>
+            </div>
+          </div>
+          <div class="passport-grid">
+            <div class="field passport-field">
+              <div class="field-label">乘客 ID</div>
+              <input class="input passport-input" id="input-pid" placeholder="例：p_4821_morgan" required>
+            </div>
+            <div class="field passport-field">
+              <div class="field-label">姓名</div>
+              <input class="input passport-input" id="input-name" placeholder="你的名字" required>
+            </div>
+          </div>
         </div>
         <button type="submit" class="dock-action dock-action--gold" id="btn-login">
           <span class="pill-label">登入</span>
         </button>
       </form>
-      <button type="button" class="compass-auto" id="btn-preview">直接預覽介面（不需登入）</button>
     </div>
   </div>
 
@@ -220,14 +238,20 @@
     <!-- 小隊看板抽屜 -->
     <div class="glass board" id="board-card">
       <div class="board-head" id="board-head">
-        <b>🛫 小隊看板 — <span id="bd-group">group</span></b>
+        <b>🛫 Terminal 看板 — <span id="bd-group">—</span></b>
         <div class="board-head-right">
+          <button type="button" class="board-share-terminal" id="btn-share-terminal-board" title="分享 Terminal 連結" aria-label="分享 Terminal 連結">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <button class="board-refresh" id="btn-refresh" title="重新整理">↻</button>
           <span class="board-arrow">▲</span>
         </div>
       </div>
       <div class="board-body">
-        <div id="bd-empty" class="board-empty">本小隊尚無航班記錄</div>
+        <div id="bd-empty" class="board-empty">本 Terminal 尚無航班記錄</div>
         <div id="bd-list"></div>
         <div id="bd-broadcasts" class="hidden">
           <div class="board-sub-head" id="bd-broadcasts-head">機長廣播紀錄 ▾</div>

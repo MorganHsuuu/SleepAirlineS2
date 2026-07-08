@@ -29,7 +29,7 @@
       "method": "GET",
       "path": "/api/board",
       "requiredQueryParams": ["groupId"],
-      "description": "小隊看板；Group ID 必須是 group_01 格式"
+      "description": "Terminal 看板；groupId 為四位數航站代碼"
     },
     {
       "id": "progress",
@@ -56,9 +56,9 @@
     {
       "id": "group-id",
       "field": "groupId",
-      "pattern": "^group_\\d{2}$",
-      "examples": ["group_01", "group_02", "group_15"],
-      "description": "小隊 ID 必須用主辦指定的 group_0X，不可用中文"
+      "pattern": "^\\d{4}$",
+      "examples": ["0428", "1234", "9876"],
+      "description": "Terminal 航站四位數字（0000–9999）"
     },
     {
       "id": "passenger-id",

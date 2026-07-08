@@ -1628,7 +1628,7 @@ async function playBroadcastWithWave(text, style, {
 // ── 看板 ─────────────────────────────────────────────────────────────────────
 
 function renderBoard() {
-  $('bd-group').textContent = passenger?.groupId || '—';
+  $('bd-group').textContent = formatTerminalLabel(passenger?.groupId);
   const empty = $('bd-empty'), listEl = $('bd-list');
   if (!groupFlights.length) {
     empty.classList.remove('hidden');
@@ -2621,6 +2621,135 @@ function dismissLandedPanel() {
   updateUI();
 }
 
+// ── Terminal 航站（四位數 groupId）────────────────────────────────────────────
+
+function normalizeTerminalDigits(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.slice(-4).padStart(4, '0');
+}
+
+function groupIdToTerminalDigits(groupId) {
+  if (!groupId) return '';
+  const legacy = /^group_(\d{2})$/i.exec(String(groupId));
+  if (legacy) return legacy[1].padStart(4, '0');
+  return normalizeTerminalDigits(groupId);
+}
+
+function readTerminalGroupId() {
+  const digits = normalizeTerminalDigits($('input-group')?.value);
+  return /^\d{4}$/.test(digits) ? digits : '';
+}
+
+function formatTerminalLabel(groupId) {
+  const digits = groupIdToTerminalDigits(groupId);
+  return digits ? `T-${digits}` : '—';
+}
+
+function legacyGroupIdForTerminal(groupId) {
+  const digits = groupIdToTerminalDigits(groupId);
+  if (!/^\d{4}$/.test(digits)) return '';
+  const n = Number(digits);
+  if (!Number.isInteger(n) || n < 1 || n > 15) return '';
+  return `group_${String(n).padStart(2, '0')}`;
+}
+
+function terminalGroupIdForLegacy(groupId) {
+  const legacy = /^group_(\d{2})$/i.exec(String(groupId || ''));
+  if (!legacy) return '';
+  const n = Number(legacy[1]);
+  if (!Number.isInteger(n) || n < 1 || n > 15) return '';
+  return String(n).padStart(4, '0');
+}
+
+function compatibleGroupIds(groupId) {
+  const ids = new Set();
+  const digits = groupIdToTerminalDigits(groupId);
+  if (/^\d{4}$/.test(digits)) ids.add(digits);
+  if (groupId) ids.add(String(groupId));
+  const legacy = legacyGroupIdForTerminal(groupId);
+  if (legacy) ids.add(legacy);
+  const terminal = terminalGroupIdForLegacy(groupId);
+  if (terminal) ids.add(terminal);
+  return [...ids].filter(Boolean);
+}
+
+function buildTerminalShareUrl(digits) {
+  const url = new URL(location.href);
+  url.search = '';
+  url.searchParams.set('terminal', digits);
+  url.searchParams.set('login', '1');
+  return url.toString();
+}
+
+function applyTerminalFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const raw = params.get('terminal') || params.get('t');
+  if (!raw) return false;
+  const digits = normalizeTerminalDigits(raw);
+  if (!/^\d{4}$/.test(digits)) return false;
+  if ($('input-group')) $('input-group').value = digits;
+  return true;
+}
+
+function bindTerminalInput() {
+  const input = $('input-group');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const digits = normalizeTerminalDigits(input.value);
+    input.value = digits.slice(0, 4);
+  });
+  input.addEventListener('blur', () => {
+    const digits = normalizeTerminalDigits(input.value);
+    if (digits) input.value = digits;
+  });
+}
+
+function createRandomTerminal() {
+  const digits = String(Math.floor(1000 + Math.random() * 9000));
+  const input = $('input-group');
+  if (input) {
+    input.value = digits;
+    input.focus();
+  }
+  clearMsg('login');
+  showMsg('login', 'success', `已建立 Terminal T-${digits} · 按分享邀請隊友加入`);
+}
+
+async function shareTerminalLink(source = 'login') {
+  const digits = readTerminalGroupId() || groupIdToTerminalDigits(passenger?.groupId);
+  if (!/^\d{4}$/.test(digits)) {
+    const msg = source === 'board'
+      ? '無法分享：請先登入並確認 Terminal 代碼。'
+      : '請先輸入或建立四位數 Terminal。';
+    showMsg(source === 'board' ? 'main' : 'login', 'error', msg);
+    return;
+  }
+  const url = buildTerminalShareUrl(digits);
+  const title = `甦醒航班 Terminal T-${digits}`;
+  const text = `加入我的航站 Terminal T-${digits}，一起飛！`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      if (source === 'login') showMsg('login', 'success', '航站連結已分享');
+      else showMsg('main', 'success', '航站連結已分享');
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    const okMsg = '航站連結已複製 · 隊友開啟後會自動帶入 Terminal';
+    if (source === 'login') showMsg('login', 'success', okMsg);
+    else showMsg('main', 'success', okMsg);
+  } catch {
+    const failMsg = `無法複製連結，請手動分享：${url}`;
+    if (source === 'login') showMsg('login', 'error', failMsg);
+    else showMsg('main', 'error', failMsg);
+  }
+}
+
 // ── 契約 API 動作（doLogin / doTakeoff / doLand / fetchBoard / refreshProgress）──
 
 async function doLogin(e) {
@@ -2628,8 +2757,11 @@ async function doLogin(e) {
   clearMsg('login');
   const passengerId = $('input-pid').value.trim();
   const name = $('input-name').value.trim();
-  const groupId = $('input-group').value.trim();
-  if (!passengerId || !name || !groupId) { showMsg('login', 'error', '請填寫所有欄位。'); return; }
+  const groupId = readTerminalGroupId();
+  if (!passengerId || !name || !groupId) {
+    showMsg('login', 'error', groupId ? '請填寫所有欄位。' : 'Terminal 須為四位數字（0000–9999）。');
+    return;
+  }
 
   primeMediaOnUserGesture();
   $('btn-login').disabled = true;
@@ -2858,10 +2990,32 @@ async function doLand() {
 async function fetchBoard() {
   if (!passenger) return;
   try {
-    const data = await api('GET', '/api/board?groupId=' + encodeURIComponent(passenger.groupId));
-    if (data.flights) {
-      groupFlights = data.flights;
-      archiveGroupTrails(data.flights);
+    const groupIds = compatibleGroupIds(passenger.groupId);
+    const results = await Promise.allSettled(groupIds.map((groupId) => (
+      api('GET', '/api/board?groupId=' + encodeURIComponent(groupId))
+    )));
+    const seen = new Set();
+    const flights = [];
+    for (const result of results) {
+      if (result.status !== 'fulfilled' || !Array.isArray(result.value.flights)) continue;
+      for (const flight of result.value.flights) {
+        const key = flight.flightId || flight.notionId || [
+          flight.passengerId,
+          flight.takeoffTime,
+          flight.groupId,
+        ].filter(Boolean).join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        flights.push(flight);
+      }
+    }
+    if (flights.length || results.some((r) => r.status === 'fulfilled')) {
+      groupFlights = flights.sort((a, b) => {
+        const at = new Date(a.landingTime || a.takeoffTime || 0).getTime();
+        const bt = new Date(b.landingTime || b.takeoffTime || 0).getTime();
+        return bt - at;
+      });
+      archiveGroupTrails(groupFlights);
     }
     renderBoard();
     if (passenger.status === 'in_flight') updateGlobeForFlight();
@@ -2933,7 +3087,8 @@ function fillLoginForm(p) {
   if (!p) return;
   $('input-pid').value = p.passengerId;
   $('input-name').value = p.name;
-  $('input-group').value = p.groupId;
+  const digits = groupIdToTerminalDigits(p.groupId);
+  if (digits) $('input-group').value = digits;
 }
 
 // ── UI 示範（不需登入、不需後端）────────────────────────────────────────────
@@ -2944,7 +3099,7 @@ function enterDemoPreview() {
   stopFlightTicker();
 
   passenger = {
-    passengerId: 'demo_preview', name: '示範乘客', groupId: 'group_01',
+    passengerId: 'demo_preview', name: '示範乘客', groupId: '0428',
     status: 'not_started', currentLocation: 'Taipei, Taiwan',
     currentLatitude: 25.033, currentLongitude: 121.5654,
   };
@@ -3013,6 +3168,9 @@ function stopAutoRefresh() {
 
 $('login-form').addEventListener('submit', doLogin);
 $('btn-preview')?.addEventListener('click', enterDemoPreview);
+$('btn-create-terminal')?.addEventListener('click', createRandomTerminal);
+$('btn-share-terminal')?.addEventListener('click', () => { void shareTerminalLink('login'); });
+$('btn-share-terminal-board')?.addEventListener('click', () => { void shareTerminalLink('board'); });
 $('btn-takeoff').addEventListener('click', onTakeoffClick);
 $('btn-land').addEventListener('click', onLandClick);
 $('btn-logout').addEventListener('click', doLogout);
@@ -3085,9 +3243,16 @@ $('globe-svg')?.addEventListener('click', (e) => {
   bindFlightShadeDrag();
   bindFlightWindowDismiss();
   positionFlightWindow(flightWindowCenter());
+  bindTerminalInput();
+  const urlTerminalApplied = applyTerminalFromUrl();
   fillLoginForm(loadLoginProfile());
+  if (urlTerminalApplied) {
+    const digits = normalizeTerminalDigits(new URLSearchParams(location.search).get('terminal')
+      || new URLSearchParams(location.search).get('t'));
+    if (digits && $('input-group')) $('input-group').value = digits;
+  }
 
-  const forceLogin = new URLSearchParams(location.search).has('login');
+  const forceLogin = new URLSearchParams(location.search).has('login') || urlTerminalApplied;
   const autoPreview = window.SLEEP_AIRLINE_AUTO_PREVIEW !== false;
 
   if (!forceLogin && autoPreview) enterDemoPreview();

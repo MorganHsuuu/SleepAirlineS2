@@ -56,12 +56,21 @@ for (const id of contract.requiredDomIds) {
   }
 }
 
-const groupSelect = indexHtml.match(/<select[^>]*id="input-group"[^>]*>([\s\S]*?)<\/select>/);
-if (groupSelect) {
-  const options = [...groupSelect[1].matchAll(/value="([^"]+)"/g)].map((m) => m[1]).filter(Boolean);
+const groupField = indexHtml.match(/<input[^>]*id="input-group"[^>]*>/);
+if (groupField) {
+  if (/pattern="\[0-9\]\{4\}"/.test(groupField[0]) || /maxlength="4"/.test(groupField[0])) {
+    pass('Terminal 輸入（四位數 groupId）');
+  } else {
+    warnings.push('input-group 建議使用四位數 Terminal 輸入（pattern="[0-9]{4}"）');
+  }
+}
+
+const legacyGroupSelect = indexHtml.match(/<select[^>]*id="input-group"[^>]*>([\s\S]*?)<\/select>/);
+if (legacyGroupSelect) {
+  const options = [...legacyGroupSelect[1].matchAll(/value="([^"]+)"/g)].map((m) => m[1]).filter(Boolean);
   const bad = options.filter((v) => v && !/^group_\d{2}$/.test(v));
   if (bad.length > 0) {
-    warnings.push(`input-group 有非標準 value：${bad.join(', ')}（應為 group_01 … group_15）`);
+    warnings.push(`input-group 有非標準 value：${bad.join(', ')}（舊版 group_01 … group_15）`);
   } else if (options.length > 0) {
     pass(`小隊選項格式（${options.length} 個 group_0X）`);
   }
