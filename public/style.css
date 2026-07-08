@@ -2181,27 +2181,47 @@ body.sheet-open #main-section {
   .board.open { max-height: min(66vh, 560px); }
   .board-body { max-height: calc(min(66vh, 560px) - 44px); }
 
-  /* 寬螢幕：羅盤改居中 modal，避免與底部 dock 重疊搶點擊 */
+  /* 寬螢幕：羅盤改居中橫向 modal（左羅盤、右雷達＋航向＋按鈕），避免直向過高被切 */
   #compass-sheet {
     top: 50%;
     bottom: auto;
     left: 50%;
-    width: min(400px, calc(100vw - 48px));
-    max-height: min(86vh, 520px);
+    width: min(640px, calc(100vw - 48px));
+    max-height: min(86vh, 460px);
     border-radius: 26px;
     border-bottom: 1px solid var(--glass-line);
-    padding: 16px 22px 20px;
+    padding: 16px 26px 22px;
     transform: translate(-50%, calc(-50% + 100vh));
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto 1fr auto;
+    grid-template-areas:
+      "grip   grip"
+      "title  title"
+      "sub    sub"
+      "dial   legend"
+      "dial   readout"
+      "dial   actions";
+    column-gap: 26px;
+    align-content: start;
   }
   #compass-sheet.show {
     transform: translate(-50%, -50%);
   }
+  #compass-sheet .sheet-grip { grid-area: grip; }
+  #compass-sheet .sheet-title { grid-area: title; }
+  #compass-sheet .sheet-sub { grid-area: sub; margin-bottom: 10px; }
+  #compass-sheet .compass-holder { grid-area: dial; align-self: center; }
+  #compass-sheet .compass-friends-legend { grid-area: legend; margin: 0; }
+  #compass-sheet .compass-readout { grid-area: readout; margin-top: 12px; align-self: center; }
   #compass-sheet #compass-svg {
-    width: 220px;
-    height: 220px;
+    width: 240px;
+    height: 240px;
   }
   #compass-sheet .compass-actions {
+    grid-area: actions;
     margin-top: 12px;
+    align-self: end;
   }
   #compass-sheet .btn-fate,
   #compass-sheet .btn-confirm {

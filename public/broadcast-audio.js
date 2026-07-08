@@ -56,17 +56,24 @@ function stopPlayback() {
   if (window.speechSynthesis) speechSynthesis.cancel();
 }
 
+function clampVolume(v) {
+  return Math.min(1, Math.max(0, v));
+}
+
 function fadeAudioVolume(audio, from, to, ms) {
   return new Promise((resolve) => {
     if (!audio || ms <= 0) {
-      if (audio) audio.volume = to;
+      if (audio) audio.volume = clampVolume(to);
       resolve();
       return;
     }
     const t0 = performance.now();
     const step = (now) => {
-      const p = Math.min(1, (now - t0) / ms);
-      audio.volume = from + (to - from) * p;
+      // rAF 的幀時間戳可能早於註冊時的 performance.now()，p 會變負 → 音量負值會 throw
+      const p = Math.min(1, Math.max(0, (now - t0) / ms));
+      try {
+        audio.volume = clampVolume(from + (to - from) * p);
+      } catch { /* 元素可能已被釋放 */ }
       if (p < 1) requestAnimationFrame(step);
       else resolve();
     };
