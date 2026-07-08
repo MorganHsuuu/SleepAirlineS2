@@ -399,15 +399,17 @@ body[data-theme="dusk"] .trail-chip#trail-friends.is-on { color: #93c5fd; }
 .terminal-btn:active { transform: scale(0.98); }
 
 .terminal-btn--create {
-  background: linear-gradient(135deg, var(--gold), color-mix(in srgb, var(--gold) 68%, #fff 32%));
-  border-color: transparent;
-  color: #201609;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--gold) 22%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 24%, var(--divider));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+    color-mix(in srgb, var(--glass-bg-strong) 84%, transparent);
+  color: var(--ink-soft);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
 }
 
 .terminal-btn--create:hover {
-  color: #201609;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--gold) 92%, #fff 8%), var(--gold));
+  color: var(--gold);
+  background: var(--gold-soft);
 }
 
 .terminal-btn--share {
@@ -713,8 +715,30 @@ body[data-theme="dusk"] .dock-action--gold::before {
   background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0));
 }
 #btn-login {
+  min-height: 56px;
+  margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--gold) 46%, #fff 28%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 38%, transparent), transparent 45%),
+    linear-gradient(135deg, color-mix(in srgb, var(--gold) 92%, #fff 8%), color-mix(in srgb, var(--gold) 70%, #8a5d13 30%));
+  color: #211404;
+  box-shadow:
+    0 18px 36px color-mix(in srgb, var(--gold) 28%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--gold-soft) 62%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.62);
   backdrop-filter: blur(12px) saturate(1.4);
   -webkit-backdrop-filter: blur(12px) saturate(1.4);
+}
+#btn-login .pill-label {
+  letter-spacing: 4px;
+  font-size: 16px;
+  font-weight: 950;
+}
+#btn-login:hover {
+  box-shadow:
+    0 22px 42px color-mix(in srgb, var(--gold) 34%, transparent),
+    0 0 0 5px color-mix(in srgb, var(--gold-soft) 74%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.68);
 }
 .dock-action--green {
   border: 1px solid rgba(255, 255, 255, 0.38);
