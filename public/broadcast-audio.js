@@ -90,6 +90,7 @@ async function playAudioElement(audio) {
 }
 
 const bufferCache = new Map();
+const activePlaybacks = new WeakMap();
 let flightSfxNode = null;
 let captainIntroNode = null;
 let speechNode = null;
@@ -117,24 +118,30 @@ async function decodeBlobToBuffer(blob) {
 }
 
 function stopCeremonyWebAudio(tag) {
-  const stopNode = (node) => {
+  const stopNode = (node, clear) => {
     if (!node) return;
-    try { node.source.stop(); } catch { /* noop */ }
-    try { node.source.disconnect(); } catch { /* noop */ }
-    try { node.gain.disconnect(); } catch { /* noop */ }
+    const finish = activePlaybacks.get(node);
+    if (finish) finish(true);
+    else {
+      try { node.source.stop(); } catch { /* noop */ }
+      try { node.source.disconnect(); } catch { /* noop */ }
+      try { node.gain.disconnect(); } catch { /* noop */ }
+    }
+    clear();
   };
   if (!tag || tag === 'flightSfx') {
-    stopNode(flightSfxNode);
-    flightSfxNode = null;
+    stopNode(flightSfxNode, () => { flightSfxNode = null; });
   }
   if (!tag || tag === 'captain') {
-    stopNode(captainIntroNode);
-    captainIntroNode = null;
+    stopNode(captainIntroNode, () => { captainIntroNode = null; });
   }
   if (!tag || tag === 'speech') {
-    stopNode(speechNode);
-    speechNode = null;
+    stopNode(speechNode, () => { speechNode = null; });
   }
+}
+
+function stopCaptainIntro() {
+  stopCeremonyWebAudio('captain');
 }
 
 function detachCeremonyNode(node, tag) {
@@ -161,7 +168,8 @@ async function playWebAudioBuffer(buffer, {
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.loop = !!(loop && maxSeconds <= 0);
-  const clipSec = maxSeconds > 0 ? Math.min(maxSeconds, buffer.duration) : 0;
+  const bufDur = Number.isFinite(buffer.duration) && buffer.duration > 0 ? buffer.duration : 0;
+  const clipSec = maxSeconds > 0 && bufDur > 0 ? Math.min(maxSeconds, bufDur) : (maxSeconds > 0 ? maxSeconds : 0);
   const gain = ctx.createGain();
   const targetVol = Math.max(volume, 0.0001);
   gain.gain.value = fadeInMs > 0 ? 0.0001 : targetVol;
@@ -185,11 +193,13 @@ async function playWebAudioBuffer(buffer, {
     const finish = (ok) => {
       if (done) return;
       done = true;
+      activePlaybacks.delete(node);
       if (timer) clearTimeout(timer);
       stopSource();
       detachCeremonyNode(node, tag);
       resolve(ok);
     };
+    activePlaybacks.set(node, finish);
     source.onended = () => { if (!source.loop) finish(true); };
     const timerMs = clipSec > 0
       ? clipSec * 1000 + 250
@@ -233,7 +243,7 @@ async function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}
   return new Promise((resolve) => {
     const audio = new Audio(url);
     audio.volume = volume;
-    audio.loop = loop;
+    audio.loop = false;
     markInlineAudio(audio);
     currentAudio = audio;
     let done = false;
@@ -242,11 +252,18 @@ async function playTimedClip(url, { seconds = 0, volume = 1, loop = false } = {}
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
+      audio.removeEventListener('timeupdate', onCap);
       if (currentAudio === audio) currentAudio = null;
       try { audio.pause(); } catch { /* noop */ }
       resolve(ok);
     };
-    if (seconds > 0) timer = setTimeout(() => finish(true), seconds * 1000);
+    const onCap = () => {
+      if (seconds > 0 && audio.currentTime >= seconds - 0.05) finish(true);
+    };
+    if (seconds > 0) {
+      timer = setTimeout(() => finish(true), seconds * 1000 + 120);
+      audio.addEventListener('timeupdate', onCap);
+    }
     audio.onended = () => finish(true);
     audio.onerror = () => finish(false);
     playAudioElement(audio).then((ok) => { if (!ok) finish(false); });
@@ -284,20 +301,22 @@ function stopTowerSignalLoop() {
 }
 
 async function playCaptainIntro() {
-  stopCeremonyWebAudio('captain');
+  stopCaptainIntro();
   resetKeepAliveToSilent();
   await ensureAudioCtx();
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
-  const ok = await playTimedClip(cfg.url, {
-    seconds: cfg.seconds ?? 7,
-    volume: cfg.volume ?? 0.72,
-    loop: false,
-  });
-  if (ok) return true;
-  await playAttentionBeeps();
-  await playPaChime();
-  return false;
+  const sec = Math.max(0.5, Math.min(30, Number(cfg.seconds) || 7));
+  await Promise.race([
+    playTimedClip(cfg.url, {
+      seconds: sec,
+      volume: cfg.volume ?? 0.72,
+      loop: false,
+    }),
+    delay(sec * 1000 + 180),
+  ]);
+  stopCaptainIntro();
+  return true;
 }
 
 async function playFlightSfx(url, { loop = true, volume = 0.65, fadeInMs = 700 } = {}) {
@@ -826,16 +845,19 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
       ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
       : prepareCaptainSpeech(text, style);
     await playCaptainIntro();
+    stopCaptainIntro();
     await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
     await unlockMedia();
-    if (prepared) return await playPreparedSpeech(prepared);
-    return await speakText(text);
+    if (!prepared) return await speakText(text);
+    return await playPreparedSpeech(prepared);
   } catch {
+    stopCaptainIntro();
     await muteCeremonyBedForSpeech();
     await unlockMedia();
     return speakText(text);
   } finally {
+    stopCaptainIntro();
     if (restoreBed) await restoreCeremonyBed();
   }
 }
@@ -847,6 +869,8 @@ if (window.speechSynthesis) {
 
 window.BroadcastAudio = {
   playCaptainBroadcast,
+  playCaptainIntro,
+  stopCaptainIntro,
   prepareCaptainSpeech,
   playTowerSignal,
   startTowerSignalLoop,

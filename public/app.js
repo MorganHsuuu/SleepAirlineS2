@@ -1562,7 +1562,7 @@ async function ensureLandingSceneryReady(landed, maxMs) {
   if (window.WorkshopLocal?.isActive?.()) return false;
   if (landingScenery?.imageUrl && await preloadImageUrl(landingScenery.imageUrl)) return true;
 
-  const waitCap = maxMs ?? (landingScenery?.imageUrl ? 90000 : 55000);
+  const waitCap = maxMs ?? (landingScenery?.imageUrl ? 60000 : 22000);
   const deadline = Date.now() + waitCap;
   let wi = 0;
   let lastWhisper = 0;
@@ -1597,7 +1597,11 @@ async function ensureLandingSceneryReady(landed, maxMs) {
 
 // ── 語音播放（含音波動畫）────────────────────────────────────────────────────
 
-async function playBroadcastWithWave(text, style, { maxMs = 0, speechBase64, restoreBed = true } = {}) {
+async function playBroadcastWithWave(text, style, {
+  maxMs = 0,
+  speechBase64,
+  restoreBed = true,
+} = {}) {
   if (!text || !window.BroadcastAudio) return;
   const wave = $('voice-wave');
   wave?.classList.add('speaking');
@@ -1615,7 +1619,8 @@ async function playBroadcastWithWave(text, style, { maxMs = 0, speechBase64, res
       await playPromise;
     }
   } finally {
-    await Promise.race([playPromise.catch(() => {}), waitMs(600)]);
+    BroadcastAudio?.stopCaptainIntro?.();
+    await Promise.race([playPromise.catch(() => {}), waitMs(400)]);
     wave?.classList.remove('speaking');
   }
 }
@@ -1977,7 +1982,11 @@ function waitForVideoEnd(video, fallbackMs = 4000) {
     if (video.ended) { finish(); return; }
     video.addEventListener('ended', finish, { once: true });
     video.addEventListener('timeupdate', onTime);
-    setTimeout(finish, fallbackMs);
+    const d = video.duration;
+    const capMs = Number.isFinite(d) && d > 0
+      ? Math.max(fallbackMs, d * 1000 + 800)
+      : fallbackMs;
+    setTimeout(finish, capMs);
   });
 }
 
@@ -2131,7 +2140,7 @@ function celebrateArrival(flightId) {
 
 // ── 起飛／降落全螢幕舷窗過場 ─────────────────────────────────────────────────
 
-const TAKEOFF_FX_MS = { enter: 620, leave: 720, crossfade: 780, launchHold: 3000, prepMin: 1800 };
+const TAKEOFF_FX_MS = { enter: 620, leave: 720, crossfade: 780, launchMin: 5200, prepMin: 1800 };
 const LANDING_FX_MS = { leave: 720, glideMin: 2800, approachMin: 4200, sceneryHold: 2200 };
 
 function startFxStatusCycle(elId, lines, intervalMs = 2600) {
@@ -2255,9 +2264,20 @@ function setTakeoffFxPhase(phase) {
   } else if (phase === 'launch') {
     preloadTakeoffVideo();
     animateFxLine('takeoff-fx-title', '起飛中…');
-    playWindowVideo(video, FLIGHT_MEDIA.takeoff);
+    playWindowVideo(video, FLIGHT_MEDIA.takeoff, { loop: false });
     BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 800 });
   }
+}
+
+/** 起飛影片播完（至少 launchMin）再結束過場，避免過早露出地圖 */
+async function waitTakeoffLaunchComplete() {
+  const video = $('takeoff-fx-video');
+  if (!video) {
+    await waitMs(TAKEOFF_FX_MS.launchMin);
+    return;
+  }
+  await waitForVideoEnd(video, TAKEOFF_FX_MS.launchMin);
+  await BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 550 });
 }
 function showTakeoffFx(sub, { phase = 'prep' } = {}) {
   const fx = $('takeoff-fx');
@@ -2431,9 +2451,11 @@ function setLandingFxPhase(phase) {
 /** 機長廣播結束 → 著陸段：清 TTS、解鎖媒體、停下降 loop，再接 landing.mp4 */
 async function bridgeAfterCaptainBroadcast() {
   if (window.speechSynthesis) speechSynthesis.cancel();
+  BroadcastAudio?.stopCaptainIntro?.();
   BroadcastAudio?.stopPlayback?.();
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
+  await BroadcastAudio?.restoreCeremonyBed?.();
   const video = $('landing-fx-video');
   if (video) {
     disableSeamlessVideoLoop(video);
@@ -2685,16 +2707,16 @@ async function doTakeoff() {
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
         activeFlight.takeoffBroadcastStyle,
-        { maxMs: 45000, speechBase64: data.speechAudioBase64 },
+        { maxMs: 120000, speechBase64: data.speechAudioBase64 },
       );
     }
 
     await animateFxLine('takeoff-fx-sub', '推進器啟動 · 準備離地…');
     setTakeoffFxPhase('launch');
-    Globe.flyTo(youCoord(), 1600);
-    await waitMs(TAKEOFF_FX_MS.launchHold);
+    await waitTakeoffLaunchComplete();
 
     await hideTakeoffFx();
+    Globe.flyTo(youCoord(), 1600);
     stopCeremonyAudioForCruise();
     unlockDockForFx();
     await revealDockPanel('flight-panel');
@@ -2784,7 +2806,7 @@ async function doLand() {
       await playBroadcastWithWave(
         landed.captainBroadcast,
         landed.captainBroadcastStyle || landed.takeoffBroadcastStyle,
-        { maxMs: 45000, speechBase64: data.speechAudioBase64, restoreBed: false },
+        { maxMs: 120000, speechBase64: data.speechAudioBase64, restoreBed: false },
       );
     }
 
