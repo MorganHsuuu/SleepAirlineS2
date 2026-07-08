@@ -14,6 +14,14 @@ const mem = new Map<string, Passenger>();
 /** Notion 模式下登入不寫表，起飛前暫存姓名／小隊。 */
 const profileCache = new Map<string, { name: string; groupId: string }>();
 
+function readGroupId(props: Record<string, unknown>): string {
+  const numeric = readNumber(props, 'Group ID');
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, '0');
+  }
+  return readSelect(props, 'Group ID') ?? '';
+}
+
 function resolveProfile(
   passengerId: string,
   name: string,
@@ -65,7 +73,7 @@ function parsePassengerFromFlightRow(
     notionId: page.id as string,
     passengerId,
     name: overrides?.name || readText(props, 'Name'),
-    groupId: overrides?.groupId || (readSelect(props, 'Group ID') ?? ''),
+    groupId: overrides?.groupId || readGroupId(props),
     currentLocation,
     currentLatitude,
     currentLongitude,
@@ -136,7 +144,7 @@ export async function getOrCreatePassenger(
     const page = inFlight.results[0] as Record<string, unknown>;
     const props = page.properties as Record<string, unknown>;
     const rowName = readText(props, 'Name');
-    const rowGroup = readSelect(props, 'Group ID') ?? '';
+    const rowGroup = readGroupId(props);
     return {
       passenger: parsePassengerFromFlightRow(page, {
         name: profile.name || rowName || undefined,

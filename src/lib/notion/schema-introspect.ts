@@ -9,6 +9,8 @@ type PropMeta = { name: string; type: string; selectOptions?: string[] };
 
 let dashboardPropCache: Set<string> | null = null;
 let landscapePropCache: Set<string> | null = null;
+let dashboardTypeCache: Map<string, string> | null = null;
+let landscapeTypeCache: Map<string, string> | null = null;
 
 function extractProperties(db: Record<string, unknown>): PropMeta[] {
   const props = db.properties as Record<
@@ -36,6 +38,17 @@ async function loadPropertyNames(
   return new Set(Object.keys((db.properties as Record<string, unknown>) ?? {}));
 }
 
+async function loadPropertyTypes(
+  client: Client,
+  databaseId: string
+): Promise<Map<string, string>> {
+  const db = (await client.databases.retrieve({ database_id: databaseId })) as Record<
+    string,
+    unknown
+  >;
+  return new Map(extractProperties(db).map((prop) => [prop.name, prop.type]));
+}
+
 /** 依 Notion 實際存在的欄位過濾寫入 payload（刪掉的欄位自動略過）。 */
 export function pickExistingProperties(
   properties: Record<string, unknown>,
@@ -59,6 +72,20 @@ export async function getDashboardPropertyNames(): Promise<Set<string>> {
   return dashboardPropCache;
 }
 
+export async function getDashboardPropertyTypes(): Promise<Map<string, string>> {
+  if (!isNotionConfigured()) {
+    return new Map(Object.entries(getDashboardProperties()).map(([name, value]) => [
+      name,
+      Object.keys(value)[0] ?? 'unknown',
+    ]));
+  }
+  if (dashboardTypeCache) return dashboardTypeCache;
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  dashboardTypeCache = await loadPropertyTypes(client, dbId);
+  return dashboardTypeCache;
+}
+
 export async function getLandscapePropertyNames(): Promise<Set<string>> {
   if (!isNotionConfigured()) return new Set();
   if (landscapePropCache) return landscapePropCache;
@@ -68,9 +95,20 @@ export async function getLandscapePropertyNames(): Promise<Set<string>> {
   return landscapePropCache;
 }
 
+export async function getLandscapePropertyTypes(): Promise<Map<string, string>> {
+  if (!isNotionConfigured()) return new Map();
+  if (landscapeTypeCache) return landscapeTypeCache;
+  const client = getNotionClient();
+  const dbId = await resolveLandscapeDbId();
+  landscapeTypeCache = await loadPropertyTypes(client, dbId);
+  return landscapeTypeCache;
+}
+
 export function clearSchemaCache(): void {
   dashboardPropCache = null;
   landscapePropCache = null;
+  dashboardTypeCache = null;
+  landscapeTypeCache = null;
 }
 
 export async function introspectNotionSchemas(): Promise<{
@@ -103,6 +141,7 @@ export async function introspectNotionSchemas(): Promise<{
   const dashNames = new Set(dashProps.map((p) => p.name));
 
   dashboardPropCache = dashNames;
+  dashboardTypeCache = new Map(dashProps.map((prop) => [prop.name, prop.type]));
 
   const expected = [...DASHBOARD_PROPERTY_ORDER];
   const missingFromNotion = expected.filter((n) => !dashNames.has(n));
@@ -126,6 +165,10 @@ export async function introspectNotionSchemas(): Promise<{
     landscapePropCache = new Set(
       Object.keys((landscapeDb.properties as Record<string, unknown>) ?? {})
     );
+    landscapeTypeCache = new Map(extractProperties(landscapeDb).map((prop) => [
+      prop.name,
+      prop.type,
+    ]));
     landingScenery = {
       title: lsTitle,
       databaseId: landscapeId,

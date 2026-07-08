@@ -8,9 +8,50 @@ import { resolveDashboardDbId } from './ensure-dashboard';
 import { syncMemPassenger } from './passengers';
 import { calculateFlightProgress } from '../flight/progress';
 import { getNarrativeRegion } from '../flight/region';
-import { getDashboardPropertyNames, pickExistingProperties } from './schema-introspect';
+import {
+  getDashboardPropertyNames,
+  getDashboardPropertyTypes,
+  pickExistingProperties,
+} from './schema-introspect';
 
 const mem: Flight[] = [];
+
+function normalizeGroupDigits(groupId: string): string {
+  const legacy = /^group_(\d{2})$/i.exec(groupId || '');
+  if (legacy) return legacy[1].padStart(4, '0');
+  const digits = String(groupId || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.slice(-4).padStart(4, '0');
+}
+
+function readGroupId(props: Record<string, unknown>): string {
+  const numeric = readNumber(props, 'Group ID');
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, '0');
+  }
+  return readSelect(props, 'Group ID') ?? '';
+}
+
+function groupNumber(groupId: string): number | null {
+  const digits = normalizeGroupDigits(groupId);
+  if (!/^\d{4}$/.test(digits)) return null;
+  return Number(digits);
+}
+
+function wGroupId(value: string, type: string | undefined) {
+  if (type === 'number') return wNumber(groupNumber(value));
+  return wSelect(value);
+}
+
+function groupFilter(groupId: string, type: string | undefined) {
+  if (type === 'number') {
+    const n = groupNumber(groupId);
+    return n == null
+      ? { property: 'Group ID', number: { is_empty: true } }
+      : { property: 'Group ID', number: { equals: n } };
+  }
+  return { property: 'Group ID', select: { equals: groupId } };
+}
 
 function liveFlightState(
   status: FlightStatus,
@@ -42,7 +83,7 @@ function parseFlight(page: Record<string, unknown>): Flight {
     flightId: readFlightId(props),
     passengerId: readPassengerId(props),
     passengerName: readText(props, 'Name'),
-    groupId: readSelect(props, 'Group ID') ?? '',
+    groupId: readGroupId(props),
     status,
     departureLocation: readText(props, 'Departure Location'),
     departureLatitude: readNumber(props, 'Departure Latitude') ?? 0,
@@ -128,12 +169,13 @@ export async function createFlight(params: {
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
   const allowed = await getDashboardPropertyNames();
+  const types = await getDashboardPropertyTypes();
 
   const fullProperties = {
       'Flight ID': wTitle(flightId),
       'Passenger ID': wText(params.passengerId),
       'Name': wText(params.passengerName),
-      'Group ID': wSelect(params.groupId),
+      'Group ID': wGroupId(params.groupId, types.get('Group ID')),
       'Status': wSelect('in_flight'),
       'Departure Location': wText(params.departureLocation),
       'Departure Latitude': wNumber(params.departureLatitude),
@@ -230,11 +272,14 @@ export async function updateFlight(
   const client = getNotionClient();
   const now = new Date().toISOString();
   const allowed = await getDashboardPropertyNames();
+  const types = await getDashboardPropertyTypes();
 
   const fullProperties: Record<string, unknown> = { 'Updated At': wDate(now) };
   if (updates.status !== undefined) fullProperties['Status'] = wSelect(updates.status);
   if (updates.passengerName !== undefined) fullProperties['Name'] = wText(updates.passengerName);
-  if (updates.groupId !== undefined) fullProperties['Group ID'] = wSelect(updates.groupId);
+  if (updates.groupId !== undefined) {
+    fullProperties['Group ID'] = wGroupId(updates.groupId, types.get('Group ID'));
+  }
   if (updates.arrivalLocation !== undefined) fullProperties['Arrival Location'] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== undefined) fullProperties['Arrival Latitude'] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== undefined) fullProperties['Arrival Longitude'] = wNumber(updates.arrivalLongitude);
@@ -289,12 +334,13 @@ async function queryGroupFlightsByStatus(
 
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
+  const types = await getDashboardPropertyTypes();
 
   const result = await client.databases.query({
     database_id: dbId,
     filter: {
       and: [
-        { property: 'Group ID', select: { equals: groupId } },
+        groupFilter(groupId, types.get('Group ID')),
         {
           or: statuses.map((status) => ({
             property: 'Status',
@@ -302,7 +348,9 @@ async function queryGroupFlightsByStatus(
           })),
         },
       ],
-    },
+    // Notion SDK types are a strict union; this helper switches between number/select at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
     sorts: [{ property: 'Takeoff Time', direction: 'descending' }],
     page_size: 100,
   });
@@ -357,15 +405,18 @@ export async function getGroupFlights(
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
   const since = new Date(Date.now() - sinceHours * 3600 * 1000).toISOString();
+  const types = await getDashboardPropertyTypes();
 
   const result = await client.databases.query({
     database_id: dbId,
     filter: {
       and: [
-        { property: 'Group ID', select: { equals: groupId } },
+        groupFilter(groupId, types.get('Group ID')),
         { property: 'Takeoff Time', date: { on_or_after: since } },
       ],
-    },
+    // Notion SDK types are a strict union; this helper switches between number/select at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
     sorts: [{ property: 'Takeoff Time', direction: 'descending' }],
     page_size: 50,
   });

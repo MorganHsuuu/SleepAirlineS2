@@ -92,6 +92,11 @@ var SOCIAL_CUE_OPTIONS = [
   "route_convergence",
   "teammate_in_sky",
   "parallel_heading",
+  "same_departure",
+  "heading_contrast",
+  "squad_in_sky",
+  "fresh_arrival",
+  "first_of_night",
   "relay_flight",
   "early_landing",
   "late_landing",
@@ -141,7 +146,7 @@ function getDashboardProperties() {
     "Flight ID": { title: {} },
     "Passenger ID": { rich_text: {} },
     "Name": { rich_text: {} },
-    "Group ID": { select: { options: GROUP_OPTIONS } },
+    "Group ID": { number: { format: "number" } },
     "Status": { select: { options: STATUS_OPTIONS } },
     // ── 起飛 ──
     "Departure Location": { rich_text: {} },
@@ -414,6 +419,13 @@ var DEFAULT_LAT = 25.033;
 var DEFAULT_LNG = 121.5654;
 var mem = /* @__PURE__ */ new Map();
 var profileCache = /* @__PURE__ */ new Map();
+function readGroupId(props) {
+  const numeric = readNumber(props, "Group ID");
+  if (typeof numeric === "number" && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, "0");
+  }
+  return readSelect(props, "Group ID") ?? "";
+}
 function resolveProfile(passengerId, name, groupId) {
   const cached = profileCache.get(passengerId);
   const resolved = {
@@ -451,7 +463,7 @@ function parsePassengerFromFlightRow(page, overrides) {
     notionId: page.id,
     passengerId,
     name: overrides?.name || readText(props, "Name"),
-    groupId: overrides?.groupId || (readSelect(props, "Group ID") ?? ""),
+    groupId: overrides?.groupId || readGroupId(props),
     currentLocation,
     currentLatitude,
     currentLongitude,
@@ -508,7 +520,7 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
     const page = inFlight.results[0];
     const props = page.properties;
     const rowName = readText(props, "Name");
-    const rowGroup = readSelect(props, "Group ID") ?? "";
+    const rowGroup = readGroupId(props);
     return {
       passenger: parsePassengerFromFlightRow(page, {
         name: profile.name || rowName || void 0,
@@ -582,7 +594,7 @@ function getLandscapeProperties() {
     "Flight ID": { rich_text: {} },
     "Passenger ID": { rich_text: {} },
     "Name": { rich_text: {} },
-    "Group ID": { select: { options: GROUP_OPTIONS } },
+    "Group ID": { number: { format: "number" } },
     "Arrival Location": { rich_text: {} },
     "Country": { rich_text: {} },
     "Image": { files: {} },
@@ -675,6 +687,8 @@ async function resolveLandscapeDbId() {
 // src/lib/notion/schema-introspect.ts
 var dashboardPropCache = null;
 var landscapePropCache = null;
+var dashboardTypeCache = null;
+var landscapeTypeCache = null;
 function extractProperties(db) {
   const props = db.properties;
   return Object.entries(props ?? {}).map(([name, def]) => ({
@@ -686,6 +700,10 @@ function extractProperties(db) {
 async function loadPropertyNames(client, databaseId) {
   const db = await client.databases.retrieve({ database_id: databaseId });
   return new Set(Object.keys(db.properties ?? {}));
+}
+async function loadPropertyTypes(client, databaseId) {
+  const db = await client.databases.retrieve({ database_id: databaseId });
+  return new Map(extractProperties(db).map((prop) => [prop.name, prop.type]));
 }
 function pickExistingProperties(properties, allowed) {
   const out = {};
@@ -704,6 +722,19 @@ async function getDashboardPropertyNames() {
   dashboardPropCache = await loadPropertyNames(client, dbId);
   return dashboardPropCache;
 }
+async function getDashboardPropertyTypes() {
+  if (!isNotionConfigured()) {
+    return new Map(Object.entries(getDashboardProperties()).map(([name, value]) => [
+      name,
+      Object.keys(value)[0] ?? "unknown"
+    ]));
+  }
+  if (dashboardTypeCache) return dashboardTypeCache;
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  dashboardTypeCache = await loadPropertyTypes(client, dbId);
+  return dashboardTypeCache;
+}
 async function getLandscapePropertyNames() {
   if (!isNotionConfigured()) return /* @__PURE__ */ new Set();
   if (landscapePropCache) return landscapePropCache;
@@ -711,6 +742,14 @@ async function getLandscapePropertyNames() {
   const dbId = await resolveLandscapeDbId();
   landscapePropCache = await loadPropertyNames(client, dbId);
   return landscapePropCache;
+}
+async function getLandscapePropertyTypes() {
+  if (!isNotionConfigured()) return /* @__PURE__ */ new Map();
+  if (landscapeTypeCache) return landscapeTypeCache;
+  const client = getNotionClient();
+  const dbId = await resolveLandscapeDbId();
+  landscapeTypeCache = await loadPropertyTypes(client, dbId);
+  return landscapeTypeCache;
 }
 async function introspectNotionSchemas() {
   if (!isNotionConfigured()) {
@@ -725,6 +764,7 @@ async function introspectNotionSchemas() {
   const dashProps = extractProperties(dashboardDb);
   const dashNames = new Set(dashProps.map((p) => p.name));
   dashboardPropCache = dashNames;
+  dashboardTypeCache = new Map(dashProps.map((prop) => [prop.name, prop.type]));
   const expected = [...DASHBOARD_PROPERTY_ORDER];
   const missingFromNotion = expected.filter((n) => !dashNames.has(n));
   const extraInNotion = [...dashNames].filter(
@@ -740,6 +780,10 @@ async function introspectNotionSchemas() {
     landscapePropCache = new Set(
       Object.keys(landscapeDb.properties ?? {})
     );
+    landscapeTypeCache = new Map(extractProperties(landscapeDb).map((prop) => [
+      prop.name,
+      prop.type
+    ]));
     landingScenery = {
       title: lsTitle,
       databaseId: landscapeId,
@@ -763,6 +807,36 @@ async function introspectNotionSchemas() {
 
 // src/lib/notion/flights.ts
 var mem2 = [];
+function normalizeGroupDigits(groupId) {
+  const legacy = /^group_(\d{2})$/i.exec(groupId || "");
+  if (legacy) return legacy[1].padStart(4, "0");
+  const digits = String(groupId || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.slice(-4).padStart(4, "0");
+}
+function readGroupId2(props) {
+  const numeric = readNumber(props, "Group ID");
+  if (typeof numeric === "number" && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, "0");
+  }
+  return readSelect(props, "Group ID") ?? "";
+}
+function groupNumber(groupId) {
+  const digits = normalizeGroupDigits(groupId);
+  if (!/^\d{4}$/.test(digits)) return null;
+  return Number(digits);
+}
+function wGroupId(value, type) {
+  if (type === "number") return wNumber(groupNumber(value));
+  return wSelect(value);
+}
+function groupFilter(groupId, type) {
+  if (type === "number") {
+    const n = groupNumber(groupId);
+    return n == null ? { property: "Group ID", number: { is_empty: true } } : { property: "Group ID", number: { equals: n } };
+  }
+  return { property: "Group ID", select: { equals: groupId } };
+}
 function liveFlightState(status, takeoffTime) {
   if (status === "landed") {
     return { flightProgress: 100, narrativeRegion: "arrival_harbor" };
@@ -787,7 +861,7 @@ function parseFlight(page) {
     flightId: readFlightId2(props),
     passengerId: readPassengerId2(props),
     passengerName: readText(props, "Name"),
-    groupId: readSelect(props, "Group ID") ?? "",
+    groupId: readGroupId2(props),
     status,
     departureLocation: readText(props, "Departure Location"),
     departureLatitude: readNumber(props, "Departure Latitude") ?? 0,
@@ -868,11 +942,12 @@ async function createFlight(params) {
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
   const allowed = await getDashboardPropertyNames();
+  const types = await getDashboardPropertyTypes();
   const fullProperties = {
     "Flight ID": wTitle(flightId),
     "Passenger ID": wText(params.passengerId),
     "Name": wText(params.passengerName),
-    "Group ID": wSelect(params.groupId),
+    "Group ID": wGroupId(params.groupId, types.get("Group ID")),
     "Status": wSelect("in_flight"),
     "Departure Location": wText(params.departureLocation),
     "Departure Latitude": wNumber(params.departureLatitude),
@@ -941,10 +1016,13 @@ async function updateFlight(notionId, updates) {
   const client = getNotionClient();
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const allowed = await getDashboardPropertyNames();
+  const types = await getDashboardPropertyTypes();
   const fullProperties = { "Updated At": wDate(now) };
   if (updates.status !== void 0) fullProperties["Status"] = wSelect(updates.status);
   if (updates.passengerName !== void 0) fullProperties["Name"] = wText(updates.passengerName);
-  if (updates.groupId !== void 0) fullProperties["Group ID"] = wSelect(updates.groupId);
+  if (updates.groupId !== void 0) {
+    fullProperties["Group ID"] = wGroupId(updates.groupId, types.get("Group ID"));
+  }
   if (updates.arrivalLocation !== void 0) fullProperties["Arrival Location"] = wText(updates.arrivalLocation);
   if (updates.arrivalLatitude !== void 0) fullProperties["Arrival Latitude"] = wNumber(updates.arrivalLatitude);
   if (updates.arrivalLongitude !== void 0) fullProperties["Arrival Longitude"] = wNumber(updates.arrivalLongitude);
@@ -986,11 +1064,12 @@ async function queryGroupFlightsByStatus(groupId, statuses) {
   }
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
+  const types = await getDashboardPropertyTypes();
   const result = await client.databases.query({
     database_id: dbId,
     filter: {
       and: [
-        { property: "Group ID", select: { equals: groupId } },
+        groupFilter(groupId, types.get("Group ID")),
         {
           or: statuses.map((status) => ({
             property: "Status",
@@ -998,6 +1077,8 @@ async function queryGroupFlightsByStatus(groupId, statuses) {
           }))
         }
       ]
+      // Notion SDK types are a strict union; this helper switches between number/select at runtime.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     },
     sorts: [{ property: "Takeoff Time", direction: "descending" }],
     page_size: 100
@@ -1037,13 +1118,16 @@ async function getGroupFlights(groupId, sinceHours = 24) {
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
   const since = new Date(Date.now() - sinceHours * 3600 * 1e3).toISOString();
+  const types = await getDashboardPropertyTypes();
   const result = await client.databases.query({
     database_id: dbId,
     filter: {
       and: [
-        { property: "Group ID", select: { equals: groupId } },
+        groupFilter(groupId, types.get("Group ID")),
         { property: "Takeoff Time", date: { on_or_after: since } }
       ]
+      // Notion SDK types are a strict union; this helper switches between number/select at runtime.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     },
     sorts: [{ property: "Takeoff Time", direction: "descending" }],
     page_size: 50
@@ -107231,8 +107315,69 @@ var CULTURE_BY_ISO = {
   EG: { name: "\u57C3\u53CA", culture: "\u4F5C\u5BA2\u6703\u88AB\u71B1\u60C5\u52F8\u98DF\uFF1B\u8584\u8377\u7D05\u8336\u914D\u6C34\u7159\u662F\u8857\u574A\u8AC7\u5929\u65E5\u5E38\u3002" },
   MA: { name: "\u6469\u6D1B\u54E5", culture: "\u8584\u8377\u8336\u9AD8\u9AD8\u6C96\u5012\u8D77\u6CE1\u662F\u5F85\u5BA2\u4E4B\u9053\uFF1Bsouk \u8A0E\u50F9\u9084\u50F9\u4E5F\u662F\u4EA4\u6D41\u3002" },
   KE: { name: "\u80AF\u4E9E", culture: "\u300CJambo!\u300D\u662F\u554F\u5019\uFF1BUbuntu \u7CBE\u795E\u5F37\u8ABF\u5F7C\u6B64\u9023\u7D50\u3002" },
-  PG: { name: "\u5DF4\u5E03\u4E9E\u65B0\u5E7E\u5167\u4E9E", culture: "\u5CF6\u5DBC\u90E8\u843D\u7684\u6B61\u8FCE\u5100\u5F0F\u71B1\u60C5\u800C\u9686\u91CD\uFF1B\u5206\u4EAB betel nut \u662F\u50B3\u7D71\u793E\u4EA4\u3002" }
+  PG: { name: "\u5DF4\u5E03\u4E9E\u65B0\u5E7E\u5167\u4E9E", culture: "\u5CF6\u5DBC\u90E8\u843D\u7684\u6B61\u8FCE\u5100\u5F0F\u71B1\u60C5\u800C\u9686\u91CD\uFF1B\u5206\u4EAB betel nut \u662F\u50B3\u7D71\u793E\u4EA4\u3002" },
+  RE: { name: "\u7559\u5C3C\u65FA", culture: "\u898B\u9762\u5148\u8AAA\u300CBonjour\u300D\uFF1B\u514B\u91CC\u5967\u6599\u7406\u8207\u706B\u5C71\u666F\u89C0\u662F\u7576\u5730\u7279\u8272\u3002" }
 };
+var MORNING_GREETING_BY_ISO = {
+  JP: "\u304A\u306F\u3088\u3046\u3054\u3056\u3044\u307E\u3059",
+  KR: "\uC548\uB155\uD558\uC138\uC694",
+  CN: "\u65E9\u4E0A\u597D",
+  TW: "\u65E9\u5B89",
+  HK: "\u65E9\u6668",
+  TH: "\u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35\u0E15\u0E2D\u0E19\u0E40\u0E0A\u0E49\u0E32",
+  VN: "Xin ch\xE0o bu\u1ED5i s\xE1ng",
+  SG: "Good morning",
+  MY: "Selamat pagi",
+  ID: "Selamat pagi",
+  PH: "Magandang umaga",
+  IN: "Namaste",
+  AE: "\u0635\u0628\u0627\u062D \u0627\u0644\u062E\u064A\u0631",
+  TR: "G\xFCnayd\u0131n",
+  RU: "\u0414\u043E\u0431\u0440\u043E\u0435 \u0443\u0442\u0440\u043E",
+  GB: "Good morning",
+  FR: "Bonjour",
+  RE: "Bonjour",
+  GP: "Bonjour",
+  MQ: "Bonjour",
+  GF: "Bonjour",
+  DE: "Guten Morgen",
+  IT: "Buongiorno",
+  ES: "Buenos d\xEDas",
+  PT: "Bom dia",
+  NL: "Goedemorgen",
+  CH: "Guten Morgen",
+  SE: "God morgon",
+  NO: "God morgen",
+  FI: "Hyv\xE4\xE4 huomenta",
+  DK: "God morgen",
+  GR: "\u039A\u03B1\u03BB\u03B7\u03BC\u03AD\u03C1\u03B1",
+  PL: "Dzie\u0144 dobry",
+  CZ: "Dobr\xE9 r\xE1no",
+  AT: "Guten Morgen",
+  IE: "Good morning",
+  IS: "G\xF3\xF0an daginn",
+  US: "Good morning",
+  CA: "Good morning",
+  MX: "Buenos d\xEDas",
+  BR: "Bom dia",
+  AR: "Buenos d\xEDas",
+  CL: "Buenos d\xEDas",
+  PE: "Buenos d\xEDas",
+  CO: "Buenos d\xEDas",
+  AU: "Good morning",
+  NZ: "Good morning",
+  ZA: "Good morning",
+  EG: "\u0635\u0628\u0627\u062D \u0627\u0644\u062E\u064A\u0631",
+  MA: "Bonjour",
+  KE: "Habari za asubuhi",
+  PG: "Good morning"
+};
+function morningGreetingForIso(iso) {
+  const key = iso.toUpperCase();
+  if (MORNING_GREETING_BY_ISO[key]) return MORNING_GREETING_BY_ISO[key];
+  if (["NC", "PF", "YT", "PM", "BL", "MF", "WF", "TF"].includes(key)) return "Bonjour";
+  return "Good morning";
+}
 var WMO_LABELS = {
   0: "\u6674\u6717",
   1: "\u5927\u81F4\u6674\u6717",
@@ -107336,6 +107481,7 @@ async function fetchLocalContext(input) {
     countryName: input.countryName || name,
     cityName: input.cityName,
     culture,
+    morningGreeting: morningGreetingForIso(iso),
     weatherSummary: weather?.weatherSummary ?? null,
     localTimeLabel: weather?.localTimeLabel ?? null
   };
@@ -107376,6 +107522,19 @@ function fallbackSocialCueText(candidate) {
       const dir = DIRECTION_LABEL[String(candidate.facts.routeDirection)] ?? String(candidate.facts.routeDirection);
       return `\u4F60\u548C ${name} \u90FD\u9078\u4E86${dir}\u2014\u2014\u5F9E ${candidate.facts.selfDeparture} \u8207 ${candidate.facts.teammateDeparture} \u51FA\u767C\u7684\u5E73\u884C\u591C\u822A\u3002`;
     }
+    case "same_departure":
+      return `\u4F60\u548C ${name} \u90FD\u5F9E ${candidate.facts.departureLocation} \u8D77\u98DB\u2014\u2014\u540C\u57CE\u7684\u591C\u822A\u8D77\u9EDE\u3002`;
+    case "heading_contrast": {
+      const selfDir = DIRECTION_LABEL[String(candidate.facts.selfDirection)] ?? String(candidate.facts.selfDirection);
+      const otherDir = DIRECTION_LABEL[String(candidate.facts.teammateDirection)] ?? String(candidate.facts.teammateDirection);
+      return `\u4F60\u822A\u5411${selfDir}\uFF0C${name} \u822A\u5411${otherDir}\u2014\u2014\u5C0F\u968A\u5728\u591C\u7A7A\u4E2D\u8D70\u76F8\u53CD\u65B9\u5411\u3002`;
+    }
+    case "squad_in_sky":
+      return `\u5C0F\u968A\u96F7\u9054\u4E0A\u73FE\u6709 ${candidate.facts.inFlightCount} \u4EBA\u591C\u822A\u3001${candidate.facts.landedCount} \u4EBA\u5DF2\u964D\u843D\u3002`;
+    case "fresh_arrival":
+      return `${name} \u525B\u5728 ${candidate.facts.arrivalLocation} \u964D\u843D\uFF08\u98DB\u884C ${candidate.facts.flightDuration}\uFF09\u3002`;
+    case "first_of_night":
+      return `${String(candidate.facts.passengerName ?? "\u4F60")} \u662F\u5C0F\u968A\u4ECA\u665A\u7B2C\u4E00\u73ED\u8D77\u98DB\u7684\u822A\u73ED\u3002`;
     case "relay_flight":
       return `\u4F60\u5DF2\u964D\u843D\uFF0C${name} \u4ECD\u5728\u591C\u822A\u4E2D\uFF08${candidate.facts.teammateDeparture} \u51FA\u767C\uFF0C\u9032\u5EA6 ${candidate.facts.teammateProgress}%\uFF09\u3002`;
     case "early_landing":
@@ -107387,12 +107546,17 @@ function fallbackSocialCueText(candidate) {
       return "\u4ECA\u665A\u4F60\u7368\u81EA\u98DB\u884C\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002";
   }
 }
-async function generateSocialCueText(candidate) {
+var TAKEOFF_SOCIAL_RULES = `
+- \u9019\u662F\u300C\u8D77\u98DB\u524D\u300D\u63D0\u793A\uFF1A\u53EA\u5BEB\u968A\u53CB\u5DF2\u767C\u751F\u7684\u4E8B\uFF08\u5DF2\u8D77\u98DB\u3001\u5DF2\u98DB\u591A\u4E45\u3001\u5DF2\u964D\u843D\u5728\u54EA\uFF09
+- \u7981\u6B62\uFF1A\u5373\u5C07\u3001\u5C07\u8981\u3001X \u5206\u9418\u5167\u3001\u5FEB\u62B5\u9054\u3001\u4E0B\u964D\u3001\u9810\u8A08\u5230\u9054\u3001\u5373\u5C07\u964D\u843D
+- \u7981\u6B62\u628A\u968A\u53CB\u6240\u5728\u57CE\u5E02\uFF0F\u7A7A\u57DF\u5BEB\u6210\u300C\u5FEB\u8981\u964D\u843D\u7684\u5730\u65B9\u300D`;
+async function generateSocialCueText(candidate, phase = "landing") {
   if (!process.env.OPENAI_API_KEY) {
     return fallbackSocialCueText(candidate);
   }
   const client = new import_openai.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const isTakeoff = phase === "takeoff";
   try {
     const completion = await client.chat.completions.create({
       model,
@@ -107400,11 +107564,10 @@ async function generateSocialCueText(candidate) {
         {
           role: "system",
           content: `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u793E\u4EA4\u63D0\u793A\u64B0\u5BEB\u8005\u3002
-- \u7E41\u9AD4\u4E2D\u6587\uFF0C1\u20132 \u53E5\uFF0C40\u201370 \u5B57
-- \u591C\u822A\u3001\u6EAB\u67D4\u3001\u6709\u756B\u9762\u611F\uFF0C\u50CF\u6A5F\u9577\u4F4E\u8072\u5C0D\u4E58\u5BA2\u8AAA\u7684\u540C\u7D44\u52D5\u614B
+- \u7E41\u9AD4\u4E2D\u6587\uFF0C1 \u53E5\u70BA\u4E3B\uFF0C\u6700\u591A 2 \u53E5\uFF0C30\u201355 \u5B57
+- \u591C\u822A\u3001\u6EAB\u67D4\u3001\u50CF\u6A5F\u9577\u4F4E\u8072\u88DC\u4E00\u53E5\u540C\u7D44\u52D5\u614B
 - \u53EA\u80FD\u4F7F\u7528\u63D0\u4F9B\u7684\u4E8B\u5BE6\uFF0C\u4E0D\u5F97\u7DE8\u9020\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D
-- \u6BCF\u6B21\u7528\u4E0D\u540C\u53E5\u5F0F\u8207\u610F\u8C61\uFF0C\u907F\u514D\u5957\u8A71
-- \u76F4\u63A5\u8F38\u51FA\u63D0\u793A\u6B63\u6587\uFF0C\u4E0D\u52A0\u5F15\u865F\u6216\u6A19\u984C`
+- \u76F4\u63A5\u8F38\u51FA\u63D0\u793A\u6B63\u6587\uFF0C\u4E0D\u52A0\u5F15\u865F\u6216\u6A19\u984C${isTakeoff ? TAKEOFF_SOCIAL_RULES : ""}`
         },
         {
           role: "user",
@@ -107527,6 +107690,28 @@ var COMPARABLE_ROUTE_DIRECTIONS = [
 ];
 
 // src/lib/flight/social-candidates.ts
+var TAKEOFF_SOCIAL_CUE_TYPES = /* @__PURE__ */ new Set([
+  "teammate_arrival",
+  "teammate_departure",
+  "parallel_heading",
+  "same_departure",
+  "heading_contrast",
+  "squad_in_sky",
+  "fresh_arrival",
+  "first_of_night"
+]);
+var OPPOSITE_ROUTE_DIRECTIONS = {
+  eastbound: ["westbound"],
+  westbound: ["eastbound"],
+  northbound: ["southbound"],
+  southbound: ["northbound"],
+  northeast: ["southwest"],
+  southwest: ["northeast"],
+  northwest: ["southeast"],
+  southeast: ["northwest"]
+};
+var FRESH_ARRIVAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
+var FIRST_OF_NIGHT_WINDOW_MS = 24 * 60 * 60 * 1e3;
 function formatDuration(minutes) {
   if (!minutes || minutes <= 0) return "";
   const h = Math.floor(minutes / 60);
@@ -107646,6 +107831,82 @@ function addParallelHeading(candidates, ctx, inFlightOthers) {
     });
   }
 }
+function addSameDeparture(candidates, ctx, others) {
+  const selfLoc = ctx.departureLocation.trim();
+  if (!selfLoc) return;
+  for (const other of others) {
+    if (other.status !== "in_flight" && other.status !== "landed") continue;
+    if (other.departureLocation.trim() !== selfLoc) continue;
+    candidates.push({
+      cueType: "same_departure",
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        departureLocation: selfLoc,
+        teammateStatus: other.status
+      }
+    });
+  }
+}
+function addHeadingContrast(candidates, ctx, inFlightOthers) {
+  if (!COMPARABLE_ROUTE_DIRECTIONS.includes(ctx.routeDirection)) return;
+  const opposites = OPPOSITE_ROUTE_DIRECTIONS[ctx.routeDirection];
+  if (!opposites) return;
+  for (const other of inFlightOthers) {
+    if (!opposites.includes(other.routeDirection)) continue;
+    candidates.push({
+      cueType: "heading_contrast",
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        selfDirection: ctx.routeDirection,
+        teammateDirection: other.routeDirection,
+        selfDeparture: ctx.departureLocation,
+        teammateDeparture: other.departureLocation
+      }
+    });
+  }
+}
+function addSquadInSky(candidates, inFlightOthers, landedOthers) {
+  if (inFlightOthers.length + landedOthers.length === 0) return;
+  candidates.push({
+    cueType: "squad_in_sky",
+    relatedPassenger: null,
+    facts: {
+      inFlightCount: inFlightOthers.length,
+      landedCount: landedOthers.length
+    }
+  });
+}
+function addFreshArrival(candidates, landedOthers) {
+  const since = Date.now() - FRESH_ARRIVAL_WINDOW_MS;
+  for (const other of landedOthers) {
+    if (!other.landingTime || !other.arrivalLocation) continue;
+    if (new Date(other.landingTime).getTime() < since) continue;
+    candidates.push({
+      cueType: "fresh_arrival",
+      relatedPassenger: other.passengerName,
+      facts: {
+        teammateName: other.passengerName,
+        arrivalLocation: other.arrivalLocation,
+        flightDuration: formatDuration(other.flightDurationMinutes) || "\u4E00\u6BB5\u6642\u9593"
+      }
+    });
+  }
+}
+function addFirstOfNight(candidates, ctx, groupFlights) {
+  if (ctx.phase !== "takeoff") return;
+  const myTs = new Date(ctx.takeoffTime).getTime();
+  const hasEarlierTakeoff = groupFlights.some(
+    (f) => f.passengerId !== ctx.passengerId && (f.status === "in_flight" || f.status === "landed") && myTs - new Date(f.takeoffTime).getTime() < FIRST_OF_NIGHT_WINDOW_MS && new Date(f.takeoffTime).getTime() < myTs
+  );
+  if (hasEarlierTakeoff) return;
+  candidates.push({
+    cueType: "first_of_night",
+    relatedPassenger: null,
+    facts: { passengerName: ctx.passengerName }
+  });
+}
 function addRelayFlight(candidates, inFlightOthers) {
   for (const other of inFlightOthers) {
     candidates.push({
@@ -107696,6 +107957,11 @@ function collectSocialCueCandidates(current, groupFlights) {
   addRouteConvergence(candidates, current, trackableOthers);
   addTeammateInSky(candidates, inFlightOthers);
   addParallelHeading(candidates, current, inFlightOthers);
+  addSameDeparture(candidates, current, others);
+  addHeadingContrast(candidates, current, inFlightOthers);
+  addSquadInSky(candidates, inFlightOthers, landedOthers);
+  addFreshArrival(candidates, landedOthers);
+  addFirstOfNight(candidates, current, groupFlights);
   if (current.phase === "landing" && current.landingTime) {
     addRelayFlight(candidates, inFlightOthers);
     const earlierLanders = landedOthers.filter(
@@ -107706,6 +107972,9 @@ function collectSocialCueCandidates(current, groupFlights) {
     );
     addEarlyLanding(candidates, earlierLanders);
     addLateLanding(candidates, laterLanders);
+  }
+  if (current.phase === "takeoff") {
+    return candidates.filter((c) => TAKEOFF_SOCIAL_CUE_TYPES.has(c.cueType));
   }
   return candidates;
 }
@@ -107726,7 +107995,7 @@ function soloSocialCueCandidate() {
 async function resolveGroupSocialCue(current, groupFlights) {
   const candidates = collectSocialCueCandidates(current, groupFlights);
   const picked = pickRandomSocialCueCandidate(candidates) ?? soloSocialCueCandidate();
-  const cueText = await generateSocialCueText(picked);
+  const cueText = await generateSocialCueText(picked, current.phase);
   return {
     cueType: picked.cueType,
     relatedPassenger: picked.relatedPassenger,
@@ -107782,6 +108051,9 @@ function buildLocalBlock(ctx, phase) {
     `\u570B\u5BB6\uFF1A${ctx.countryName}`,
     `\u7576\u5730\u6587\u5316\uFF0F\u793E\u4EA4\u7279\u8272\uFF1A${ctx.culture}`
   ];
+  if (phase === "landing" && ctx.morningGreeting) {
+    lines.push(`\u7576\u5730\u8A9E\u8A00\u65E9\u5B89\uFF08\u5EE3\u64AD\u7B2C\u4E00\u53E5\u5FC5\u9808\u4F7F\u7528\uFF09\uFF1A${ctx.morningGreeting}`);
+  }
   if (ctx.weatherSummary) lines.push(`\u7576\u5730\u5929\u6C23\uFF1A${ctx.weatherSummary}`);
   if (ctx.localTimeLabel) lines.push(`\u6642\u6BB5\uFF1A${ctx.localTimeLabel}`);
   lines.push(
@@ -107809,24 +108081,30 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9
 
 \u5730\u7406\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
-- \u8D77\u98DB\u6642\u76EE\u7684\u5730\u662F\u672A\u77E5\u7684\uFF1A\u53EA\u80FD\u8B1B\u51FA\u767C\u5730\u8207\u822A\u5411\uFF0C\u7981\u6B62\u63A8\u6E2C\u3001\u6697\u793A\u822A\u7DDA\u6703\u7D93\u904E\u6216\u62B5\u9054\u54EA\u4E9B\u57CE\u5E02\u3001\u570B\u5BB6
-- \u3010\u540C\u7D44\u793E\u4EA4\u3011\u88E1\u7684\u5730\u540D\u662F\u300C\u968A\u53CB\u300D\u7684\u4F4D\u7F6E\uFF0C\u4E0D\u662F\u4F60\u7684\u822A\u7DDA\uFF1B\u63D0\u5230\u6642\u5FC5\u9808\u660E\u78BA\u639B\u5728\u968A\u53CB\u540D\u5B57\u4E0A\uFF0C
-  \u7981\u6B62\u8AAA\u6210\u672C\u6A5F\u6B63\u98DB\u904E\u3001\u7A7F\u8D8A\u6216\u9760\u8FD1\u90A3\u4E9B\u5730\u65B9\uFF08\u4F8B\uFF1A\u968A\u53CB\u5728\u6771\u4EAC \u2260 \u4F60\u98DB\u904E\u6771\u4EAC\uFF09
-- \u6240\u6709\u5730\u7406\u63CF\u8FF0\u5FC5\u9808\u8207\u300C\u822A\u7DDA\u65B9\u5411\u300D\u4E00\u81F4\uFF0C\u4E0D\u5F97\u81EA\u76F8\u77DB\u76FE
+- \u8D77\u98DB\u6642\u672C\u73ED\u76EE\u7684\u5730\u672A\u77E5\uFF1A\u53EA\u8B1B\u51FA\u767C\u5730\u8207\u822A\u5411\uFF1B\u300C\u7761\u8457\u5F8C\u624D\u6C7A\u5B9A\u9192\u5728\u54EA\u300D\u985E\u610F\u601D\u6574\u6BB5\u6700\u591A\u8AAA\u4E00\u6B21\uFF0C\u7981\u6B62\u63DB\u53E5\u8A71\u91CD\u8907
+- \u8D77\u98DB\u5EE3\u64AD\u7981\u6B62\u63D0\u672C\u73ED\uFF1A\u98DB\u884C\u6642\u9577\u3001\u9810\u8A08\u62B5\u9054\u3001\u516C\u91CC\u6578\u3001ETA\u3001\u7D04 X \u5206\u9418\uFF0F\u5C0F\u6642
+- \u3010\u540C\u7D44\u793E\u4EA4\u3011\u7684\u5730\u540D\u90FD\u662F\u968A\u53CB\u7684\uFF0C\u4E0D\u662F\u672C\u73ED\u822A\u7DDA\uFF1B\u5FC5\u9808\u639B\u5728\u968A\u53CB\u540D\u5B57\u5F8C\u9762
+- \u968A\u53CB\u53EA\u80FD\u5BEB\u5DF2\u767C\u751F\uFF1A\u5DF2\u8D77\u98DB\u3001\u5DF2\u98DB X\u3001\u5DF2\u964D\u843D\u5728 Y\uFF1B\u7981\u6B62\u968A\u53CB\u300C\u5373\u5C07\uFF0FX \u5206\u9418\u5167\uFF0F\u5FEB\u300D\u964D\u843D\u3001\u4E0B\u964D\u3001\u62B5\u9054
+- \u7981\u6B62\u628A\u968A\u53CB\u7684\u7A7A\u57DF\u6216\u8DDD\u96E2\u63DB\u7B97\u6210\u964D\u843D\u5012\u6578
+- \u6240\u6709\u5730\u7406\u63CF\u8FF0\u9808\u8207\u672C\u73ED\u822A\u5411\u4E00\u81F4\uFF0C\u4E0D\u5F97\u81EA\u76F8\u77DB\u76FE
 
 ${hasLocal ? `\u7576\u5730\u8CC7\u8A0A\uFF08${isTakeoff ? "\u51FA\u767C\u5730" : "\u62B5\u9054\u5730"}\uFF09\uFF1A
 - \u3010\u7576\u5730\u8CC7\u8A0A\u3011\u4E2D\u7684\u6587\u5316\u3001\u5929\u6C23\u50C5\u4F9B\u6539\u5BEB\u878D\u5165\uFF0C\u7981\u6B62\u6574\u6BB5\u7167\u642C\u6216\u5217\u9EDE
 - \u964D\u843D\u5EE3\u64AD\uFF1A\u5FC5\u9808\u7528\u4E00\u5169\u53E5\u81EA\u7136\u5E36\u51FA\u7576\u5730\u6587\u5316\u7279\u8272\u6216\u793E\u4EA4\u7FD2\u4FD7\uFF0C\u4E26\u9EDE\u4E00\u4E0B\u7576\u5730\u5929\u6C23\uFF08\u6EAB\u5EA6\u3001\u6674\u96E8\uFF09\uFF0C
   \u50CF\u6A5F\u9577\u63D0\u9192\u4E58\u5BA2\u4E0B\u6A5F\u524D\u7684\u5FC3\u7406\u6E96\u5099\uFF0C\u4E0D\u8981\u50CF\u6C23\u8C61\u5831\u544A\u6216\u65C5\u904A\u624B\u518A
+- \u964D\u843D\u5EE3\u64AD\uFF1A\u7B2C\u4E00\u53E5\u5FC5\u9808\u4EE5\u3010\u7576\u5730\u8A9E\u8A00\u65E9\u5B89\u3011\u958B\u982D\uFF08\u4F7F\u7528 morningGreeting\uFF0C\u5982 Bonjour\u3001\u304A\u306F\u3088\u3046\u3054\u3056\u3044\u307E\u3059\uFF09\uFF0C
+  \u7DCA\u63A5\u7E41\u9AD4\u4E2D\u6587\u7E7C\u7E8C\u5EE3\u64AD\uFF0C\u4E0D\u8981\u7FFB\u8B6F\u6216\u89E3\u91CB\u90A3\u53E5\u554F\u5019
 - \u8D77\u98DB\u5EE3\u64AD\uFF1A\u82E5\u63D0\u4F9B\u51FA\u767C\u5730\u5929\u6C23\uFF0C\u6700\u591A\u4E00\u53E5\u5E36\u904E\uFF0C\u52FF\u55A7\u8CD3\u596A\u4E3B
 ` : ""}
 \u5BEB\u4F5C\uFF1A
-- \u7E41\u9AD4\u4E2D\u6587\uFF0C${isTakeoff ? "70\u2013100" : "90\u2013130"} \u5B57\uFF0C\u6700\u591A\u4E0D\u8D85\u904E ${isTakeoff ? "120" : "160"} \u5B57
-- \u4E00\u53E5\u4E00\u91CD\u9EDE\uFF0C\u522A\u6389\u300C\u6709\u4EFB\u4F55\u9700\u6C42\u300D\u300C\u611F\u8B1D\u9078\u642D\u672C\u822A\u7A7A\u300D\u300C\u795D\u60A8\u65C5\u9014\u6109\u5FEB\u300D\u7B49\u7A7A\u6CDB\u5957\u8A71
-- \u7526\u9192\u822A\u73ED\u8A9E\u5883\uFF1A\u9019\u662F\u4E00\u8D9F\u300C\u7761\u8457\u98DB\u884C\u3001\u9192\u4F86\u62B5\u9054\u300D\u7684\u591C\u822A\u9AD4\u9A57
-- \u793E\u4EA4\u8CC7\u8A0A\u8981\u6539\u5BEB\u6210\u81EA\u7136\u3001\u6709\u8DA3\u7684\u4E00\u5169\u53E5\uFF0C\u878D\u5165\u5EE3\u64AD\uFF0C\u4E0D\u8981\u6574\u6BB5\u7167\u642C\u7CFB\u7D71\u63D0\u793A
-- \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\u3001\u6C23\u6EAB\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u4F7F\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
+- \u7E41\u9AD4\u4E2D\u6587\uFF0C${isTakeoff ? "75\u201395" : "90\u2013130"} \u5B57\uFF0C\u6700\u591A\u4E0D\u8D85\u904E ${isTakeoff ? "105" : "160"} \u5B57
+- ${isTakeoff ? "\u8D77\u98DB\u5EE3\u64AD\u56FA\u5B9A 3\u20134 \u53E5\uFF1A\u2460\u554F\u5019\uFF0B\u51FA\u767C\u5730\uFF0B\u822A\u5411 \u2461\u4E00\u53E5\u7526\u9192\u822A\u73ED\uFF08\u7761\u8457\u98DB\u3001\u9192\u4F86\u624D\u77E5\u76EE\u7684\u5730\uFF0C\u52FF\u91CD\u8907\uFF09\u2462\u540C\u7D44\u793E\u4EA4\u6700\u591A\u4E00\u53E5 \u2463\u8F15\u8072\u795D\u7720" : "\u4E00\u53E5\u4E00\u91CD\u9EDE"}
+- \u522A\u6389\u300C\u6709\u4EFB\u4F55\u9700\u6C42\u300D\u300C\u611F\u8B1D\u9078\u642D\u672C\u822A\u7A7A\u300D\u300C\u795D\u60A8\u65C5\u9014\u6109\u5FEB\u300D\u300C\u671F\u5F85\u7F8E\u597D\u77AC\u9593\u300D\u7B49\u5957\u8A71
+- \u7526\u9192\u822A\u73ED\uFF1A\u7761\u8457\u98DB\u884C\u3001\u9192\u4F86\u62B5\u9054
+- \u793E\u4EA4\u8CC7\u8A0A\u6539\u5BEB\u5F8C\u5D4C\u5165\u4E00\u53E5\u5373\u53EF\uFF0C\u7981\u6B62\u7167\u642C\u3010\u540C\u7D44\u793E\u4EA4\u3011\u539F\u6587
+- \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
 - \u76F4\u63A5\u8F38\u51FA\u5EE3\u64AD\u6B63\u6587\uFF0C\u4E0D\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E`;
+  const socialLine = input.socialCue.cueType === "solo" ? "\uFF08\u540C\u7D44\u66AB\u7121\u5176\u4ED6\u822A\u73ED\uFF0C\u53EF\u7565\u904E\u793E\u4EA4\u53E5\uFF0C\u6216\u4E00\u53E5\u300C\u5C0F\u968A\u96F7\u9054\u4E0A\u4ECA\u665A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\uFF09" : buildSocialBlock(input.socialCue);
   const takeoffUser = `\u3010\u8D77\u98DB\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
 \u51FA\u767C\u5730\uFF1A${input.departureLocation}
@@ -107836,10 +108114,10 @@ ${input.localContext ? `
 ${buildLocalBlock(input.localContext, "takeoff")}
 ` : ""}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
-${buildSocialBlock(input.socialCue)}
+${socialLine}
 
-\u8ACB\u5BA3\u5E03\uFF1A\u591C\u822A\u555F\u7A0B\u3001\u51FA\u767C\u5730\u3001\u822A\u5411\uFF08\u76EE\u7684\u5730\u672A\u77E5\uFF0C\u7761\u591A\u4E45\u98DB\u591A\u9060\uFF09\uFF0C\u4E26\u81EA\u7136\u5E36\u5165\u793E\u4EA4\u60C5\u5883
-\uFF08\u82E5\u70BA solo \u53EF\u5BEB\u6210\u300C\u4ECA\u591C\u5929\u5E55\u4E0A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\u4E4B\u985E\uFF0C\u52FF\u7167\u642C\uFF1B\u968A\u53CB\u7684\u5730\u9EDE\u52D9\u5FC5\u639B\u968A\u53CB\u7684\u540D\u5B57\uFF09\u3002`;
+\u8ACB\u4F9D\u300C3\u20134 \u53E5\u300D\u7D50\u69CB\u5BEB\u4E00\u6BB5\u6D41\u66A2\u53E3\u8A9E\u5EE3\u64AD\u3002\u7526\u9192\u822A\u73ED\u6982\u5FF5\u53EA\u63D0\u4E00\u6B21\u3002
+\u540C\u7D44\u793E\u4EA4\u82E5\u6709\uFF1A\u7528\u4E00\u53E5\u904E\u53BB\u5F0F\uFF0F\u9032\u884C\u5F0F\u5E36\u904E\uFF0C\u7981\u6B62\u968A\u53CB\u964D\u843D\u5012\u6578\u3002`;
   const duration = formatDuration2(input.flightDurationMinutes);
   const landingUser = `\u3010\u964D\u843D\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
@@ -107855,7 +108133,7 @@ ${buildLocalBlock(input.localContext, "landing")}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
 ${buildSocialBlock(input.socialCue)}
 
-\u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF1B\u5FC5\u9808\u878D\u5165\u4E00\u7B46\u7576\u5730\u6587\u5316\u6216\u5929\u6C23\uFF08\u6539\u5BEB\uFF09\uFF0C
+\u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF1B\u7B2C\u4E00\u53E5\u4EE5\u7576\u5730\u8A9E\u8A00\u65E9\u5B89\u958B\u982D\uFF0C\u5FC5\u9808\u878D\u5165\u4E00\u7B46\u7576\u5730\u6587\u5316\u6216\u5929\u6C23\uFF08\u6539\u5BEB\uFF09\uFF0C
 \u4E26\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF0C\u5408\u4F75\u6210\u4E00\u6BB5\u6D41\u66A2\u5EE3\u64AD\uFF0C\u52FF\u5217\u9EDE\u3001\u52FF\u7167\u642C\u3002`;
   const completion = await client.chat.completions.create({
     model,
@@ -107863,8 +108141,8 @@ ${buildSocialBlock(input.socialCue)}
       { role: "system", content: systemPrompt },
       { role: "user", content: isTakeoff ? takeoffUser : landingUser }
     ],
-    max_tokens: 512,
-    temperature: 0.65
+    max_tokens: isTakeoff ? 220 : 280,
+    temperature: isTakeoff ? 0.42 : 0.55
   });
   return completion.choices[0]?.message?.content?.trim() ?? "\u5EE3\u64AD\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66\u3002";
 }
@@ -107872,14 +108150,16 @@ function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arriv
   const pax = passengerLabel(passengerName);
   const direction = DIRECTION_LABEL2[routeDirection] ?? routeDirection;
   if (phase === "takeoff") {
-    const wx = localContext?.weatherSummary ? ` ${localContext.localTimeLabel ?? "\u6B64\u523B"}${localContext.weatherSummary}\uFF0C` : "";
-    return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5373\u5C07\u81EA ${departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx}${pax}\uFF0C\u8ACB\u6E96\u5099\u9032\u5165\u591C\u822A\u3002${socialCueText}`;
+    const wx = localContext?.weatherSummary ? `${localContext.localTimeLabel ?? "\u6B64\u523B"}${localContext.weatherSummary}\uFF0C` : "";
+    const social = socialCueText?.trim() && !/獨自飛行|只有你一人/.test(socialCueText) ? ` ${socialCueText.replace(/[。！？\s]+$/g, "")}\u3002` : "";
+    return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u81EA ${departureLocation} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx ? wx : ""}\u8ACB\u653E\u5FC3\u5165\u7761\u2014\u2014\u9192\u4F86\u6642\uFF0C\u76EE\u7684\u5730\u624D\u6703\u63ED\u66C9\u3002${social}\u795D\u5404\u4F4D\u597D\u7720\u3002`;
   }
   const dur = formatDuration2(durationMinutes);
+  const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}\uFF01` : "";
   const timeBit = localContext?.localTimeLabel ? `${localContext.localTimeLabel}\uFF0C` : "\u672C\u5730\u6642\u9593\u6E05\u6668\uFF0C";
   const wxBit = localContext?.weatherSummary ? `\u7A97\u5916${localContext.weatherSummary}\u3002` : "";
   const cultureBit = localContext?.culture ? localContext.culture.split("\uFF1B")[0]?.split("\u3002")[0] + "\u3002" : "\u8D70\u51FA\u8259\u9580\uFF0C\u5411\u7576\u5730\u4EBA\u5FAE\u7B11\u554F\u597D\u5427\u3002";
-  return `\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u5E73\u5B89\u964D\u843D ${arrivalLocation ?? "\u76EE\u7684\u5730"}\uFF0C${timeBit}${wxBit}${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u5171\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${cultureBit} ${socialCueText}`;
+  return `${greet}\u5404\u4F4D\u4E58\u5BA2\uFF0C\u7526\u9192\u822A\u73ED\u5DF2\u5E73\u5B89\u964D\u843D ${arrivalLocation ?? "\u76EE\u7684\u5730"}\uFF0C${timeBit}${wxBit}${pax} \u81EA ${departureLocation} \u51FA\u767C\uFF0C\u5171\u98DB\u884C ${dur || "\u4E00\u6BB5"}\u3002${cultureBit} ${socialCueText}`;
 }
 
 // src/lib/ai/speech.ts
@@ -107907,72 +108187,6 @@ async function generateBroadcastSpeech(text, style) {
     response_format: "mp3"
   });
   return Buffer.from(await response.arrayBuffer());
-}
-
-// src/lib/ai/scenery.ts
-var import_openai4 = __toESM(require("openai"));
-function buildSceneryPrompt(city, country, displayName) {
-  const place = displayName || `${city}, ${country}`;
-  return [
-    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
-    `Golden sunrise light breaking over the city \u2014 a hopeful, just-woke-up feeling of arrival.`,
-    `Feature the most iconic, instantly recognizable landmarks and skyline of ${city}:`,
-    `famous architecture, distinctive local rooftops and streets that could only be ${place},`,
-    `rich with the authentic cultural character of ${country}.`,
-    `Bright daybreak palette: warm gold, soft peach, fresh morning-blue sky, thin luminous haze;`,
-    `subtle window-glass reflection at the frame edges \u2014 cinematic, dreamy yet luminous.`,
-    `No close-up people, no text, no watermark, no logos.`
-  ].join(" ");
-}
-var SCENERY_IMAGE_SIZE = "1536x1024";
-function safeFilename(city, flightId) {
-  const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
-  return `landing-${slug2}-${flightId.slice(-8)}.png`;
-}
-function isGptImageModel(model) {
-  return model.startsWith("gpt-image") || model.startsWith("chatgpt-image");
-}
-async function generateLandingScenery(city, country, displayName, flightId) {
-  if (!process.env.OPENAI_API_KEY) return null;
-  const imagePrompt = buildSceneryPrompt(city, country, displayName);
-  const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
-  const response = await client.images.generate(
-    isGptImageModel(model) ? {
-      model,
-      prompt: imagePrompt,
-      size: SCENERY_IMAGE_SIZE,
-      quality: "medium",
-      output_format: "png",
-      n: 1
-    } : {
-      model,
-      prompt: imagePrompt,
-      size: SCENERY_IMAGE_SIZE,
-      quality: "standard",
-      n: 1
-    }
-  );
-  const b64 = response.data[0]?.b64_json;
-  if (b64) {
-    return {
-      imageBuffer: Buffer.from(b64, "base64"),
-      imagePrompt,
-      contentType: "image/png",
-      filename: safeFilename(city, flightId)
-    };
-  }
-  const imageUrl = response.data[0]?.url;
-  if (!imageUrl) return null;
-  const imageRes = await fetch(imageUrl);
-  if (!imageRes.ok) return null;
-  const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
-  return {
-    imageBuffer,
-    imagePrompt,
-    contentType: imageRes.headers.get("content-type") ?? "image/png",
-    filename: safeFilename(city, flightId)
-  };
 }
 
 // src/lib/notion/notion-file-upload.ts
@@ -108025,6 +108239,29 @@ function wFileUpload(fileUploadId, name) {
 
 // src/lib/notion/landscape-images.ts
 var mem3 = [];
+function normalizeGroupDigits2(groupId) {
+  const legacy = /^group_(\d{2})$/i.exec(groupId || "");
+  if (legacy) return legacy[1].padStart(4, "0");
+  const digits = String(groupId || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.slice(-4).padStart(4, "0");
+}
+function readGroupId3(props) {
+  const numeric = readNumber(props, "Group ID");
+  if (typeof numeric === "number" && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, "0");
+  }
+  return readSelect(props, "Group ID") ?? "";
+}
+function groupNumber2(groupId) {
+  const digits = normalizeGroupDigits2(groupId);
+  if (!/^\d{4}$/.test(digits)) return null;
+  return Number(digits);
+}
+function wGroupId2(value, type) {
+  if (type === "number") return wNumber(groupNumber2(value));
+  return wSelect(value);
+}
 function resolveImageUrl(props) {
   return readFirstFileUrl(props, "Image") || readUrl(props, "Image URL");
 }
@@ -108036,7 +108273,7 @@ function parseLandscape(page) {
     flightId: readText(props, "Flight ID"),
     passengerId: readText(props, "Passenger ID"),
     passengerName: readText(props, "Name"),
-    groupId: readSelect(props, "Group ID") ?? "",
+    groupId: readGroupId3(props),
     arrivalLocation: readText(props, "Arrival Location"),
     country: readText(props, "Country"),
     imageUrl: resolveImageUrl(props),
@@ -108075,12 +108312,13 @@ async function saveLandingScenery(params) {
   const client = getNotionClient();
   const dbId = await resolveLandscapeDbId();
   const allowed = await getLandscapePropertyNames();
+  const types = await getLandscapePropertyTypes();
   const fullProperties = {
     "Entry ID": wTitle(entryId),
     "Flight ID": wText(params.flightId),
     "Passenger ID": wText(params.passengerId),
     "Name": wText(params.passengerName),
-    "Group ID": wSelect(params.groupId),
+    "Group ID": wGroupId2(params.groupId, types.get("Group ID")),
     "Arrival Location": wText(params.arrivalLocation),
     "Country": wText(params.country),
     "Image": wFileUpload(fileUploadId, params.filename),
@@ -108130,6 +108368,13 @@ function readPassengerId3(props) {
 function readFlightId3(props) {
   return readTitle(props, "Flight ID") || readText(props, "Flight ID");
 }
+function readGroupId4(props) {
+  const numeric = readNumber(props, "Group ID");
+  if (typeof numeric === "number" && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, "0");
+  }
+  return readSelect(props, "Group ID") ?? "";
+}
 function parseFlightFromPage(page) {
   const props = page.properties;
   const takeoffTime = readDate(props, "Takeoff Time");
@@ -108142,7 +108387,7 @@ function parseFlightFromPage(page) {
     flightId: readFlightId3(props),
     passengerId: readPassengerId3(props),
     passengerName: readText(props, "Name"),
-    groupId: readSelect(props, "Group ID") ?? "",
+    groupId: readGroupId4(props),
     status,
     departureLocation: readText(props, "Departure Location"),
     departureLatitude: readNumber(props, "Departure Latitude") ?? 0,
@@ -108186,6 +108431,75 @@ async function getFlightByFlightId(flightId) {
   });
   if (byText.results.length === 0) return null;
   return parseFlightFromPage(byText.results[0]);
+}
+
+// src/lib/ai/scenery.ts
+var import_openai4 = __toESM(require("openai"));
+function buildSceneryPrompt(city, country, displayName) {
+  const place = displayName || `${city}, ${country}`;
+  return [
+    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
+    `Art style: stylized 3D animated film look \u2014 soft Pixar-like cartoon rendering,`,
+    `NOT photorealistic, NOT live-action, NOT illustration or watercolor.`,
+    `Rounded friendly forms, smooth CGI surfaces, subtle subsurface glow,`,
+    `expressive simplified landmarks of ${city} that feel instantly recognizable yet charmingly exaggerated.`,
+    `Show iconic architecture and skyline shapes unique to ${place},`,
+    `with the warm cultural personality of ${country} in color and mood.`,
+    `Golden sunrise light, hopeful just-woke-up arrival feeling;`,
+    `bright saturated palette: warm gold, peach, fresh morning-blue sky, soft volumetric haze;`,
+    `gentle window-glass reflection at the frame edges \u2014 dreamy, luminous, family-friendly.`,
+    `No close-up people, no text, no watermark, no logos.`
+  ].join(" ");
+}
+var SCENERY_IMAGE_SIZE = "1536x1024";
+function safeFilename(city, flightId) {
+  const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
+  return `landing-${slug2}-${flightId.slice(-8)}.png`;
+}
+function isGptImageModel(model) {
+  return model.startsWith("gpt-image") || model.startsWith("chatgpt-image");
+}
+async function generateLandingScenery(city, country, displayName, flightId) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  const imagePrompt = buildSceneryPrompt(city, country, displayName);
+  const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
+  const response = await client.images.generate(
+    isGptImageModel(model) ? {
+      model,
+      prompt: imagePrompt,
+      size: SCENERY_IMAGE_SIZE,
+      quality: "low",
+      output_format: "png",
+      n: 1
+    } : {
+      model,
+      prompt: imagePrompt,
+      size: SCENERY_IMAGE_SIZE,
+      quality: "standard",
+      n: 1
+    }
+  );
+  const b64 = response.data[0]?.b64_json;
+  if (b64) {
+    return {
+      imageBuffer: Buffer.from(b64, "base64"),
+      imagePrompt,
+      contentType: "image/png",
+      filename: safeFilename(city, flightId)
+    };
+  }
+  const imageUrl = response.data[0]?.url;
+  if (!imageUrl) return null;
+  const imageRes = await fetch(imageUrl);
+  if (!imageRes.ok) return null;
+  const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+  return {
+    imageBuffer,
+    imagePrompt,
+    contentType: imageRes.headers.get("content-type") ?? "image/png",
+    filename: safeFilename(city, flightId)
+  };
 }
 
 // src/lib/notion/scenery-backfill.ts
@@ -108269,42 +108583,26 @@ var SOLO_SOCIAL_CUE = {
   cueText: "\u4ECA\u665A\u4F60\u7368\u81EA\u98DB\u884C\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002"
 };
 async function resolveSocialCueWithBudget(current, groupFlights) {
-  return withTimeout(resolveGroupSocialCue(current, groupFlights), 12e3, () => SOLO_SOCIAL_CUE);
+  return withTimeout(resolveGroupSocialCue(current, groupFlights), 8e3, () => SOLO_SOCIAL_CUE);
 }
 async function generateBroadcastWithBudget(input, fallback) {
   try {
-    return await withTimeout(generateCaptainBroadcast(input), 18e3, fallback);
+    return await withTimeout(generateCaptainBroadcast(input), 12e3, fallback);
   } catch {
     return fallback();
   }
 }
-async function generateLandingSceneryWithBudget(arrival, flight, passenger, landingTime) {
-  return withTimeout(
-    (async () => {
-      const sceneryGen = await generateLandingScenery(
-        arrival.city,
-        arrival.country,
-        arrival.displayName,
-        flight.flightId
-      );
-      if (!sceneryGen) return null;
-      return saveLandingScenery({
-        flightId: flight.flightId,
-        passengerId: passenger.passengerId,
-        passengerName: passenger.name,
-        groupId: passenger.groupId,
-        arrivalLocation: arrival.displayName,
-        country: arrival.country,
-        imageBuffer: sceneryGen.imageBuffer,
-        filename: sceneryGen.filename,
-        contentType: sceneryGen.contentType,
-        imagePrompt: sceneryGen.imagePrompt,
-        landingTime
-      });
-    })(),
-    42e3,
-    () => null
-  );
+async function generateSpeechWithBudget(text, style) {
+  if (!process.env.OPENAI_API_KEY || !text?.trim()) return null;
+  try {
+    return await withTimeout(
+      generateBroadcastSpeech(text.trim(), style).then((buf) => buf.toString("base64")),
+      12e3,
+      () => null
+    );
+  } catch {
+    return null;
+  }
 }
 function parseDisplayLocation(displayName) {
   const parts = displayName.split(",").map((s) => s.trim()).filter(Boolean);
@@ -108456,13 +108754,16 @@ app.post("/api/flight/takeoff", async (req, res) => {
         depLocal
       )
     );
-    await updateFlight(flight.notionId, {
-      takeoffBroadcastStyle: broadcastStyle,
-      takeoffBroadcast,
-      socialCueType: socialCue.cueType,
-      socialCueText: socialCue.cueText,
-      relatedPassenger: socialCue.relatedPassenger ?? ""
-    });
+    const [_, speechAudioBase64] = await Promise.all([
+      updateFlight(flight.notionId, {
+        takeoffBroadcastStyle: broadcastStyle,
+        takeoffBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger ?? ""
+      }),
+      generateSpeechWithBudget(takeoffBroadcast, broadcastStyle)
+    ]);
     res.json({
       flight: {
         ...flight,
@@ -108471,7 +108772,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
         socialCueType: socialCue.cueType,
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger
-      }
+      },
+      speechAudioBase64
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
@@ -108553,44 +108855,39 @@ app.post("/api/flight/land", async (req, res) => {
       socialCue.cueText,
       arrLocal
     );
-    const [captainBroadcast, landingScenery] = await Promise.all([
-      generateBroadcastWithBudget(
-        {
-          phase: "landing",
-          passengerName: passenger.name,
-          departureLocation: activeFlight.departureLocation,
-          arrivalLocation: arrival.displayName,
-          narrativeRegion: region,
-          flightDurationMinutes: durationMinutes,
-          flightProgress: 100,
-          estimatedDistanceKm: distanceKm,
-          routeDirection: activeFlight.routeDirection,
-          socialCue,
-          style: broadcastStyle,
-          localContext: arrLocal
-        },
-        broadcastFallback
-      ),
-      generateLandingSceneryWithBudget(
-        { city: arrival.city, country: arrival.country, displayName: arrival.displayName },
-        activeFlight,
-        passenger,
-        landingTime
-      )
+    const captainBroadcast = await generateBroadcastWithBudget(
+      {
+        phase: "landing",
+        passengerName: passenger.name,
+        departureLocation: activeFlight.departureLocation,
+        arrivalLocation: arrival.displayName,
+        narrativeRegion: region,
+        flightDurationMinutes: durationMinutes,
+        flightProgress: 100,
+        estimatedDistanceKm: distanceKm,
+        routeDirection: activeFlight.routeDirection,
+        socialCue,
+        style: broadcastStyle,
+        localContext: arrLocal
+      },
+      broadcastFallback
+    );
+    const [_, speechAudioBase64] = await Promise.all([
+      updateFlight(activeFlight.notionId, {
+        status: "landed",
+        landingTime,
+        flightDurationMinutes: durationMinutes,
+        estimatedFlightDistanceKm: Math.round(distanceKm),
+        arrivalLocation: arrival.displayName,
+        arrivalLatitude: arrival.latitude,
+        arrivalLongitude: arrival.longitude,
+        captainBroadcast,
+        socialCueType: socialCue.cueType,
+        socialCueText: socialCue.cueText,
+        relatedPassenger: socialCue.relatedPassenger ?? ""
+      }),
+      generateSpeechWithBudget(captainBroadcast, broadcastStyle)
     ]);
-    await updateFlight(activeFlight.notionId, {
-      status: "landed",
-      landingTime,
-      flightDurationMinutes: durationMinutes,
-      estimatedFlightDistanceKm: Math.round(distanceKm),
-      arrivalLocation: arrival.displayName,
-      arrivalLatitude: arrival.latitude,
-      arrivalLongitude: arrival.longitude,
-      captainBroadcast,
-      socialCueType: socialCue.cueType,
-      socialCueText: socialCue.cueText,
-      relatedPassenger: socialCue.relatedPassenger ?? ""
-    });
     res.json({
       flight: {
         ...activeFlight,
@@ -108608,7 +108905,8 @@ app.post("/api/flight/land", async (req, res) => {
         socialCueText: socialCue.cueText,
         relatedPassenger: socialCue.relatedPassenger
       },
-      landingScenery
+      landingScenery: null,
+      speechAudioBase64
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });

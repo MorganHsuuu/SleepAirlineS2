@@ -10,7 +10,7 @@ export function getLandscapeProperties() {
     'Flight ID': { rich_text: {} },
     'Passenger ID': { rich_text: {} },
     'Name': { rich_text: {} },
-    'Group ID': { select: { options: GROUP_OPTIONS } },
+    'Group ID': { number: { format: 'number' } },
     'Arrival Location': { rich_text: {} },
     'Country': { rich_text: {} },
     'Image': { files: {} },

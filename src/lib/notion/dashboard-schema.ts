@@ -6,7 +6,7 @@ const GROUP_COLORS = [
   'red', 'yellow', 'gray', 'brown', 'default',
 ] as const;
 
-/** Workshop 小隊選項（group_01 … group_15）；Notion Group ID 欄位須同步。 */
+/** 舊版小隊選項（group_01 … group_15）；保留給歷史 Select 資料相容。 */
 export const GROUP_OPTIONS = Array.from({ length: 15 }, (_, i) => ({
   name: `group_${String(i + 1).padStart(2, '0')}`,
   color: GROUP_COLORS[i % GROUP_COLORS.length],
@@ -79,7 +79,7 @@ export function getDashboardProperties() {
     'Flight ID': { title: {} },
     'Passenger ID': { rich_text: {} },
     'Name': { rich_text: {} },
-    'Group ID': { select: { options: GROUP_OPTIONS } },
+    'Group ID': { number: { format: 'number' } },
     'Status': { select: { options: STATUS_OPTIONS } },
     // ── 起飛 ──
     'Departure Location': { rich_text: {} },

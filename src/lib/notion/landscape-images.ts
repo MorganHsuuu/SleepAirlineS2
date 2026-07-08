@@ -5,20 +5,53 @@ import {
   readTitle,
   readText,
   readSelect,
+  readNumber,
   readDate,
   readUrl,
   readFirstFileUrl,
   wTitle,
   wText,
   wSelect,
+  wNumber,
   wDate,
   wUrl,
 } from './client';
 import { resolveLandscapeDbId } from './ensure-landscape-db';
 import { uploadImageToNotion, wFileUpload } from './notion-file-upload';
-import { getLandscapePropertyNames, pickExistingProperties } from './schema-introspect';
+import {
+  getLandscapePropertyNames,
+  getLandscapePropertyTypes,
+  pickExistingProperties,
+} from './schema-introspect';
 
 const mem: LandingScenery[] = [];
+
+function normalizeGroupDigits(groupId: string): string {
+  const legacy = /^group_(\d{2})$/i.exec(groupId || '');
+  if (legacy) return legacy[1].padStart(4, '0');
+  const digits = String(groupId || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.slice(-4).padStart(4, '0');
+}
+
+function readGroupId(props: Record<string, unknown>): string {
+  const numeric = readNumber(props, 'Group ID');
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, '0');
+  }
+  return readSelect(props, 'Group ID') ?? '';
+}
+
+function groupNumber(groupId: string): number | null {
+  const digits = normalizeGroupDigits(groupId);
+  if (!/^\d{4}$/.test(digits)) return null;
+  return Number(digits);
+}
+
+function wGroupId(value: string, type: string | undefined) {
+  if (type === 'number') return wNumber(groupNumber(value));
+  return wSelect(value);
+}
 
 function resolveImageUrl(props: Record<string, unknown>): string {
   return readFirstFileUrl(props, 'Image') || readUrl(props, 'Image URL');
@@ -32,7 +65,7 @@ function parseLandscape(page: Record<string, unknown>): LandingScenery {
     flightId: readText(props, 'Flight ID'),
     passengerId: readText(props, 'Passenger ID'),
     passengerName: readText(props, 'Name'),
-    groupId: readSelect(props, 'Group ID') ?? '',
+    groupId: readGroupId(props),
     arrivalLocation: readText(props, 'Arrival Location'),
     country: readText(props, 'Country'),
     imageUrl: resolveImageUrl(props),
@@ -87,13 +120,14 @@ export async function saveLandingScenery(params: {
   const client = getNotionClient();
   const dbId = await resolveLandscapeDbId();
   const allowed = await getLandscapePropertyNames();
+  const types = await getLandscapePropertyTypes();
 
   const fullProperties = {
       'Entry ID': wTitle(entryId),
       'Flight ID': wText(params.flightId),
       'Passenger ID': wText(params.passengerId),
       'Name': wText(params.passengerName),
-      'Group ID': wSelect(params.groupId),
+      'Group ID': wGroupId(params.groupId, types.get('Group ID')),
       'Arrival Location': wText(params.arrivalLocation),
       'Country': wText(params.country),
       'Image': wFileUpload(fileUploadId, params.filename),

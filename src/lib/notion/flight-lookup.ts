@@ -20,6 +20,14 @@ function readFlightId(props: Record<string, unknown>): string {
   return readTitle(props, 'Flight ID') || readText(props, 'Flight ID');
 }
 
+function readGroupId(props: Record<string, unknown>): string {
+  const numeric = readNumber(props, 'Group ID');
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, '0');
+  }
+  return readSelect(props, 'Group ID') ?? '';
+}
+
 export function parseFlightFromPage(page: Record<string, unknown>): Flight {
   const props = page.properties as Record<string, unknown>;
   const takeoffTime = readDate(props, 'Takeoff Time');
@@ -33,7 +41,7 @@ export function parseFlightFromPage(page: Record<string, unknown>): Flight {
     flightId: readFlightId(props),
     passengerId: readPassengerId(props),
     passengerName: readText(props, 'Name'),
-    groupId: readSelect(props, 'Group ID') ?? '',
+    groupId: readGroupId(props),
     status,
     departureLocation: readText(props, 'Departure Location'),
     departureLatitude: readNumber(props, 'Departure Latitude') ?? 0,

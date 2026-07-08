@@ -2624,9 +2624,13 @@ function dismissLandedPanel() {
 // ── Terminal 航站（四位數 groupId）────────────────────────────────────────────
 
 function normalizeTerminalDigits(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
+  const digits = rawTerminalDigits(raw);
   if (!digits) return '';
   return digits.slice(-4).padStart(4, '0');
+}
+
+function rawTerminalDigits(raw) {
+  return String(raw || '').replace(/\D/g, '').slice(0, 4);
 }
 
 function groupIdToTerminalDigits(groupId) {
@@ -2696,8 +2700,7 @@ function bindTerminalInput() {
   const input = $('input-group');
   if (!input) return;
   input.addEventListener('input', () => {
-    const digits = normalizeTerminalDigits(input.value);
-    input.value = digits.slice(0, 4);
+    input.value = rawTerminalDigits(input.value);
   });
   input.addEventListener('blur', () => {
     const digits = normalizeTerminalDigits(input.value);
