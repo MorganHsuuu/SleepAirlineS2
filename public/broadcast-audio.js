@@ -211,7 +211,8 @@ async function playWebAudioBuffer(buffer, {
       if (fadeInMs > 0) {
         gain.gain.exponentialRampToValueAtTime(targetVol, ctx.currentTime + fadeInMs / 1000);
       }
-      if (loop) finish(true);
+      // Looping ambience/SFX should keep playing until stopCeremonyWebAudio/stopFlightSfx is called.
+      if (loop) resolve(true);
     } catch {
       finish(false);
     }
@@ -696,7 +697,9 @@ function speakTextOnce(text) {
       clearTimeout(timer);
       resolve(ok);
     };
-    const estMs = Math.min(90000, Math.max(12000, text.length * 220));
+    // This is only a safety net. Let speechSynthesis.onend drive normal completion,
+    // otherwise landing/takeoff can advance and cancel the voice mid-sentence.
+    const estMs = Math.min(180000, Math.max(45000, text.length * 650));
     const timer = setTimeout(() => finish(true), estMs);
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
@@ -818,7 +821,7 @@ async function playPreparedSpeech(prepared) {
     const textLen = prepared.fallbackText?.length || 0;
     const estMs = Number.isFinite(audio.duration) && audio.duration > 0
       ? Math.min(120000, audio.duration * 1000 + 2500)
-      : Math.min(90000, Math.max(12000, textLen * 180));
+      : Math.min(180000, Math.max(45000, textLen * 650));
     const timer = setTimeout(() => finish(true), estMs);
     audio.addEventListener('timeupdate', onTime);
     audio.onended = () => finish(true);

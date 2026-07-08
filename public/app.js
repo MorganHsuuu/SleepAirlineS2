@@ -2842,7 +2842,7 @@ async function doTakeoff() {
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
         activeFlight.takeoffBroadcastStyle,
-        { maxMs: 120000, speechBase64: data.speechAudioBase64 },
+        { maxMs: 180000, speechBase64: data.speechAudioBase64 },
       );
     }
 
@@ -2941,7 +2941,7 @@ async function doLand() {
       await playBroadcastWithWave(
         landed.captainBroadcast,
         landed.captainBroadcastStyle || landed.takeoffBroadcastStyle,
-        { maxMs: 120000, speechBase64: data.speechAudioBase64, restoreBed: false },
+        { maxMs: 180000, speechBase64: data.speechAudioBase64, restoreBed: false },
       );
     }
 
