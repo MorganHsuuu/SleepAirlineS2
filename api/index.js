@@ -108575,8 +108575,13 @@ async function backfillSceneryForFlight(flightId, options) {
   if (!flight) return { flightId, error: "\u627E\u4E0D\u5230\u822A\u73ED" };
   if (!flight.arrivalLocation) return { flightId, error: "\u6C92\u6709\u62B5\u9054\u5730\u9EDE" };
   const { city, country } = parseCityCountry(flight.arrivalLocation);
+  const startedAt = Date.now();
   const sceneryGen = await generateLandingScenery(city, country, flight.arrivalLocation, flight.flightId);
-  if (!sceneryGen) return { flightId, error: "\u751F\u5716\u5931\u6557\uFF08OPENAI_API_KEY\uFF09" };
+  if (!sceneryGen) {
+    console.error(`[scenery] ${flightId} \u751F\u5716\u5931\u6557\uFF08${Date.now() - startedAt}ms\uFF09\u2014 \u6AA2\u67E5 OPENAI_API_KEY / OPENAI_IMAGE_MODEL`);
+    return { flightId, error: "\u751F\u5716\u5931\u6557\uFF08OPENAI_API_KEY\uFF09" };
+  }
+  console.log(`[scenery] ${flightId} \u751F\u5716\u5B8C\u6210 ${Date.now() - startedAt}ms \u2192 \u5B58\u5165 Notion`);
   const saved = await saveLandingScenery({
     flightId: flight.flightId,
     passengerId: flight.passengerId,
@@ -108590,7 +108595,10 @@ async function backfillSceneryForFlight(flightId, options) {
     imagePrompt: sceneryGen.imagePrompt,
     landingTime: flight.landingTime ?? (/* @__PURE__ */ new Date()).toISOString()
   });
-  if (!saved?.imageUrl) return { flightId, error: "\u5B58\u5165 Notion \u5931\u6557" };
+  if (!saved?.imageUrl) {
+    console.error(`[scenery] ${flightId} \u5B58\u5165 Notion \u5931\u6557`);
+    return { flightId, error: "\u5B58\u5165 Notion \u5931\u6557" };
+  }
   return { flightId, imageUrl: saved.imageUrl, arrivalLocation: saved.arrivalLocation };
 }
 async function backfillSceneryForFlights(flightIds, options) {
@@ -108599,6 +108607,7 @@ async function backfillSceneryForFlights(flightIds, options) {
     try {
       results.push(await backfillSceneryForFlight(flightId, options));
     } catch (err) {
+      console.error(`[scenery] ${flightId} backfill \u4F8B\u5916\uFF1A`, err);
       results.push({ flightId, error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
     }
   }

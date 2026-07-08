@@ -2460,7 +2460,8 @@ async function bridgeAfterCaptainBroadcast() {
   BroadcastAudio?.stopPlayback?.();
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
-  await BroadcastAudio?.restoreCeremonyBed?.();
+  // 不在這裡 restore wakeup：TTS 完直接接 takeoff.mp3（playLandingApproach），
+  // wakeup 留到 landing.mp4 播完由 resumeLandingMusicAfterApproach 帶回，避免閃一秒。
   const video = $('landing-fx-video');
   if (video) {
     disableSeamlessVideoLoop(video);
@@ -2516,6 +2517,11 @@ async function requestLandingScenery(flightId) {
       country: arrivalMeta(lastLandedFlight).country,
     };
     renderSceneryCard(false);
+    // 若降落過場還開著（已顯示晨景 fallback），圖到了就即時換上真圖
+    const fx = $('landing-fx');
+    if (fx?.classList.contains('show') && fx.dataset.phase === 'arrival') {
+      void showLandingFxScenery(lastLandedFlight);
+    }
     return true;
   } catch (err) {
     console.warn('[landing scenery]', err);
@@ -2971,11 +2977,14 @@ async function doLand() {
       arr ? glideToArrival(dep, arr) : Promise.resolve(),
     ]);
 
-    // ④ landing 播完後才等生圖 → 風景顯影
+    // ④ landing 播完後等剩餘生圖預算（最多再 18 秒，不讓過場卡住；圖晚到會即時換上）
     await animateFxLine('landing-fx-sub', LANDING_SKY_WHISPERS[0]);
     if (sceneryPreload) await sceneryPreload;
     else {
-      const remainingSceneryMs = Math.max(0, sceneryMaxMs - (Date.now() - sceneryStartedAt));
+      const remainingSceneryMs = Math.min(
+        18000,
+        Math.max(0, sceneryMaxMs - (Date.now() - sceneryStartedAt)),
+      );
       await Promise.race([
         sceneryJob.catch(() => false),
         ensureLandingSceneryReady(landed, remainingSceneryMs),
@@ -2991,7 +3000,13 @@ async function doLand() {
     await revealDockPanel('landed-panel');
 
     await fetchBoard();
-    void sceneryJob;
+    // 第一次生圖失敗（逾時／API 錯誤）→ 背景再試一次，好了會更新抵達面板的風景卡
+    void sceneryJob.then((ok) => {
+      if (!ok && landed.flightId && !landingScenery?.imageUrl && lastLandedFlight?.flightId === landed.flightId) {
+        return requestLandingScenery(landed.flightId);
+      }
+      return ok;
+    });
   } catch (err) {
     if (statusCycle) stopFxStatusCycle(statusCycle);
     unlockDockForFx();

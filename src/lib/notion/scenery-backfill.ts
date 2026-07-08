@@ -30,8 +30,13 @@ export async function backfillSceneryForFlight(
   if (!flight.arrivalLocation) return { flightId, error: '沒有抵達地點' };
 
   const { city, country } = parseCityCountry(flight.arrivalLocation);
+  const startedAt = Date.now();
   const sceneryGen = await generateLandingScenery(city, country, flight.arrivalLocation, flight.flightId);
-  if (!sceneryGen) return { flightId, error: '生圖失敗（OPENAI_API_KEY）' };
+  if (!sceneryGen) {
+    console.error(`[scenery] ${flightId} 生圖失敗（${Date.now() - startedAt}ms）— 檢查 OPENAI_API_KEY / OPENAI_IMAGE_MODEL`);
+    return { flightId, error: '生圖失敗（OPENAI_API_KEY）' };
+  }
+  console.log(`[scenery] ${flightId} 生圖完成 ${Date.now() - startedAt}ms → 存入 Notion`);
 
   const saved = await saveLandingScenery({
     flightId: flight.flightId,
@@ -47,7 +52,10 @@ export async function backfillSceneryForFlight(
     landingTime: flight.landingTime ?? new Date().toISOString(),
   });
 
-  if (!saved?.imageUrl) return { flightId, error: '存入 Notion 失敗' };
+  if (!saved?.imageUrl) {
+    console.error(`[scenery] ${flightId} 存入 Notion 失敗`);
+    return { flightId, error: '存入 Notion 失敗' };
+  }
   return { flightId, imageUrl: saved.imageUrl, arrivalLocation: saved.arrivalLocation };
 }
 
@@ -57,6 +65,7 @@ export async function backfillSceneryForFlights(flightIds: string[], options?: {
     try {
       results.push(await backfillSceneryForFlight(flightId, options));
     } catch (err) {
+      console.error(`[scenery] ${flightId} backfill 例外：`, err);
       results.push({ flightId, error: err instanceof Error ? err.message : '未知錯誤' });
     }
   }
