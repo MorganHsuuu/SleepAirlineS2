@@ -1774,12 +1774,7 @@ async function api(method, url, body, { timeoutMs = 0 } = {}) {
 function flightPlaneCoord(f) {
   const dep = coordOf(f, 'departureLatitude', 'departureLongitude');
   if (!dep) return null;
-  const pred = predictFlightArrival(f);
-  if (pred) {
-    const c = interpolateRoute(pred.from, pred.to, pred.planeT);
-    const ahead = interpolateRoute(pred.from, pred.to, Math.min(1, pred.planeT + 0.02));
-    return { c, km: pred.km, ahead, predictedTo: pred.to, predictedLabel: pred.label };
-  }
+  // 飛行中只沿航向前進，不預測／不指向目的地
   const bearing = routeBearing(f.routeDirection);
   const km = minutesSince(f.takeoffTime) * KM_PER_MINUTE;
   if (bearing == null) return { c: dep, km: 0 };
@@ -2195,24 +2190,7 @@ function updateGlobeForReady() {
 function updateGlobeForFlight() {
   if (!activeFlight) return;
   const dep = coordOf(activeFlight, 'departureLatitude', 'departureLongitude') || youCoord();
-  const pred = predictFlightArrival(activeFlight);
-  if (pred) {
-    Globe.update({
-      you: { c: dep, label: cityOnly(activeFlight.departureLocation) },
-      ...globeTrailPatch(),
-      heading: null,
-      traveledKm: 0,
-      possibilityKm: 0,
-      routeArc: {
-        from: pred.from,
-        to: pred.to,
-        planeT: pred.planeT,
-        planeLabel: `${cityOnly(passenger.currentLocation) || '你'} ✈`,
-      },
-      arrival: { c: pred.to, label: `將抵 · ${pred.label}` },
-    });
-    return;
-  }
+  // 飛行中不預測／不標示目的地（降落前皆為未知）
   const bearing = routeBearing(activeFlight.routeDirection);
   const km = minutesSince(activeFlight.takeoffTime) * KM_PER_MINUTE;
   Globe.update({
@@ -2221,7 +2199,8 @@ function updateGlobeForFlight() {
     heading: bearing,
     traveledKm: km,
     possibilityKm: 0,
-    routeArc: null, arrival: null,
+    routeArc: null,
+    arrival: null,
   });
 }
 
@@ -3129,10 +3108,10 @@ function waitLandingFxDismiss() {
     if (!fx?.classList.contains('show')) { resolve(); return; }
 
     let done = false;
-    let dismissBtn = null;
+    let actionRow = null;
     const onKey = (e) => { if (e.key === 'Escape') finish(); };
     const onOverlayTap = (e) => {
-      if (dismissBtn?.contains(e.target)) return;
+      if (actionRow?.contains(e.target)) return;
       if (card?.contains(e.target)) return;
       finish();
     };
@@ -3143,7 +3122,7 @@ function waitLandingFxDismiss() {
       fx.removeEventListener('click', onOverlayTap);
       fx.removeEventListener('touchend', onOverlayTap);
       document.removeEventListener('keydown', onKey);
-      dismissBtn?.remove();
+      actionRow?.remove();
       clearTimeout(safety);
       resolve();
     };
@@ -3153,12 +3132,30 @@ function waitLandingFxDismiss() {
       if (done) return;
       animateFxLine('landing-fx-sub', '點一下繼續');
       fx.classList.add('fx-dismissible');
-      dismissBtn = document.createElement('button');
+
+      actionRow = document.createElement('div');
+      actionRow.className = 'fx-dismiss-row';
+
+      const dismissBtn = document.createElement('button');
       dismissBtn.type = 'button';
       dismissBtn.className = 'fx-dismiss-btn';
       dismissBtn.textContent = '查看抵達';
       dismissBtn.addEventListener('click', (e) => { e.stopPropagation(); finish(); });
-      card?.appendChild(dismissBtn);
+
+      const shareBtn = document.createElement('button');
+      shareBtn.type = 'button';
+      shareBtn.className = 'fx-share-btn';
+      shareBtn.setAttribute('aria-label', '分享抵達與風景');
+      shareBtn.title = '分享抵達與風景';
+      shareBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 3v12"/><path d="m7 8 5-5 5 5"/></svg>';
+      shareBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void shareArrivalJourney('fx');
+      });
+
+      actionRow.appendChild(dismissBtn);
+      actionRow.appendChild(shareBtn);
+      card?.appendChild(actionRow);
       fx.addEventListener('click', onOverlayTap);
       fx.addEventListener('touchend', onOverlayTap, { passive: true });
       document.addEventListener('keydown', onKey);
@@ -3168,11 +3165,78 @@ function waitLandingFxDismiss() {
     const safety = setTimeout(finish, safetyMs);
   });
 }
+function landingFxVideos() {
+  return [$('landing-fx-video'), $('landing-fx-video-b')].filter(Boolean);
+}
+
+function activeLandingFxVideo() {
+  return landingFxVideos().find((v) => v.classList.contains('is-fx-active'))
+    || $('landing-fx-video');
+}
+
+function idleLandingFxVideo() {
+  const vids = landingFxVideos();
+  return vids.find((v) => v.classList.contains('is-fx-idle'))
+    || vids.find((v) => !v.classList.contains('is-fx-active'))
+    || $('landing-fx-video-b');
+}
+
+function pauseAllLandingFxVideos() {
+  landingFxVideos().forEach((v) => pauseWindowVideo(v));
+}
+
+/**
+ * takeoff2 → landing：雙層交叉淡入，載入期間舊片不停，避免黑屏。
+ */
+async function crossfadeLandingFxTo(src, { loop = false, fadeMs = 900 } = {}) {
+  const from = activeLandingFxVideo();
+  const to = idleLandingFxVideo();
+  if (!src) return false;
+  if (!to || to === from) {
+    return playWindowVideo(from, src, { loop });
+  }
+
+  // 舊片繼續播；新片在底層備好再淡入
+  await prepareWindowVideo(to, src);
+  disableSeamlessVideoLoop(to);
+  to.muted = true;
+  to.playsInline = true;
+  to.hidden = false;
+  to.loop = false;
+  try { to.currentTime = 0; } catch { /* noop */ }
+
+  try {
+    await Promise.race([to.play(), waitMs(1400)]);
+  } catch {
+    try {
+      await BroadcastAudio?.unlockMedia?.();
+      await Promise.race([to.play(), waitMs(1400)]);
+    } catch { /* still try visual swap */ }
+  }
+
+  // 等新片有畫面再交叉，避免淡入黑幀
+  if (to.readyState < 2) await waitMs(120);
+  to.classList.add('is-fx-idle');
+  from.classList.add('is-fx-active');
+  void to.offsetWidth;
+  to.classList.remove('is-fx-idle');
+  to.classList.add('is-fx-active');
+  from.classList.remove('is-fx-active');
+  from.classList.add('is-fx-idle');
+  await waitMs(fadeMs);
+
+  pauseWindowVideo(from);
+  if (loop) enableSeamlessVideoLoop(to);
+  else disableSeamlessVideoLoop(to);
+  return true;
+}
+
 function resetLandingFxScenery() {
-  const video = $('landing-fx-video');
+  const video = activeLandingFxVideo();
   const img = $('landing-fx-scenery');
   const fallback = $('landing-fx-fallback');
   const scene = $('landing-fx-scene');
+  landingFxVideos().forEach((v) => { v.hidden = false; });
   if (video) video.hidden = false;
   if (img) { img.hidden = true; img.removeAttribute('src'); }
   if (fallback) { fallback.hidden = true; fallback.innerHTML = ''; }
@@ -3183,7 +3247,7 @@ function resetLandingFxScenery() {
 async function showLandingFxScenery(landed) {
   const fx = $('landing-fx');
   const scene = $('landing-fx-scene');
-  const video = $('landing-fx-video');
+  const video = activeLandingFxVideo();
   const img = $('landing-fx-scenery');
   const fallback = $('landing-fx-fallback');
   if (!landed || !scene || !video) return;
@@ -3225,8 +3289,8 @@ async function showLandingFxScenery(landed) {
 
   if (fx) fx.dataset.phase = 'arrival';
   await waitMs(900);
-  pauseWindowVideo(video);
-  video.hidden = true;
+  pauseAllLandingFxVideos();
+  landingFxVideos().forEach((v) => { v.hidden = true; });
   const flag = meta.flag || '🌍';
   const country = meta.countryZh || meta.country || '';
   animateFxLine('landing-fx-title', `${flag} ${place || '已抵達'}`);
@@ -3238,7 +3302,7 @@ async function showLandingFxScenery(landed) {
 
 function setLandingFxPhase(phase) {
   const fx = $('landing-fx');
-  const video = $('landing-fx-video');
+  const video = activeLandingFxVideo();
   if (!fx || !video) return;
   fx.dataset.phase = phase;
   if (phase === 'descent') {
@@ -3247,41 +3311,47 @@ function setLandingFxPhase(phase) {
   }
 }
 
-/** 機長廣播結束 → 著陸段：清 TTS、解鎖媒體、停下降 loop，再接 landing.mp4 */
+/** 機長廣播結束 → 著陸段：清 TTS、解鎖媒體；takeoff2 持續播，不中斷成黑屏 */
 async function bridgeAfterCaptainBroadcast() {
   if (window.speechSynthesis) speechSynthesis.cancel();
   BroadcastAudio?.stopCaptainIntro?.();
   BroadcastAudio?.stopPlayback?.();
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
-  // wakeup 在 TTS 前會漸弱至無聲；landing.mp4 時由 duckCeremonyBed 以小聲底床回來
-  const video = $('landing-fx-video');
+  // 保持 takeoff2 loop，等 landing.mp4 備好再交叉淡入
+  const video = activeLandingFxVideo();
   if (video) {
-    disableSeamlessVideoLoop(video);
-    pauseWindowVideo(video);
     video.hidden = false;
+    if (video.paused || video.dataset.src !== FLIGHT_MEDIA.descent) {
+      await playWindowVideo(video, FLIGHT_MEDIA.descent, { loop: true });
+    } else if (!seamlessLoopHandlers.has(video)) {
+      enableSeamlessVideoLoop(video);
+      try { await video.play(); } catch { /* noop */ }
+    }
   }
 }
 
-/** 對準跑道：landing.mp4 一次 + takeoff.mp3 同步 */
+/** 對準跑道：takeoff2 → landing.mp4 交叉淡入 + takeoff.mp3 同步 */
 async function playLandingApproach() {
-  const video = $('landing-fx-video');
   const fx = $('landing-fx');
-  if (!video) return;
+  if (!fx) return;
   await BroadcastAudio?.unlockMedia?.();
-  if (fx) fx.dataset.phase = 'approach';
+  fx.dataset.phase = 'approach';
   animateFxLine('landing-fx-title', '即將抵達…');
   animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
-  // 先把 landing.mp4 載到可播、音景壓低，音效與影片才會同一刻開始
+
+  // 舊片繼續播；同時預載 landing + 壓低音景
+  const next = idleLandingFxVideo();
   await Promise.all([
-    prepareWindowVideo(video, FLIGHT_MEDIA.landing),
+    next ? prepareWindowVideo(next, FLIGHT_MEDIA.landing) : Promise.resolve(),
     BroadcastAudio?.duckCeremonyBed?.(),
   ]);
+
   await Promise.all([
     BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 900 }),
-    playWindowVideo(video, FLIGHT_MEDIA.landing, { loop: false }),
+    crossfadeLandingFxTo(FLIGHT_MEDIA.landing, { loop: false, fadeMs: 900 }),
   ]);
-  await waitForVideoEnd(video, LANDING_FX_MS.approachMin);
+  await waitForVideoEnd(activeLandingFxVideo(), LANDING_FX_MS.approachMin);
   await BroadcastAudio?.crossfadeApproachSfxToWakeup?.();
 }
 async function hideLandingFx({ fast = false } = {}) {
@@ -3290,13 +3360,13 @@ async function hideLandingFx({ fast = false } = {}) {
   fx.classList.remove('fx-dismissible');
   if (fast || !fx.classList.contains('show')) {
     fx.classList.remove('show', 'is-leaving');
-    pauseWindowVideo($('landing-fx-video'));
+    pauseAllLandingFxVideos();
     resetLandingFxScenery();
     return;
   }
   fx.classList.add('is-leaving');
   fx.classList.remove('show');
-  pauseWindowVideo($('landing-fx-video'));
+  pauseAllLandingFxVideos();
   await waitFxLeave(fx, LANDING_FX_MS.leave + 100);
   fx.classList.remove('is-leaving');
   resetLandingFxScenery();
@@ -3575,6 +3645,55 @@ async function shareTerminalLink(source = 'login') {
   }
 }
 
+/** 分享抵達地＋風景照連結（系統分享／複製文字） */
+function buildArrivalSharePayload() {
+  const landed = lastLandedFlight;
+  if (!landed) return null;
+  const meta = arrivalMeta(landed);
+  const flag = meta.flag || '🌍';
+  const city = meta.city || cityOnly(landed.arrivalLocation) || '未知目的地';
+  const country = meta.countryZh || meta.country || '';
+  const place = country ? `${flag} ${city} · ${country}` : `${flag} ${city}`;
+  const name = passenger?.name || '我';
+  const imageUrl = landingScenery?.imageUrl || '';
+  const title = `甦醒航班 · 抵達 ${city}`;
+  const lines = [
+    `${name} 搭甦醒航班抵達了 ${place}`,
+  ];
+  if (imageUrl) lines.push(`窗外風景：${imageUrl}`);
+  lines.push('—— 甦航班 Sleep Airline');
+  return { title, text: lines.join('\n'), url: imageUrl || undefined, place, imageUrl };
+}
+
+async function shareArrivalJourney(source = 'panel') {
+  const payload = buildArrivalSharePayload();
+  if (!payload) {
+    showMsg('main', 'error', '目前沒有可分享的抵達紀錄。');
+    return;
+  }
+  if (navigator.share) {
+    try {
+      const data = { title: payload.title, text: payload.text };
+      if (payload.url && navigator.canShare?.({ ...data, url: payload.url })) {
+        data.url = payload.url;
+      } else if (payload.url) {
+        data.url = payload.url;
+      }
+      await navigator.share(data);
+      showMsg('main', 'success', '已分享這趟抵達');
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(payload.text);
+    showMsg('main', 'success', payload.imageUrl ? '抵達與風景連結已複製' : '抵達訊息已複製');
+  } catch {
+    showMsg('main', 'error', '無法分享，請稍後再試');
+  }
+}
+
 // ── 契約 API 動作（doLogin / doTakeoff / doLand / fetchBoard / refreshProgress）──
 
 async function doLogin(e) {
@@ -3837,7 +3956,7 @@ async function doLand() {
       );
     }
 
-    // ③ 機長播完 → landing.mp4 + takeoff.mp3（wakeup 以小聲底床回來），地球儀滑向抵達地
+    // ③ 機長播完 → takeoff2 交叉淡入 landing.mp4（無黑屏）+ takeoff.mp3，地球儀滑向抵達地
     await bridgeAfterCaptainBroadcast();
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
@@ -4128,6 +4247,7 @@ $('btn-window').addEventListener('click', toggleWindow);
 $('btn-flight-window').addEventListener('click', () => toggleFlightWindow());
 
 $('btn-close-landed').addEventListener('click', dismissLandedPanel);
+$('btn-share-arrival')?.addEventListener('click', () => { void shareArrivalJourney('panel'); });
 $('globe-svg')?.addEventListener('click', (e) => {
   if (isLandedPanelVisible()) {
     if (e.target.closest('.pt-pick')) return;

@@ -1017,7 +1017,7 @@ body[data-theme="dusk"] .dock-action--green {
 }
 #flight-panel .fly-portal--deco::after { display: none; }
 #flight-panel .fly-portal-lane {
-  width: min(92%, 320px);
+  width: min(100%, 420px);
 }
 
 #flight-panel.dock-panel--enter,
@@ -1664,12 +1664,21 @@ body[data-theme="dusk"] .pw-frame {
   -webkit-backface-visibility: hidden;
 }
 #landing-fx .pw-video { z-index: 2; }
+#landing-fx .pw-video.is-fx-active { opacity: 1; z-index: 3; }
+#landing-fx .pw-video.is-fx-idle {
+  opacity: 0;
+  z-index: 2;
+  pointer-events: none;
+}
 #landing-fx-scenery,
 #landing-fx-fallback { z-index: 1; }
 #landing-fx[data-phase="arrival"] .pw-video {
-  opacity: 0;
+  opacity: 0 !important;
   pointer-events: none;
   transition: opacity .85s ease;
+}
+#landing-fx-scene .pw-video {
+  transition: opacity .88s ease;
 }
 
 .scenery-img {
@@ -1699,8 +1708,15 @@ body[data-theme="dusk"] .pw-frame {
   border: 1px solid var(--divider); background: var(--glass-bg-strong);
   color: var(--ink); font-size: 12px; font-weight: 700; font-family: inherit;
   cursor: pointer; transition: border-color .15s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .btn-soft:hover { border-color: var(--gold); }
+.btn-soft--share {
+  flex: 0 0 auto;
+  min-width: 118px;
+  border-color: color-mix(in srgb, var(--gold) 35%, var(--divider));
+  color: var(--gold-deep);
+}
 
 /* ═══ 小隊看板（與 topbar 同寬，向下展開）═══ */
 
@@ -2201,7 +2217,7 @@ body.sheet-open #main-section {
   cursor: default;
 }
 .fx-dismiss-btn {
-  margin-top: 16px;
+  margin-top: 0;
   padding: 12px 28px;
   border: none;
   border-radius: 999px;
@@ -2216,6 +2232,39 @@ body.sheet-open #main-section {
   -webkit-tap-highlight-color: transparent;
 }
 .fx-dismiss-btn:active { transform: scale(.97); }
+.fx-dismiss-row {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.fx-share-btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 50%;
+  background: rgba(12, 22, 40, .45);
+  color: #ffe9bd;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .28);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.fx-share-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fx-share-btn:active { transform: scale(.96); }
 .fx-porthole-wrap {
   width: min(72vw, 220px);
   animation: none;

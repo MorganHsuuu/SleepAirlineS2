@@ -281,7 +281,11 @@
         <span class="voice-wave sr-only" id="voice-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
 
         <div class="panel-actions">
-          <button class="btn-soft" id="btn-close-landed">✓ 準備下一趟</button>
+          <button class="btn-soft btn-soft--share" id="btn-share-arrival" type="button">
+            <span aria-hidden="true">↗</span>
+            <span>分享這趟</span>
+          </button>
+          <button class="btn-soft" id="btn-close-landed" type="button">✓ 準備下一趟</button>
         </div>
       </div>
 
@@ -434,7 +438,8 @@
         <div class="pw-scene" id="landing-fx-scene">
           <div class="pw-fallback" id="landing-fx-fallback" hidden></div>
           <img id="landing-fx-scenery" class="scenery-img" alt="降落風景" hidden>
-          <video id="landing-fx-video" class="pw-video" muted playsinline loop preload="auto"></video>
+          <video id="landing-fx-video" class="pw-video is-fx-active" muted playsinline loop preload="auto"></video>
+          <video id="landing-fx-video-b" class="pw-video is-fx-idle" muted playsinline preload="auto"></video>
           <div class="pw-glare" aria-hidden="true"></div>
         </div>
       </div>
