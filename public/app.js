@@ -3750,7 +3750,7 @@ async function doLand() {
       ? requestLandingScenery(landed.flightId)
       : Promise.resolve(!!landingScenery?.imageUrl);
 
-    // ② 機長廣播（captain 後 wakeup 漸弱至無聲，再播 TTS）
+    // ② 機長廣播（captain.mp3 起播時 wakeup 漸弱至無聲，再接 TTS）
     await ensureMediaUnlocked();
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {

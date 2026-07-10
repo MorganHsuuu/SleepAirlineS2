@@ -391,20 +391,19 @@ async function playCaptainIntro({ fadeInMs = 0 } = {}) {
   return true;
 }
 
-/** wakeup 壓成小聲底床 + captain 前段漸強（同一時間軸） */
+/** captain.mp3 起播時：wakeup 同步漸弱至無聲 */
 async function crossfadeLandingToCaptainIntro() {
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
-  const soft = softWakeupVolume(WAKEUP_DUCK_RATIO.captain);
+  const ms = Math.max(1100, CEREMONY_CROSSFADE_MS);
   if (!cfg.url) {
-    await fadeLandingBedVolume(soft, CEREMONY_CROSSFADE_MS);
+    await fadeLandingBedVolume(0, ms);
     return false;
   }
   stopCaptainIntro();
   resetKeepAliveToSilent();
   await ensureAudioCtx();
-  const ms = CEREMONY_CROSSFADE_MS;
   const [, ok] = await Promise.all([
-    fadeLandingBedVolume(soft, ms),
+    fadeLandingBedVolume(0, ms),
     playCaptainIntro({ fadeInMs: ms }),
   ]);
   return ok;
