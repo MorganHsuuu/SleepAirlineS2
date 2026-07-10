@@ -550,6 +550,13 @@ let landingPausedForCaptain = false;
 async function duckCeremonyBed() {
   const jobs = [];
   if (landingAudio) {
+    if (landingPausedForCaptain || landingAudio.paused) {
+      landingPausedForCaptain = false;
+      try {
+        landingAudio.volume = 0;
+        await Promise.race([landingAudio.play(), delay(900)]);
+      } catch { /* noop */ }
+    }
     const target = softWakeupVolume(WAKEUP_DUCK_RATIO.approach);
     jobs.push(fadeLandingBedVolume(target, 600));
   }
@@ -565,19 +572,22 @@ async function duckCeremonyBed() {
   if (jobs.length) await Promise.all(jobs);
 }
 
-/** 機長 TTS 期間：wakeup 維持小聲底床（不切斷） */
+/** 機長 TTS 前：wakeup 漸弱至無聲（避免蓋過廣播） */
 async function muteCeremonyBedForSpeech() {
-  const ms = Math.min(600, CEREMONY_CROSSFADE_MS);
-  const soft = softWakeupVolume(WAKEUP_DUCK_RATIO.captain);
+  const ms = Math.max(1100, CEREMONY_CROSSFADE_MS);
   const jobs = [];
   if (landingAudio) {
-    jobs.push(fadeLandingBedVolume(soft, ms));
+    jobs.push(fadeLandingBedVolume(0, ms));
   }
   if (flightSfxAudio) {
     if (savedFlightSfxVolume == null) savedFlightSfxVolume = flightSfxAudio.volume;
     jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, 0, ms));
   }
   if (jobs.length) await Promise.all(jobs);
+  if (landingAudio && landingAudio.volume <= 0.01) {
+    landingPausedForCaptain = true;
+    try { landingAudio.pause(); } catch { /* noop */ }
+  }
 }
 
 async function restoreCeremonyBed({ ms = CEREMONY_RESTORE_MS } = {}) {
@@ -590,7 +600,9 @@ async function restoreCeremonyBed({ ms = CEREMONY_RESTORE_MS } = {}) {
         await Promise.race([landingAudio.play(), delay(900)]);
       } catch { /* noop */ }
     }
-    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, ms));
+    // 廣播後只回小聲底床，勿拉回全音量
+    const soft = softWakeupVolume(WAKEUP_DUCK_RATIO.afterLanding);
+    jobs.push(fadeAudioVolume(landingAudio, landingAudio.volume, soft, ms));
   }
   if (flightSfxAudio && savedFlightSfxVolume != null) {
     jobs.push(fadeAudioVolume(flightSfxAudio, flightSfxAudio.volume, savedFlightSfxVolume, 900));

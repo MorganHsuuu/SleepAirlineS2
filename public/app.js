@@ -2336,9 +2336,13 @@ function renderSceneryCard(loading = false) {
   const place = landingScenery?.arrivalLocation
     || (lastLandedFlight ? cityOnly(lastLandedFlight.arrivalLocation) : '')
     || '';
+  const meta = lastLandedFlight ? arrivalMeta(lastLandedFlight) : null;
   const country = landingScenery?.country
-    || (lastLandedFlight ? arrivalMeta(lastLandedFlight).country : '');
-  $('scenery-caption').textContent = '📍 ' + place + (country ? ' · ' + country : '');
+    || meta?.countryZh
+    || meta?.country
+    || '';
+  const flag = meta?.flag || '📍';
+  $('scenery-caption').textContent = `${flag} ${place}${country ? ' · ' + country : ''}`.trim();
 
   if (hasAI) {
     fallback.innerHTML = '';
@@ -3147,8 +3151,13 @@ async function showLandingFxScenery(landed) {
   await waitMs(900);
   pauseWindowVideo(video);
   video.hidden = true;
-  animateFxLine('landing-fx-title', '已抵達');
-  animateFxLine('landing-fx-sub', `${place}${meta.countryZh ? ' · ' + meta.countryZh : ''}`);
+  const flag = meta.flag || '🌍';
+  const country = meta.countryZh || meta.country || '';
+  animateFxLine('landing-fx-title', `${flag} ${place || '已抵達'}`);
+  animateFxLine(
+    'landing-fx-sub',
+    country ? `歡迎抵達 · ${country}` : '歡迎抵達',
+  );
 }
 
 function setLandingFxPhase(phase) {
@@ -3169,7 +3178,7 @@ async function bridgeAfterCaptainBroadcast() {
   BroadcastAudio?.stopPlayback?.();
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
-  // wakeup 在機長／著陸段維持小聲；landing.mp4 結束後由 crossfadeApproachSfxToWakeup 拉回正常音量
+  // wakeup 在 TTS 前會漸弱至無聲；landing.mp4 時由 duckCeremonyBed 以小聲底床回來
   const video = $('landing-fx-video');
   if (video) {
     disableSeamlessVideoLoop(video);
@@ -3741,7 +3750,7 @@ async function doLand() {
       ? requestLandingScenery(landed.flightId)
       : Promise.resolve(!!landingScenery?.imageUrl);
 
-    // ② 機長廣播（captain + TTS；wakeup 壓成小聲底床持續播放）
+    // ② 機長廣播（captain 後 wakeup 漸弱至無聲，再播 TTS）
     await ensureMediaUnlocked();
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
@@ -3752,7 +3761,7 @@ async function doLand() {
       );
     }
 
-    // ③ 機長播完 → landing.mp4 + takeoff.mp3（wakeup 仍小聲墊底），地球儀滑向抵達地
+    // ③ 機長播完 → landing.mp4 + takeoff.mp3（wakeup 以小聲底床回來），地球儀滑向抵達地
     await bridgeAfterCaptainBroadcast();
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
