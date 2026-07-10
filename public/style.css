@@ -416,13 +416,13 @@ body[data-theme="dusk"] .topbar {
   margin-bottom: 16px;
 }
 
-.terminal-kicker { margin-bottom: 4px; color: var(--gold); }
-
-.terminal-title {
-  font-size: 13px;
+.terminal-kicker {
+  margin-bottom: 0;
+  color: var(--gold);
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: .7px;
-  color: var(--ink);
+  letter-spacing: 1.6px;
+  line-height: 1.2;
 }
 
 .terminal-chip {
