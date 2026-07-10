@@ -108421,8 +108421,10 @@ async function getLandscapeByFlightId(flightId) {
     page_size: 1
   });
   if (result.results.length === 0) return null;
-  const pageId = result.results[0].id;
-  const fresh = await client.pages.retrieve({ page_id: pageId });
+  const page = result.results[0];
+  const parsed = parseLandscape(page);
+  if (parsed.imageUrl) return parsed;
+  const fresh = await client.pages.retrieve({ page_id: result.results[0].id });
   return parseLandscape(fresh);
 }
 
@@ -108519,7 +108521,7 @@ function buildSceneryPrompt(city, country, displayName) {
 var SCENERY_IMAGE_SIZE = "1024x1024";
 function safeFilename(city, flightId) {
   const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
-  return `landing-${slug2}-${flightId.slice(-8)}.png`;
+  return `landing-${slug2}-${flightId.slice(-8)}.jpg`;
 }
 function isGptImageModel(model) {
   return model.startsWith("gpt-image") || model.startsWith("chatgpt-image");
@@ -108529,42 +108531,55 @@ async function generateLandingScenery(city, country, displayName, flightId) {
   const imagePrompt = buildSceneryPrompt(city, country, displayName);
   const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
-  const response = await client.images.generate(
-    isGptImageModel(model) ? {
-      model,
-      prompt: imagePrompt,
-      size: SCENERY_IMAGE_SIZE,
-      quality: "low",
-      output_format: "png",
-      n: 1
-    } : {
-      model,
-      prompt: imagePrompt,
-      size: SCENERY_IMAGE_SIZE,
-      quality: "standard",
-      n: 1
+  const useGptImage = isGptImageModel(model);
+  try {
+    const response = await client.images.generate(
+      useGptImage ? {
+        model,
+        prompt: imagePrompt,
+        size: SCENERY_IMAGE_SIZE,
+        quality: "low",
+        // jpeg 比 png 小很多，Notion 上傳更快，也比較不容易撞 Vercel 60s 上限
+        output_format: "jpeg",
+        n: 1
+      } : {
+        model,
+        prompt: imagePrompt,
+        size: SCENERY_IMAGE_SIZE,
+        quality: "standard",
+        n: 1
+      }
+    );
+    const b64 = response.data?.[0]?.b64_json;
+    if (b64) {
+      return {
+        imageBuffer: Buffer.from(b64, "base64"),
+        imagePrompt,
+        contentType: useGptImage ? "image/jpeg" : "image/png",
+        filename: safeFilename(city, flightId)
+      };
     }
-  );
-  const b64 = response.data[0]?.b64_json;
-  if (b64) {
+    const imageUrl = response.data?.[0]?.url;
+    if (!imageUrl) {
+      console.error(`[scenery] ${flightId} OpenAI \u56DE\u50B3\u6C92\u6709\u5716\u7247\u8CC7\u6599`);
+      return null;
+    }
+    const imageRes = await fetch(imageUrl);
+    if (!imageRes.ok) {
+      console.error(`[scenery] ${flightId} \u4E0B\u8F09 OpenAI \u5716\u5931\u6557\uFF1A${imageRes.status}`);
+      return null;
+    }
+    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
     return {
-      imageBuffer: Buffer.from(b64, "base64"),
+      imageBuffer,
       imagePrompt,
-      contentType: "image/png",
+      contentType: imageRes.headers.get("content-type") ?? "image/jpeg",
       filename: safeFilename(city, flightId)
     };
+  } catch (err) {
+    console.error(`[scenery] ${flightId} OpenAI \u751F\u5716\u4F8B\u5916\uFF1A`, err);
+    return null;
   }
-  const imageUrl = response.data[0]?.url;
-  if (!imageUrl) return null;
-  const imageRes = await fetch(imageUrl);
-  if (!imageRes.ok) return null;
-  const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
-  return {
-    imageBuffer,
-    imagePrompt,
-    contentType: imageRes.headers.get("content-type") ?? "image/png",
-    filename: safeFilename(city, flightId)
-  };
 }
 
 // src/lib/notion/scenery-backfill.ts

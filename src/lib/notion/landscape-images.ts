@@ -176,7 +176,11 @@ export async function getLandscapeByFlightId(flightId: string): Promise<LandingS
 
   if (result.results.length === 0) return null;
 
-  const pageId = result.results[0].id;
-  const fresh = await client.pages.retrieve({ page_id: pageId });
+  // query 結果通常已含 properties；有圖就直接用，省一次 pages.retrieve
+  const page = result.results[0] as unknown as Record<string, unknown>;
+  const parsed = parseLandscape(page);
+  if (parsed.imageUrl) return parsed;
+
+  const fresh = await client.pages.retrieve({ page_id: result.results[0].id });
   return parseLandscape(fresh as unknown as Record<string, unknown>);
 }

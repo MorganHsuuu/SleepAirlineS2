@@ -2560,7 +2560,7 @@ async function hideLandingFx({ fast = false } = {}) {
 async function requestLandingScenery(flightId) {
   if (!flightId || previewMode || window.WorkshopLocal?.isActive()) return false;
   try {
-    const data = await api('POST', '/api/scenery/backfill', { flightIds: [flightId] }, { timeoutMs: 68000 });
+    const data = await api('POST', '/api/scenery/backfill', { flightIds: [flightId] }, { timeoutMs: 110000 });
     const row = data.results?.[0];
     if (row?.error) console.warn('[landing scenery]', row.error);
     if (!row?.imageUrl || lastLandedFlight?.flightId !== flightId) return false;
@@ -2854,21 +2854,22 @@ async function doLogin(e) {
       archiveFlightTrail(lastLandedFlight);
     }
 
-    // 先進入主畫面，看板／進度／風景改背景載入，不擋登入體感
+    // 先進入主畫面；看板與風景並行背景載入（風景不再等看板）
     updateUI();
     Globe.flyTo(youCoord(), 1200);
     startAutoRefresh();
     setLoginLoading(false);
 
-    void (async () => {
+    const sceneryPromise = lastLandedFlight?.flightId && !landingScenery?.imageUrl
+      ? ensureLandingSceneryForFlight(lastLandedFlight.flightId, { allowBackfill: true })
+      : Promise.resolve(false);
+    const boardPromise = (async () => {
       try {
         if (passenger.status === 'in_flight') await refreshProgress();
         await fetchBoard();
-        if (lastLandedFlight?.flightId && !landingScenery?.imageUrl) {
-          await loadLandingSceneryForFlight(lastLandedFlight.flightId);
-        }
       } catch { /* silent */ }
     })();
+    void Promise.all([sceneryPromise, boardPromise]);
   } catch (err) {
     showMsg('login', 'error', err.message);
     setLoginLoading(false);
@@ -2886,14 +2887,42 @@ function setLoginLoading(on) {
 }
 
 async function loadLandingSceneryForFlight(flightId) {
-  if (!flightId || previewMode) return;
+  if (!flightId || previewMode) return false;
   try {
     const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(flightId));
     if (data.scenery?.imageUrl && lastLandedFlight?.flightId === flightId) {
       landingScenery = data.scenery;
       if (!$('landed-panel')?.classList.contains('hidden')) renderSceneryCard(false);
+      return true;
     }
-  } catch { /* silent */ }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** 登入／抵達面板：先讀既有圖；沒有就背景補生（Able 這類漏圖會在下次登入自動補） */
+async function ensureLandingSceneryForFlight(flightId, { allowBackfill = false } = {}) {
+  if (!flightId || previewMode || window.WorkshopLocal?.isActive?.()) return false;
+  if (landingScenery?.imageUrl) {
+    if (!$('landed-panel')?.classList.contains('hidden')) renderSceneryCard(false);
+    return true;
+  }
+
+  if (!$('landed-panel')?.classList.contains('hidden')) renderSceneryCard(true);
+  const ok = await loadLandingSceneryForFlight(flightId);
+  if (ok) return true;
+  if (!allowBackfill) {
+    if (!$('landed-panel')?.classList.contains('hidden')) renderSceneryCard(false);
+    return false;
+  }
+
+  // 缺圖：觸發一次 backfill（例如降落時 Vercel 逾時沒存到）
+  const generated = await requestLandingScenery(flightId);
+  if (!generated && !$('landed-panel')?.classList.contains('hidden')) {
+    renderSceneryCard(false);
+  }
+  return generated;
 }
 
 async function doTakeoff() {
