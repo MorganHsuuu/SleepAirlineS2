@@ -55,6 +55,32 @@
     return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   }
 
+  function moveAlongBearing(lat, lng, bearingDeg, distanceKm) {
+    const angularDistance = distanceKm / EARTH_RADIUS_KM;
+    const bearing = toRad(bearingDeg);
+    const lat1 = toRad(lat);
+    const lon1 = toRad(lng);
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(angularDistance) +
+        Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+    );
+    const lon2 =
+      lon1 +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+        Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+      );
+    return {
+      latitude: (lat2 * 180) / Math.PI,
+      longitude: (((lon2 * 180) / Math.PI + 540) % 360) - 180,
+    };
+  }
+
+  const DIRECTION_CENTER = {
+    northbound: 0, northeast: 45, eastbound: 90, southeast: 135,
+    southbound: 180, southwest: 225, westbound: 270, northwest: 315,
+  };
+
   function isInDirection(bearing, direction) {
     const b = ((bearing % 360) + 360) % 360;
     switch (direction) {
@@ -118,22 +144,30 @@
     const available = destinations.filter(
       (d) => d.availableForLanding && d.displayName !== departureLocation
     );
+    const tipBearing = DIRECTION_CENTER[routeDirection] ?? 90;
+    const tip = moveAlongBearing(depLat, depLng, tipBearing, Math.max(distanceKm, 1));
     const candidates = available.map((dest) => {
       const actualDistance = haversineDistance(depLat, depLng, dest.latitude, dest.longitude);
       const bearing = calculateBearing(depLat, depLng, dest.latitude, dest.longitude);
+      const tipDistanceKm = haversineDistance(tip.latitude, tip.longitude, dest.latitude, dest.longitude);
       return {
         ...dest,
         distanceKm: actualDistance,
-        distanceDelta: Math.abs(actualDistance - distanceKm),
+        tipDistanceKm,
         inDirection: isInDirection(bearing, routeDirection),
       };
     });
+    const byTip = (a, b) => {
+      const tipDiff = a.tipDistanceKm - b.tipDistanceKm;
+      if (Math.abs(tipDiff) > 1) return tipDiff;
+      return Math.abs(a.distanceKm - distanceKm) - Math.abs(b.distanceKm - distanceKm);
+    };
     const directional = candidates.filter((c) => c.inDirection);
     if (directional.length > 0) {
-      directional.sort((a, b) => a.distanceDelta - b.distanceDelta);
+      directional.sort(byTip);
       return directional[0];
     }
-    candidates.sort((a, b) => a.distanceDelta - b.distanceDelta);
+    candidates.sort(byTip);
     if (!candidates[0]) {
       throw new Error('沒有可用的降落城市，請確認 cities_data.json 已同步到 public/。');
     }

@@ -772,6 +772,19 @@ body[data-theme="dusk"] .dock-action--gold::before {
   color: var(--green);
   box-shadow: 0 6px 18px rgba(60, 140, 100, .18), inset 0 1px 0 rgba(255, 255, 255, .52);
 }
+.dock-action--green.is-confirm {
+  border-color: color-mix(in srgb, var(--green) 55%, #fff 20%);
+  background: linear-gradient(180deg, #e8fff3, #9fe0bf);
+  box-shadow:
+    0 8px 22px rgba(40, 130, 90, .28),
+    0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, .7);
+  animation: land-confirm-pulse 1.2s ease-in-out infinite;
+}
+@keyframes land-confirm-pulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
 .dock-action--green::before {
   content: '';
   position: absolute;
@@ -1656,38 +1669,38 @@ body.sheet-open #main-section {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 .route-arc .ra-track {
-  position: relative; flex: 1; height: 16px; margin-top: 8px;
+  position: relative; flex: 1; height: 0; align-self: center;
+  margin-top: 10px;
   border-top: 2px dashed color-mix(in srgb, var(--gold, #d9a63a) 70%, transparent);
 }
 .route-arc .ra-plane {
-  position: absolute; top: -11px; left: 50%;
-  transform: translateX(-50%) rotate(0deg);
+  position: absolute; top: 0; left: 50%;
+  transform: translate(-50%, -50%);
   font-size: 15px; line-height: 1; color: var(--gold, #d9a63a);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
-  animation: ma-fly 3.2s ease-in-out infinite;
+  animation: none;
 }
 #landed-panel .route-arc { margin: 8px 0 2px; }
 #landed-panel .route-arc .ra-plane {
-  animation: none;
   left: 86%;
   opacity: 1;
 }
+/* 只從左飛到右，再從頭開始（不要左右來回） */
 @keyframes ma-fly {
-  0% { left: 14%; opacity: .5; }
-  50% { left: 86%; opacity: 1; }
-  100% { left: 14%; opacity: .5; }
+  0% { left: 8%; opacity: .4; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { left: 90%; opacity: .35; }
 }
 #mate-sheet .landed-meta { margin-top: 0; margin-bottom: 4px; }
 #mate-sheet .plane-window { margin-top: 12px; }
 #mate-sheet .broadcast-box { margin-top: 12px; }
 #mate-sheet .route-arc .ra-plane {
-  animation: none;
   left: 86%;
   opacity: 1;
 }
 #mate-sheet .route-arc.in-flight .ra-plane {
-  left: 58%;
-  animation: ma-fly 3.2s ease-in-out infinite;
+  animation: ma-fly 4.8s linear infinite;
 }
 #mate-sheet .route-arc.in-flight .ra-end-r .ra-city,
 #mate-sheet .route-arc.in-flight .ra-end-r .ra-country {

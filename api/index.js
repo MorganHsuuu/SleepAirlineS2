@@ -107216,6 +107216,108 @@ function calculateBearing(lat1, lon1, lat2, lon2) {
   return (bearing + 360) % 360;
 }
 
+// src/lib/flight/geo.ts
+function toRad2(deg) {
+  return deg * Math.PI / 180;
+}
+var DIRECTION_CENTER_BEARING = {
+  northbound: 0,
+  northeast: 45,
+  eastbound: 90,
+  southeast: 135,
+  southbound: 180,
+  southwest: 225,
+  westbound: 270,
+  northwest: 315
+};
+var BEARING_TO_LABEL = [
+  { max: 22.5, label: "\u5411\u5317" },
+  { max: 67.5, label: "\u5411\u6771\u5317" },
+  { max: 112.5, label: "\u5411\u6771" },
+  { max: 157.5, label: "\u5411\u6771\u5357" },
+  { max: 202.5, label: "\u5411\u5357" },
+  { max: 247.5, label: "\u5411\u897F\u5357" },
+  { max: 292.5, label: "\u5411\u897F" },
+  { max: 337.5, label: "\u5411\u897F\u5317" },
+  { max: 360, label: "\u5411\u5317" }
+];
+function directionCenterBearing(direction) {
+  return DIRECTION_CENTER_BEARING[direction] ?? null;
+}
+function bearingToDirectionLabel(bearing) {
+  const b = (bearing % 360 + 360) % 360;
+  for (const entry of BEARING_TO_LABEL) {
+    if (b < entry.max) return entry.label;
+  }
+  return "\u5411\u5317";
+}
+function moveAlongBearing(lat, lng, bearingDeg, distanceKm) {
+  const angularDistance = distanceKm / 6371;
+  const bearing = toRad2(bearingDeg);
+  const lat1 = toRad2(lat);
+  const lon1 = toRad2(lng);
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) + Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+  );
+  const lon2 = lon1 + Math.atan2(
+    Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+    Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+  );
+  return {
+    latitude: lat2 * 180 / Math.PI,
+    longitude: (lon2 * 180 / Math.PI + 540) % 360 - 180
+  };
+}
+function estimateFlightPosition(flight) {
+  if (flight.status === "landed" && flight.arrivalLatitude != null && flight.arrivalLongitude != null) {
+    return {
+      latitude: flight.arrivalLatitude,
+      longitude: flight.arrivalLongitude,
+      traveledKm: 0
+    };
+  }
+  const elapsedMinutes = Math.max(
+    0,
+    (Date.now() - new Date(flight.takeoffTime).getTime()) / 6e4
+  );
+  const traveledKm = calculateFlightDistance(elapsedMinutes);
+  const bearing = directionCenterBearing(flight.routeDirection) ?? 90;
+  const pos = moveAlongBearing(
+    flight.departureLatitude,
+    flight.departureLongitude,
+    bearing,
+    traveledKm
+  );
+  return { ...pos, traveledKm };
+}
+function findNearestPlace(lat, lng, cities) {
+  if (cities.length === 0) return null;
+  let nearest = cities[0];
+  let minDist = haversineDistance(lat, lng, nearest.latitude, nearest.longitude);
+  for (const city of cities.slice(1)) {
+    const dist = haversineDistance(lat, lng, city.latitude, city.longitude);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = city;
+    }
+  }
+  return {
+    displayName: nearest.displayName,
+    country: nearest.country,
+    distanceKm: Math.round(minDist)
+  };
+}
+var COMPARABLE_ROUTE_DIRECTIONS = [
+  "eastbound",
+  "westbound",
+  "northbound",
+  "southbound",
+  "northeast",
+  "northwest",
+  "southeast",
+  "southwest"
+];
+
 // src/lib/flight/direction.ts
 function isInDirection(bearing, direction) {
   const b = (bearing % 360 + 360) % 360;
@@ -107245,6 +107347,8 @@ function findArrivalDestination(departureLat, departureLng, distanceKm, routeDir
   const available = destinations.filter(
     (d) => d.availableForLanding && d.displayName !== departureLocation
   );
+  const tipBearing = directionCenterBearing(routeDirection) ?? 90;
+  const tip = moveAlongBearing(departureLat, departureLng, tipBearing, Math.max(distanceKm, 1));
   const candidates = available.map((dest) => {
     const actualDistance = haversineDistance(
       departureLat,
@@ -107258,19 +107362,30 @@ function findArrivalDestination(departureLat, departureLng, distanceKm, routeDir
       dest.latitude,
       dest.longitude
     );
+    const tipDistanceKm = haversineDistance(
+      tip.latitude,
+      tip.longitude,
+      dest.latitude,
+      dest.longitude
+    );
     return {
       ...dest,
       distanceKm: actualDistance,
-      distanceDelta: Math.abs(actualDistance - distanceKm),
+      tipDistanceKm,
       inDirection: isInDirection(bearing, routeDirection)
     };
   });
+  const byTipThenDistance = (a, b) => {
+    const tipDiff = a.tipDistanceKm - b.tipDistanceKm;
+    if (Math.abs(tipDiff) > 1) return tipDiff;
+    return Math.abs(a.distanceKm - distanceKm) - Math.abs(b.distanceKm - distanceKm);
+  };
   const directional = candidates.filter((c) => c.inDirection);
   if (directional.length > 0) {
-    directional.sort((a, b) => a.distanceDelta - b.distanceDelta);
+    directional.sort(byTipThenDistance);
     return directional[0];
   }
-  candidates.sort((a, b) => a.distanceDelta - b.distanceDelta);
+  candidates.sort(byTipThenDistance);
   return candidates[0];
 }
 
@@ -107600,108 +107715,6 @@ ${factsToLines(candidate.facts)}
     return fallbackSocialCueText(candidate);
   }
 }
-
-// src/lib/flight/geo.ts
-function toRad2(deg) {
-  return deg * Math.PI / 180;
-}
-var DIRECTION_CENTER_BEARING = {
-  northbound: 0,
-  northeast: 45,
-  eastbound: 90,
-  southeast: 135,
-  southbound: 180,
-  southwest: 225,
-  westbound: 270,
-  northwest: 315
-};
-var BEARING_TO_LABEL = [
-  { max: 22.5, label: "\u5411\u5317" },
-  { max: 67.5, label: "\u5411\u6771\u5317" },
-  { max: 112.5, label: "\u5411\u6771" },
-  { max: 157.5, label: "\u5411\u6771\u5357" },
-  { max: 202.5, label: "\u5411\u5357" },
-  { max: 247.5, label: "\u5411\u897F\u5357" },
-  { max: 292.5, label: "\u5411\u897F" },
-  { max: 337.5, label: "\u5411\u897F\u5317" },
-  { max: 360, label: "\u5411\u5317" }
-];
-function directionCenterBearing(direction) {
-  return DIRECTION_CENTER_BEARING[direction] ?? null;
-}
-function bearingToDirectionLabel(bearing) {
-  const b = (bearing % 360 + 360) % 360;
-  for (const entry of BEARING_TO_LABEL) {
-    if (b < entry.max) return entry.label;
-  }
-  return "\u5411\u5317";
-}
-function moveAlongBearing(lat, lng, bearingDeg, distanceKm) {
-  const angularDistance = distanceKm / 6371;
-  const bearing = toRad2(bearingDeg);
-  const lat1 = toRad2(lat);
-  const lon1 = toRad2(lng);
-  const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(angularDistance) + Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
-  );
-  const lon2 = lon1 + Math.atan2(
-    Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
-    Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
-  );
-  return {
-    latitude: lat2 * 180 / Math.PI,
-    longitude: (lon2 * 180 / Math.PI + 540) % 360 - 180
-  };
-}
-function estimateFlightPosition(flight) {
-  if (flight.status === "landed" && flight.arrivalLatitude != null && flight.arrivalLongitude != null) {
-    return {
-      latitude: flight.arrivalLatitude,
-      longitude: flight.arrivalLongitude,
-      traveledKm: 0
-    };
-  }
-  const elapsedMinutes = Math.max(
-    0,
-    (Date.now() - new Date(flight.takeoffTime).getTime()) / 6e4
-  );
-  const traveledKm = calculateFlightDistance(elapsedMinutes);
-  const bearing = directionCenterBearing(flight.routeDirection) ?? 90;
-  const pos = moveAlongBearing(
-    flight.departureLatitude,
-    flight.departureLongitude,
-    bearing,
-    traveledKm
-  );
-  return { ...pos, traveledKm };
-}
-function findNearestPlace(lat, lng, cities) {
-  if (cities.length === 0) return null;
-  let nearest = cities[0];
-  let minDist = haversineDistance(lat, lng, nearest.latitude, nearest.longitude);
-  for (const city of cities.slice(1)) {
-    const dist = haversineDistance(lat, lng, city.latitude, city.longitude);
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = city;
-    }
-  }
-  return {
-    displayName: nearest.displayName,
-    country: nearest.country,
-    distanceKm: Math.round(minDist)
-  };
-}
-var COMPARABLE_ROUTE_DIRECTIONS = [
-  "eastbound",
-  "westbound",
-  "northbound",
-  "southbound",
-  "northeast",
-  "northwest",
-  "southeast",
-  "southwest"
-];
 
 // src/lib/flight/social-candidates.ts
 var TAKEOFF_SOCIAL_CUE_TYPES = /* @__PURE__ */ new Set([
