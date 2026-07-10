@@ -890,6 +890,7 @@ const Globe = (() => {
         faint: !!d.faint,
         bright: !!d.bright,
         showLabel: !!d.showLabel,
+        o: d.o,
         idx: d.idx,
       });
     });
@@ -992,18 +993,20 @@ const Globe = (() => {
         const col = d.mine ? gold : friendCol;
         const faint = !!d.faint;
         const bright = !!d.bright || (!faint && !!d.focused);
-        const coreR = bright ? 4.4 : (faint ? 2.1 : (d.mine ? 3.2 : 2.8));
-        const groupOp = typeof d.o === 'number' ? Math.max(0.08, Math.min(1, d.o)) : (faint ? 0.18 : 1);
+        const coreR = bright ? 4.4 : (faint ? 2.4 : (d.mine ? 3.2 : 2.8));
+        const groupOp = typeof d.o === 'number' ? Math.max(0.12, Math.min(1, d.o)) : (faint ? 0.22 : 1);
         g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
-          .attr('r', bright ? 11 : (faint ? 4 : 6))
+          .attr('r', bright ? 11 : (faint ? 5 : 6))
           .attr('fill', col)
-          .attr('opacity', bright ? 0.32 : (faint ? 0.06 : 0.14));
+          .attr('opacity', bright ? 0.32 : (faint ? 0.1 : 0.14));
         g.select('.core').attr('cx', x).attr('cy', y).attr('r', coreR)
           .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', bright ? 1.5 : 0.9);
-        g.select('.lbl').attr('x', x).attr('y', y - (bright ? 14 : 10)).attr('text-anchor', 'middle')
-          .attr('font-size', bright ? '9px' : '8px').attr('font-weight', bright ? '700' : '600')
+        g.select('.lbl').attr('x', x).attr('y', y - (bright ? 14 : 11)).attr('text-anchor', 'middle')
+          .attr('font-size', bright ? '9px' : '7.5px')
+          .attr('font-weight', bright ? '700' : '600')
           .attr('fill', labelInk)
+          .attr('opacity', 1)
           .text(d.showLabel ? (d.label || '') : '');
         const clickableDot = Number.isInteger(d.idx);
         g.style('cursor', clickableDot ? 'pointer' : null)
@@ -1817,15 +1820,57 @@ function trailRecordFromFlight(f) {
   const from = coordOf(f, 'departureLatitude', 'departureLongitude');
   const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
   if (!from || !to) return null;
+  const meta = arrivalMeta(f);
   return {
     id: String(f.flightId || f.notionId || `${f.passengerId}-${f.landingTime || f.takeoffTime}`),
     passengerId: f.passengerId,
     passengerName: f.passengerName,
     from, to,
     depLabel: cityOnly(f.departureLocation),
-    arrLabel: cityOnly(f.arrivalLocation),
+    arrLabel: meta.city || cityOnly(f.arrivalLocation),
+    arrCountry: meta.countryZh || '',
+    arrFlag: meta.flag || '',
+    arrivalLocation: f.arrivalLocation || '',
+    arrivalIso: f.arrivalIso || '',
     landingTime: f.landingTime || f.takeoffTime,
   };
+}
+
+function fmtTrailDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** 航跡落點標籤：國旗＋國家（或城市）＋日期 */
+function formatTrailDotLabel(t, { focused = false, isLatest = false, name = '' } = {}) {
+  let flag = t.arrFlag || '';
+  let country = t.arrCountry || '';
+  let city = t.arrLabel || '';
+  if ((!flag || !country) && t.arrivalLocation) {
+    const meta = locationMeta(t.arrivalLocation, { iso: t.arrivalIso, country: t.arrCountry });
+    flag = flag || meta.flag || '';
+    country = country || meta.countryZh || '';
+    city = city || meta.city || '';
+  }
+  if ((!flag || !country) && t.id) {
+    const f = groupFlights.find((x) =>
+      String(x.flightId || x.notionId || '') === String(t.id)
+      || (t.passengerId && x.passengerId === t.passengerId && cityOnly(x.arrivalLocation) === t.arrLabel));
+    if (f) {
+      const meta = arrivalMeta(f);
+      flag = flag || meta.flag || '';
+      country = country || meta.countryZh || '';
+      city = city || meta.city || '';
+    }
+  }
+  const place = [flag, country || city].filter(Boolean).join(' ').trim();
+  const date = fmtTrailDate(t.landingTime);
+  const base = [place, date].filter(Boolean).join(' · ');
+  if (!base) return '';
+  if (focused && isLatest && name) return `${name} · ${base}`;
+  return base;
 }
 function archiveFlightTrail(f) {
   if (!passenger || !f?.passengerId || f.status !== 'landed') return;
@@ -2002,7 +2047,7 @@ function buildTrailRoutes() {
   return routes;
 }
 
-/** 每個降落點一個圓點；只亮最後一點，最多 5 段 */
+/** 每個降落點一個圓點＋國家／日期標籤；透明度與航跡段同漸層（最多 5） */
 function buildTrailDots() {
   if (!passenger) return [];
   const focusPid = globeFocusPid;
@@ -2026,13 +2071,14 @@ function buildTrailDots() {
       if (!t.to) return;
       const isLatest = ti === trails.length - 1;
       const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
-      const place = t.arrLabel || '';
       const mateName = t.passengerName || name || '';
-      const displayLabel = focused
-        ? (isLatest && mateName ? `${mateName} · ${place}` : place)
-        : place;
-      // 焦點時也只標最新一點，避免整條都一樣搶眼
-      const showLabel = !!(focused && isLatest && displayLabel);
+      const displayLabel = formatTrailDotLabel(t, {
+        focused,
+        isLatest,
+        name: mateName,
+      });
+      // 每個落點都標國家＋日期；透明度跟航跡段同一套漸層
+      const showLabel = !!displayLabel;
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
         c: t.to,
