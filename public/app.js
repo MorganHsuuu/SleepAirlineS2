@@ -993,7 +993,7 @@ const Globe = (() => {
         const faint = !!d.faint;
         const bright = !!d.bright || (!faint && !!d.focused);
         const coreR = bright ? 4.4 : (faint ? 2.1 : (d.mine ? 3.2 : 2.8));
-        const groupOp = faint ? 0.12 : 1;
+        const groupOp = typeof d.o === 'number' ? Math.max(0.08, Math.min(1, d.o)) : (faint ? 0.18 : 1);
         g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
           .attr('r', bright ? 11 : (faint ? 4 : 6))
@@ -1865,19 +1865,49 @@ function takeRecentTrails(sortedAsc) {
   return sortedAsc.slice(-TRAIL_DISPLAY_LIMIT);
 }
 
-function trailStyle(isMe, focused, isLatest) {
-  // 只有最後一段亮；更早的幾乎隱形
+function trailAgeT(rank, total) {
+  if (!(total > 1)) return 1;
+  return Math.max(0, Math.min(1, rank / (total - 1)));
+}
+
+/** 最近 5 段：越早越透明，最後一段最實（透明度最低） */
+function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
+  const t = trailAgeT(rank, total);
+  const isLatest = rank >= total - 1;
   if (focused) {
-    if (isLatest) return { o: 0.95, wd: 2.3, focused: true, faint: false, bright: true };
-    return { o: 0.1, wd: 1.1, focused: true, faint: true, bright: false };
+    return {
+      o: 0.22 + t * 0.73, // 0.22 → 0.95
+      wd: 1.2 + t * 1.15,
+      focused: true,
+      faint: !isLatest,
+      bright: isLatest,
+    };
   }
-  if (globeFocusPid) return { o: 0.05, wd: 1, focused: false, faint: true, bright: false };
+  if (globeFocusPid) {
+    return {
+      o: 0.05 + t * 0.08,
+      wd: 1,
+      focused: false,
+      faint: true,
+      bright: false,
+    };
+  }
   if (isMe) {
-    if (isLatest) return { o: 0.58, wd: 1.75, focused: false, faint: false, bright: true };
-    return { o: 0.06, wd: 1.05, focused: false, faint: true, bright: false };
+    return {
+      o: 0.18 + t * 0.67, // 0.18 → 0.85
+      wd: 1.15 + t * 0.7,
+      focused: false,
+      faint: !isLatest,
+      bright: isLatest,
+    };
   }
-  if (isLatest) return { o: 0.32, wd: 1.35, focused: false, faint: false, bright: false };
-  return { o: 0.08, wd: 1.1, focused: false, faint: true, bright: false };
+  return {
+    o: 0.14 + t * 0.46, // 0.14 → 0.60
+    wd: 1.1 + t * 0.4,
+    focused: false,
+    faint: !isLatest,
+    bright: isLatest,
+  };
 }
 
 /** 合併 store + 看板，回傳時間升序且最多 5 段 */
@@ -1929,7 +1959,7 @@ function buildTrailRoutes() {
     trails.forEach((t, ti) => {
       if (!t.from || !t.to) return;
       const isLatest = ti === trails.length - 1;
-      const st = trailStyle(isMe, focused, isLatest);
+      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
       routes.push({
         id: `trail-${pid}-${t.id || ti}`,
         from: t.from,
@@ -1995,6 +2025,7 @@ function buildTrailDots() {
     trails.forEach((t, ti) => {
       if (!t.to) return;
       const isLatest = ti === trails.length - 1;
+      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
       const place = t.arrLabel || '';
       const mateName = t.passengerName || name || '';
       const displayLabel = focused
@@ -2002,8 +2033,6 @@ function buildTrailDots() {
         : place;
       // 焦點時也只標最新一點，避免整條都一樣搶眼
       const showLabel = !!(focused && isLatest && displayLabel);
-      const faint = !isLatest;
-      const bright = !!isLatest && (isMe || focused);
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
         c: t.to,
@@ -2013,8 +2042,9 @@ function buildTrailDots() {
         idx: idx >= 0 ? idx : null,
         focused: !!focused,
         isLatest,
-        faint,
-        bright,
+        faint: st.faint,
+        bright: st.bright,
+        o: st.o,
         showLabel,
       });
     });
