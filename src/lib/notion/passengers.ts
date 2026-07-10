@@ -109,7 +109,13 @@ export async function getOrCreatePassenger(
   passengerId: string,
   name: string,
   groupId: string
-): Promise<{ passenger: Passenger; created: boolean }> {
+): Promise<{
+  passenger: Passenger;
+  created: boolean;
+  /** 已查到的航班 Notion page（避免登入再打一次相同 query） */
+  sourcePage?: Record<string, unknown> | null;
+  sourceKind?: 'in_flight' | 'landed' | null;
+}> {
   const profile = resolveProfile(passengerId, name, groupId);
 
   if (!isNotionConfigured()) {
@@ -118,12 +124,12 @@ export async function getOrCreatePassenger(
       if (profile.name) existing.name = profile.name;
       if (profile.groupId) existing.groupId = profile.groupId;
       existing.updatedAt = new Date().toISOString();
-      return { passenger: existing, created: false };
+      return { passenger: existing, created: false, sourcePage: null, sourceKind: null };
     }
     const p = defaultPassenger(passengerId, profile.name, profile.groupId);
     p.notionId = `mem_${passengerId}`;
     mem.set(passengerId, p);
-    return { passenger: p, created: true };
+    return { passenger: p, created: true, sourcePage: null, sourceKind: null };
   }
 
   const client = getNotionClient();
@@ -151,6 +157,8 @@ export async function getOrCreatePassenger(
         groupId: profile.groupId || rowGroup || undefined,
       }),
       created: false,
+      sourcePage: page,
+      sourceKind: 'in_flight',
     };
   }
 
@@ -173,12 +181,19 @@ export async function getOrCreatePassenger(
       groupId: profile.groupId || undefined,
     });
     passenger.status = 'not_started';
-    return { passenger, created: false };
+    return {
+      passenger,
+      created: false,
+      sourcePage: page,
+      sourceKind: 'landed',
+    };
   }
 
   return {
     passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
     created: true,
+    sourcePage: null,
+    sourceKind: null,
   };
 }
 

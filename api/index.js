@@ -497,12 +497,12 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
       if (profile.name) existing.name = profile.name;
       if (profile.groupId) existing.groupId = profile.groupId;
       existing.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-      return { passenger: existing, created: false };
+      return { passenger: existing, created: false, sourcePage: null, sourceKind: null };
     }
     const p = defaultPassenger(passengerId, profile.name, profile.groupId);
     p.notionId = `mem_${passengerId}`;
     mem.set(passengerId, p);
-    return { passenger: p, created: true };
+    return { passenger: p, created: true, sourcePage: null, sourceKind: null };
   }
   const client = getNotionClient();
   const dbId = await resolveDashboardDbId();
@@ -526,7 +526,9 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
         name: profile.name || rowName || void 0,
         groupId: profile.groupId || rowGroup || void 0
       }),
-      created: false
+      created: false,
+      sourcePage: page,
+      sourceKind: "in_flight"
     };
   }
   const lastLanded = await client.databases.query({
@@ -547,11 +549,18 @@ async function getOrCreatePassenger(passengerId, name, groupId) {
       groupId: profile.groupId || void 0
     });
     passenger.status = "not_started";
-    return { passenger, created: false };
+    return {
+      passenger,
+      created: false,
+      sourcePage: page,
+      sourceKind: "landed"
+    };
   }
   return {
     passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
-    created: true
+    created: true,
+    sourcePage: null,
+    sourceKind: null
   };
 }
 function syncMemPassenger(passengerId, updates) {
@@ -108701,22 +108710,30 @@ app.post("/api/passenger", async (req, res) => {
       return;
     }
     const result = await getOrCreatePassenger(passengerId, name, groupId);
-    if (result.passenger.status === "in_flight") {
-      const active = await getActiveFlight(passengerId);
-      if (active) {
-        const patch = {};
-        if (name && name !== active.passengerName) patch.passengerName = name;
-        if (groupId && groupId !== active.groupId) patch.groupId = groupId;
-        if (Object.keys(patch).length > 0) {
-          await updateFlight(active.notionId, patch);
-          if (patch.passengerName) result.passenger.name = patch.passengerName;
-          if (patch.groupId) result.passenger.groupId = patch.groupId;
-        }
+    if (result.passenger.status === "in_flight" && result.sourcePage) {
+      const patch = {};
+      if (name && name !== result.passenger.name) patch.passengerName = name;
+      if (groupId && groupId !== result.passenger.groupId) patch.groupId = groupId;
+      if (Object.keys(patch).length > 0) {
+        await updateFlight(result.passenger.notionId, patch);
+        if (patch.passengerName) result.passenger.name = patch.passengerName;
+        if (patch.groupId) result.passenger.groupId = patch.groupId;
       }
     }
-    const lastLandedFlight = result.passenger.status !== "in_flight" ? await getLastLandedFlight(passengerId) : null;
-    const landingScenery = lastLandedFlight?.flightId ? await getLandscapeByFlightId(lastLandedFlight.flightId) : null;
-    res.json({ ...result, lastLandedFlight, landingScenery });
+    let lastLandedFlight = null;
+    if (result.passenger.status !== "in_flight") {
+      if (result.sourceKind === "landed" && result.sourcePage) {
+        lastLandedFlight = parseFlight(result.sourcePage);
+      } else {
+        lastLandedFlight = await getLastLandedFlight(passengerId);
+      }
+    }
+    res.json({
+      passenger: result.passenger,
+      created: result.created,
+      lastLandedFlight,
+      landingScenery: null
+    });
   } catch (err) {
     const message = formatNotionError(err);
     res.status(500).json({ error: message, message });

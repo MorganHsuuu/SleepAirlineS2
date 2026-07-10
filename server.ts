@@ -7,7 +7,7 @@ import { join } from 'path';
 import { getOrCreatePassenger } from './src/lib/notion/passengers';
 import {
   createFlight, getActiveFlight, updateFlight, getGroupFlights, getGroupBoardFlights,
-  getLastLandedFlight, getAllActiveFlights,
+  getLastLandedFlight, getAllActiveFlights, parseFlight,
 } from './src/lib/notion/flights';
 import { getAvailableDestinations, seedDestinations } from './src/lib/notion/destinations';
 import { calculateFlightDistance } from './src/lib/flight/distance';
@@ -110,26 +110,36 @@ app.post('/api/passenger', async (req, res) => {
       return;
     }
     const result = await getOrCreatePassenger(passengerId, name, groupId);
-    if (result.passenger.status === 'in_flight') {
-      const active = await getActiveFlight(passengerId);
-      if (active) {
-        const patch: { passengerName?: string; groupId?: string } = {};
-        if (name && name !== active.passengerName) patch.passengerName = name;
-        if (groupId && groupId !== active.groupId) patch.groupId = groupId;
-        if (Object.keys(patch).length > 0) {
-          await updateFlight(active.notionId, patch);
-          if (patch.passengerName) result.passenger.name = patch.passengerName;
-          if (patch.groupId) result.passenger.groupId = patch.groupId;
-        }
+
+    // 飛行中：直接用已查到的航班列更新姓名／小隊，不再重打 getActiveFlight
+    if (result.passenger.status === 'in_flight' && result.sourcePage) {
+      const patch: { passengerName?: string; groupId?: string } = {};
+      if (name && name !== result.passenger.name) patch.passengerName = name;
+      if (groupId && groupId !== result.passenger.groupId) patch.groupId = groupId;
+      if (Object.keys(patch).length > 0) {
+        await updateFlight(result.passenger.notionId, patch);
+        if (patch.passengerName) result.passenger.name = patch.passengerName;
+        if (patch.groupId) result.passenger.groupId = patch.groupId;
       }
     }
-    const lastLandedFlight = result.passenger.status !== 'in_flight'
-      ? await getLastLandedFlight(passengerId)
-      : null;
-    const landingScenery = lastLandedFlight?.flightId
-      ? await getLandscapeByFlightId(lastLandedFlight.flightId)
-      : null;
-    res.json({ ...result, lastLandedFlight, landingScenery });
+
+    // 重用 getOrCreatePassenger 已查到的 landed 列，避免再打一次 Notion
+    let lastLandedFlight = null;
+    if (result.passenger.status !== 'in_flight') {
+      if (result.sourceKind === 'landed' && result.sourcePage) {
+        lastLandedFlight = parseFlight(result.sourcePage);
+      } else {
+        lastLandedFlight = await getLastLandedFlight(passengerId);
+      }
+    }
+
+    // 風景圖改由前端背景載入，不擋登入回應
+    res.json({
+      passenger: result.passenger,
+      created: result.created,
+      lastLandedFlight,
+      landingScenery: null,
+    });
   } catch (err) {
     const message = formatNotionError(err);
     res.status(500).json({ error: message, message });

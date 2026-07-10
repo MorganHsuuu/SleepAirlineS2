@@ -72,7 +72,7 @@ function readFlightId(props: Record<string, unknown>): string {
   return readTitle(props, 'Flight ID') || readText(props, 'Flight ID');
 }
 
-function parseFlight(page: Record<string, unknown>): Flight {
+export function parseFlight(page: Record<string, unknown>): Flight {
   const props = page.properties as Record<string, unknown>;
   const takeoffTime = readDate(props, 'Takeoff Time');
   const status = (readSelect(props, 'Status') ?? 'not_started') as FlightStatus;

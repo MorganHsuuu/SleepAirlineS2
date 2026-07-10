@@ -2840,7 +2840,7 @@ async function doLogin(e) {
   }
 
   primeMediaOnUserGesture();
-  $('btn-login').disabled = true;
+  setLoginLoading(true);
   try {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
     previewMode = false;
@@ -2853,16 +2853,47 @@ async function doLogin(e) {
     if (lastLandedFlight) {
       archiveFlightTrail(lastLandedFlight);
     }
-    await fetchBoard();
-    if (passenger.status === 'in_flight') await refreshProgress();
+
+    // 先進入主畫面，看板／進度／風景改背景載入，不擋登入體感
     updateUI();
     Globe.flyTo(youCoord(), 1200);
     startAutoRefresh();
+    setLoginLoading(false);
+
+    void (async () => {
+      try {
+        if (passenger.status === 'in_flight') await refreshProgress();
+        await fetchBoard();
+        if (lastLandedFlight?.flightId && !landingScenery?.imageUrl) {
+          await loadLandingSceneryForFlight(lastLandedFlight.flightId);
+        }
+      } catch { /* silent */ }
+    })();
   } catch (err) {
     showMsg('login', 'error', err.message);
-  } finally {
-    $('btn-login').disabled = false;
+    setLoginLoading(false);
   }
+}
+
+function setLoginLoading(on) {
+  const btn = $('btn-login');
+  const label = $('btn-login-label');
+  if (!btn) return;
+  btn.disabled = on;
+  btn.classList.toggle('is-loading', on);
+  btn.setAttribute('aria-busy', on ? 'true' : 'false');
+  if (label) label.textContent = on ? '登入中…' : '登入';
+}
+
+async function loadLandingSceneryForFlight(flightId) {
+  if (!flightId || previewMode) return;
+  try {
+    const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(flightId));
+    if (data.scenery?.imageUrl && lastLandedFlight?.flightId === flightId) {
+      landingScenery = data.scenery;
+      if (!$('landed-panel')?.classList.contains('hidden')) renderSceneryCard(false);
+    }
+  } catch { /* silent */ }
 }
 
 async function doTakeoff() {
