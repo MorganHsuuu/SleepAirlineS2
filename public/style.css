@@ -1276,20 +1276,24 @@ body[data-theme="dusk"] .pw-shade-rod {
 }
 .captain-transcript {
   position: relative; z-index: 1;
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(169, 122, 55, .22);
-  border-radius: 14px;
-  background: rgba(255, 248, 226, .62);
-  color: var(--ink);
-  font-size: 12px;
-  line-height: 1.65;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55);
+  margin: 0;
+  padding: 0 12px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.7;
+  box-shadow: none;
 }
 body[data-theme="dusk"] .captain-transcript {
-  background: rgba(255, 255, 255, .07);
-  border-color: rgba(255, 255, 255, .14);
-  color: var(--ink);
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-soft);
+}
+.landed-more .captain-transcript {
+  max-height: 9.5em;
+  overflow-y: auto;
 }
 .landed-music {
   position: relative; z-index: 1;
@@ -2178,7 +2182,7 @@ body.sheet-open #main-section {
   #landed-panel .landed-hero,
   #landed-panel .route-arc,
   #landed-panel .landed-summary,
-  #landed-panel .captain-transcript {
+  #landed-panel .landed-more {
     grid-column: 1;
   }
   #landed-panel .landed-window-zone {

@@ -942,6 +942,35 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
   }
 }
 
+/** 羅盤拖曳：短促「喀」聲（跨刻度 / 對準方位） */
+function playCompassTick({ major = false } = {}) {
+  if (!audioCtx) {
+    primeAudioContextSync();
+    if (!audioCtx) return false;
+  }
+  if (audioCtx.state === 'suspended') {
+    try { void audioCtx.resume(); } catch { /* noop */ }
+  }
+  try {
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(major ? 980 : 720, t0);
+    osc.frequency.exponentialRampToValueAtTime(major ? 520 : 420, t0 + 0.03);
+    const peak = major ? 0.05 : 0.03;
+    gain.gain.setValueAtTime(peak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + (major ? 0.05 : 0.032));
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.06);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 if (window.speechSynthesis) {
   speechSynthesis.getVoices();
   speechSynthesis.addEventListener('voiceschanged', () => speechSynthesis.getVoices());
@@ -955,6 +984,7 @@ window.BroadcastAudio = {
   playTowerSignal,
   startTowerSignalLoop,
   stopTowerSignalLoop,
+  playCompassTick,
   speakText,
   stopPlayback,
   primeFromUserGesture,

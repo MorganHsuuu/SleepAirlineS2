@@ -947,6 +947,24 @@ const Compass = (() => {
   ];
   const NS = 'http://www.w3.org/2000/svg';
   let needle = null, friendLayer = null, current = 'auto', angle = 0, dragging = false, spinning = false;
+  let lastTickStep = 0;
+  let lastTickDir = null;
+
+  function tickStepOf(a) {
+    return Math.round((((a % 360) + 360) % 360) / 15) % 24;
+  }
+
+  function playNeedleTick(a, { forceMajor = false } = {}) {
+    const step = tickStepOf(a);
+    const dir = nearest(a).key;
+    const crossedTick = step !== lastTickStep;
+    const crossedDir = dir !== lastTickDir;
+    if (!crossedTick && !crossedDir && !forceMajor) return;
+    lastTickStep = step;
+    const major = forceMajor || crossedDir || step % 3 === 0;
+    if (crossedDir) lastTickDir = dir;
+    BroadcastAudio?.playCompassTick?.({ major });
+  }
 
   function el(tag, attrs) {
     const n = document.createElementNS(NS, tag);
@@ -1049,7 +1067,14 @@ const Compass = (() => {
         r: 17, fill: 'transparent',
       });
       hot.style.cursor = 'pointer';
-      hot.addEventListener('click', (e) => { e.stopPropagation(); current = d.key; animateTo(d.a, 0); readout(); });
+      hot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        BroadcastAudio?.primeFromUserGesture?.();
+        current = d.key;
+        playNeedleTick(d.a, { forceMajor: true });
+        animateTo(d.a, 0);
+        readout();
+      });
       svg.appendChild(hot);
     }
 
@@ -1071,18 +1096,30 @@ const Compass = (() => {
     };
     holder.addEventListener('pointerdown', (ev) => {
       if (spinning) return;
+      BroadcastAudio?.primeFromUserGesture?.();
       dragging = true;
       holder.setPointerCapture(ev.pointerId);
-      const a = angleOf(ev); setNeedle(a); current = nearest(a).key; readout();
+      const a = angleOf(ev);
+      lastTickStep = tickStepOf(a);
+      lastTickDir = nearest(a).key;
+      setNeedle(a);
+      current = lastTickDir;
+      readout();
+      playNeedleTick(a, { forceMajor: true });
     });
     holder.addEventListener('pointermove', (ev) => {
       if (!dragging) return;
-      const a = angleOf(ev); setNeedle(a); current = nearest(a).key; readout();
+      const a = angleOf(ev);
+      setNeedle(a);
+      current = nearest(a).key;
+      readout();
+      playNeedleTick(a);
     });
     holder.addEventListener('pointerup', () => {
       if (!dragging) return;
       dragging = false;
       pick(angle);
+      playNeedleTick(nearest(angle).a, { forceMajor: true });
     });
 
     readout();
@@ -2410,7 +2447,7 @@ function waitLandingFxDismiss() {
     (async () => {
       await waitMs(1200);
       if (done) return;
-      animateFxLine('landing-fx-sub', '點擊背景 · 或按下方按鈕 · 查看抵達');
+      animateFxLine('landing-fx-sub', '點一下繼續');
       fx.classList.add('fx-dismissible');
       dismissBtn = document.createElement('button');
       dismissBtn.type = 'button';
@@ -2673,10 +2710,11 @@ function updateUI() {
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
     const broadcastEl = $('bc-broadcast');
+    const fold = $('bc-broadcast-fold');
     if (broadcastEl) {
-      broadcastEl.textContent = lastLandedFlight.captainBroadcast
-        || '機長廣播正在整理中，請稍候。';
+      broadcastEl.textContent = lastLandedFlight.captainBroadcast || '尚無機長廣播。';
     }
+    if (fold) fold.open = false;
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
