@@ -182,25 +182,30 @@
         </div>
       </div>
 
-      <!-- flying：飛行中 -->
+      <!-- flying：飛行中（框外望向窗外；框內飛機虛線僅裝飾） -->
       <div id="flight-panel" class="hidden">
+        <button class="fly-window-chip glass" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
+          <span aria-hidden="true">✈</span>
+          <span>望向窗外</span>
+        </button>
         <div class="glass dock-panel dock-panel--cta">
           <div class="dock-panel-main">
-            <div class="fly-journey">
-              <p class="fly-mood" id="fl-mood">夜航中</p>
-              <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
-
-              <button class="fly-portal" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
-                <span class="fly-portal-lane" aria-hidden="true">
-                  <span class="fly-portal-wave"></span>
-                  <span class="fly-portal-plane">✈</span>
-                </span>
-              </button>
-
-              <span class="sr-only" id="fl-duration" aria-live="polite">0 分鐘</span>
-              <span class="sr-only" id="fl-distance">0 km</span>
-              <span class="sr-only" id="fl-direction"></span>
+            <div class="ready-row fly-copy">
+              <div class="ready-dep">
+                <div class="k" id="fl-mood">飛行中</div>
+                <div class="v" id="fl-stats" aria-live="polite">
+                  <span id="fl-duration">0 分鐘</span><span class="fly-meta-sep" aria-hidden="true"> · </span><span id="fl-distance">0 km</span>
+                </div>
+                <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
+              </div>
             </div>
+            <div class="fly-portal fly-portal--deco" aria-hidden="true">
+              <span class="fly-portal-lane">
+                <span class="fly-portal-wave"></span>
+                <span class="fly-portal-plane">✈</span>
+              </span>
+            </div>
+            <span class="sr-only" id="fl-direction"></span>
           </div>
           <button class="dock-action dock-action--green" id="btn-land" type="button">
             <span class="pill-icon">🌅</span>

@@ -3,7 +3,7 @@ let audioCtx = null;
 let currentAudio = null;
 let flightSfxAudio = null;
 let landingAudio = null;
-let landingVolume = 0.3;
+let landingVolume = 0.22;
 
 const CAPTAIN_SFX = {
   url: 'media/captain.mp3',
@@ -18,13 +18,16 @@ const CEREMONY_CROSSFADE_MS = 900;
 const CEREMONY_RESTORE_MS = 1400;
 /** wakeup 在機長／著陸時壓低但不切斷（相對 landingVolume） */
 const WAKEUP_DUCK_RATIO = {
-  captain: 0.28,
-  approach: 0.22,
+  captain: 0.12,
+  approach: 0.07,
+  afterLanding: 0.38, // landing.mp4 結束後、抵達面板前
 };
 
 function softWakeupVolume(ratio = WAKEUP_DUCK_RATIO.captain) {
-  const r = Math.max(0.08, Math.min(0.45, ratio));
-  return clampVolume(Math.max(0.035, Math.min(landingVolume * r, 0.14)));
+  const r = Math.max(0.04, Math.min(0.5, ratio));
+  // 著陸底床上限壓低，避免蓋過機長／著陸音效
+  const cap = ratio >= WAKEUP_DUCK_RATIO.afterLanding ? 0.1 : 0.045;
+  return clampVolume(Math.max(0.01, Math.min(landingVolume * r, cap)));
 }
 
 /** 極短無聲 WAV：解鎖 HTML Audio 自動播放，不可聽見（勿用 captain.mp3 loop） */
@@ -461,7 +464,7 @@ async function playLandingMusic(url, opts = {}) {
   if (!url) return false;
   await stopLandingMusic({ fade: false });
   await unlockMedia();
-  landingVolume = typeof opts.volume === 'number' ? opts.volume : 0.3;
+  landingVolume = typeof opts.volume === 'number' ? opts.volume : 0.22;
   const audio = new Audio(url);
   audio.loop = opts.loop !== false;
   audio.volume = 0;
@@ -504,7 +507,7 @@ async function crossfadeApproachSfxToWakeup({
   ]);
 }
 
-/** landing.mp4 播完：恢復 wakeup 甦醒音景（著陸音效結束後） */
+/** landing.mp4 播完：wakeup 回升到較小聲的底床（勿拉回全音量） */
 async function resumeLandingMusicAfterApproach({ fadeMs = CEREMONY_RESTORE_MS } = {}) {
   landingPausedForCaptain = false;
   if (!landingAudio) return false;
@@ -514,7 +517,8 @@ async function resumeLandingMusicAfterApproach({ fadeMs = CEREMONY_RESTORE_MS } 
       landingAudio.volume = 0;
       await Promise.race([landingAudio.play(), delay(900)]);
     }
-    await fadeAudioVolume(landingAudio, landingAudio.volume, landingVolume, fadeMs);
+    const target = softWakeupVolume(WAKEUP_DUCK_RATIO.afterLanding);
+    await fadeAudioVolume(landingAudio, landingAudio.volume, target, fadeMs);
     return true;
   } catch {
     return false;
@@ -959,7 +963,7 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
   }
 }
 
-/** 羅盤拖曳：短促「喀」聲（跨刻度 / 對準方位） */
+/** 羅盤拖曳：清脆指針滴答聲（跨刻度 / 對準方位） */
 function playCompassTick({ major = false } = {}) {
   if (!audioCtx) {
     primeAudioContextSync();
@@ -970,18 +974,41 @@ function playCompassTick({ major = false } = {}) {
   }
   try {
     const t0 = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(major ? 980 : 720, t0);
-    osc.frequency.exponentialRampToValueAtTime(major ? 520 : 420, t0 + 0.03);
-    const peak = major ? 0.05 : 0.03;
-    gain.gain.setValueAtTime(peak, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + (major ? 0.05 : 0.032));
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.06);
+    const dur = major ? 0.038 : 0.028;
+
+    // 清脆短促「滴」：偏中低頻三角波 + 快速衰減
+    const tick = audioCtx.createOscillator();
+    const tickGain = audioCtx.createGain();
+    const tickFilter = audioCtx.createBiquadFilter();
+    tick.type = 'triangle';
+    const fStart = major ? 420 : 360;
+    const fEnd = major ? 180 : 150;
+    tick.frequency.setValueAtTime(fStart, t0);
+    tick.frequency.exponentialRampToValueAtTime(fEnd, t0 + dur);
+    tickFilter.type = 'bandpass';
+    tickFilter.frequency.setValueAtTime(major ? 680 : 560, t0);
+    tickFilter.Q.value = 1.4;
+    const peak = major ? 0.055 : 0.038;
+    tickGain.gain.setValueAtTime(0.0001, t0);
+    tickGain.gain.exponentialRampToValueAtTime(peak, t0 + 0.004);
+    tickGain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    tick.connect(tickFilter);
+    tickFilter.connect(tickGain);
+    tickGain.connect(audioCtx.destination);
+    tick.start(t0);
+    tick.stop(t0 + dur + 0.01);
+
+    // 極短高次諧波，增加「喀」的邊緣感（仍遠低於先前尖銳哔聲）
+    const edge = audioCtx.createOscillator();
+    const edgeGain = audioCtx.createGain();
+    edge.type = 'sine';
+    edge.frequency.setValueAtTime(major ? 880 : 740, t0);
+    edgeGain.gain.setValueAtTime(major ? 0.012 : 0.008, t0);
+    edgeGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.012);
+    edge.connect(edgeGain);
+    edgeGain.connect(audioCtx.destination);
+    edge.start(t0);
+    edge.stop(t0 + 0.015);
     return true;
   } catch {
     return false;

@@ -949,11 +949,76 @@ body[data-theme="dusk"] .dock-action--green {
 .dir-chip:hover { border-color: var(--gold); transform: translateY(-1px); }
 .dir-chip .ico { font-size: 14px; }
 
-/* 飛行中面板（精簡，少遮地球） */
-#flight-panel { width: min(100%, 340px); align-self: center; }
-#flight-panel .dock-panel-main { padding: 12px 6px 6px; }
-#flight-panel .dock-panel--cta { padding: 0 12px 12px; }
-#flight-panel .dock-action { min-height: 44px; font-size: 14px; }
+/* 飛行中面板：文案避航跡、飛機虛線置中裝飾、望向窗外浮於框外右上 */
+#flight-panel {
+  position: relative;
+  width: 100%;
+  align-self: stretch;
+}
+#flight-panel .dock-panel-main {
+  padding: 14px 16px 12px;
+}
+#flight-panel .dock-panel--cta { padding: 0 14px 14px; }
+#flight-panel .dock-action { min-height: 50px; font-size: 15px; }
+#flight-panel .ready-dep { flex: 1; min-width: 0; }
+#flight-panel .ready-dep .v {
+  font-variant-numeric: tabular-nums;
+}
+#flight-panel .fly-copy {
+  padding-right: 136px; /* 只讓文字避開右上航跡，不擠歪下方飛機線 */
+}
+.fly-meta-sep { opacity: 0.55; }
+.fly-whisper {
+  margin: 5px 0 0;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fly-window-chip {
+  position: absolute;
+  top: -42px;
+  right: 4px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-pill);
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(40, 60, 100, .14), inset 0 1px 0 rgba(255, 255, 255, .55);
+  transition: border-color .15s, color .15s, transform .15s, box-shadow .2s;
+}
+.fly-window-chip:hover {
+  border-color: var(--gold);
+  color: var(--ink);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(120, 90, 40, .18), inset 0 1px 0 rgba(255, 255, 255, .65);
+}
+.fly-window-chip[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  color: var(--gold-deep);
+}
+#flight-panel .fly-portal--deco {
+  margin-top: 10px;
+  cursor: default;
+  pointer-events: none;
+}
+#flight-panel .fly-portal--deco::after { display: none; }
+#flight-panel .fly-portal-lane {
+  width: min(92%, 320px);
+}
 
 #flight-panel.dock-panel--enter,
 #landed-panel.dock-panel--enter {
@@ -964,32 +1029,17 @@ body[data-theme="dusk"] .dock-action--green {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 飛行中：詩意氛圍 + 持續向前（起飛過場式 loading 光帶） */
-.fly-journey {
-  position: relative; text-align: center;
-  padding-bottom: 2px;
+.fly-portal {
+  position: relative; z-index: 1;
+  display: flex; justify-content: center;
+  width: 100%; margin-top: 14px; padding: 0;
+  border: none; background: transparent; cursor: pointer; font-family: inherit;
 }
 .fly-portal[aria-expanded="true"]::after {
   content: '點舷窗外收起';
   display: block; margin-top: 7px;
   font-size: 9px; font-weight: 600; letter-spacing: .14em;
   color: var(--ink-faint);
-}
-.fly-mood {
-  margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .18em;
-  color: var(--gold-deep); opacity: .92;
-}
-.fly-whisper {
-  margin: 8px 0 0; font-size: 12.5px; line-height: 1.65; font-weight: 500;
-  color: var(--ink-soft); letter-spacing: .04em;
-}
-
-/* 望向窗外：短虛線航線 + 右向飛機 + 光波 */
-.fly-portal {
-  position: relative; z-index: 1;
-  display: flex; justify-content: center;
-  width: 100%; margin-top: 14px; padding: 0;
-  border: none; background: transparent; cursor: pointer; font-family: inherit;
 }
 .fly-portal-lane {
   position: relative; display: block;
@@ -2393,30 +2443,15 @@ body.sheet-open #main-section {
     width: 100%;
     align-self: stretch;
   }
-  #flight-panel .dock-panel--cta {
-    padding: 14px;
-  }
   #flight-panel .dock-panel-main {
-    padding: 8px 4px;
+    padding: 10px 4px;
   }
-  #flight-panel .fly-journey {
-    width: 100%;
-    display: grid;
-    grid-template-columns: minmax(130px, .65fr) minmax(220px, 1fr);
-    align-items: center;
-    gap: 12px 18px;
-    text-align: left;
+  #flight-panel .fly-copy {
+    padding-right: 0;
   }
-  #flight-panel .fly-mood,
-  #flight-panel .fly-whisper {
-    margin: 0;
-  }
-  #flight-panel .fly-whisper {
-    grid-column: 2;
-  }
-  #flight-panel .fly-portal {
-    grid-column: 1 / -1;
-    margin-top: 2px;
+  #flight-panel .fly-window-chip {
+    top: -42px;
+    right: 4px;
   }
 
   #landed-panel {
