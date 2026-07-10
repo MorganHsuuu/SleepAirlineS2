@@ -28,11 +28,6 @@
     <div class="glow glow-a"></div>
     <div class="glow glow-b"></div>
     <svg id="globe-svg"></svg>
-
-    <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
-      <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
-      <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
-    </div>
   </div>
 
   <!-- ════ 登入（浮在地球上） ════ -->
@@ -108,17 +103,48 @@
   <!-- ════ 主畫面 ════ -->
   <div id="main-section" class="hidden">
 
-    <!-- Topbar -->
-    <div class="glass topbar">
-      <a href="architecture.html" class="brand-link" title="系統架構說明">
-        <div class="brand-title">✈ 甦醒航班</div>
-        <div class="brand-sub">SLEEP AIRLINE</div>
-      </a>
-      <div class="topbar-right">
-        <span id="hdr-preview-hint" class="hidden">UI 示範</span>
-        <span class="chip" id="hdr-badge">—</span>
-        <button class="chip chip-ghost" id="btn-theme" title="切換日夜">🌙</button>
-        <button class="chip chip-ghost" id="btn-logout">登出</button>
+    <!-- 頂部 HUD：品牌／乘客／看板同一寬度堆疊 -->
+    <div class="hud-top" id="hud-top">
+      <header class="glass topbar">
+        <a href="architecture.html" class="brand-link" title="系統架構說明">
+          <div class="brand-title">✈ 甦醒航班</div>
+          <div class="brand-sub">SLEEP AIRLINE</div>
+        </a>
+        <div class="topbar-identity">
+          <span class="topbar-name" id="hdr-name">—</span>
+          <span class="topbar-status" id="hdr-badge">—</span>
+        </div>
+        <div class="topbar-actions">
+          <span id="hdr-preview-hint" class="hidden">UI 示範</span>
+          <button type="button" class="icon-btn" id="btn-theme" title="切換日夜" aria-label="切換日夜">🌙</button>
+          <button type="button" class="icon-btn icon-btn--text" id="btn-logout" title="登出">登出</button>
+        </div>
+      </header>
+
+      <div class="glass board" id="board-card">
+        <div class="board-head" id="board-head">
+          <div class="board-head-copy">
+            <span class="board-kicker">小隊動態</span>
+            <b>Terminal <span id="bd-group">—</span></b>
+          </div>
+          <div class="board-head-right">
+            <button type="button" class="board-share-terminal" id="btn-share-terminal-board" title="分享 Terminal 連結" aria-label="分享 Terminal 連結">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <span class="board-arrow" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="board-body">
+          <div id="bd-empty" class="board-empty">本 Terminal 尚無航班記錄</div>
+          <div id="bd-list"></div>
+          <div id="bd-broadcasts" class="hidden">
+            <div class="board-sub-head" id="bd-broadcasts-head">機長廣播紀錄 ▾</div>
+            <div id="bd-broadcasts-list" class="hidden"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -128,6 +154,11 @@
 
     <!-- Dock：狀態面板 -->
     <div class="dock">
+
+      <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
+        <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
+        <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
+      </div>
 
       <button type="button" class="compass-float glass hidden" id="btn-compass" aria-label="選擇航向">
         <span class="compass-float-dial" aria-hidden="true">🧭</span>
@@ -252,31 +283,6 @@
 
     </div>
 
-    <!-- 小隊看板抽屜 -->
-    <div class="glass board" id="board-card">
-      <div class="board-head" id="board-head">
-        <b>🛫 Terminal 看板 — <span id="bd-group">—</span></b>
-        <div class="board-head-right">
-          <button type="button" class="board-share-terminal" id="btn-share-terminal-board" title="分享 Terminal 連結" aria-label="分享 Terminal 連結">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              <path d="M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-          <button class="board-refresh" id="btn-refresh" title="重新整理">↻</button>
-          <span class="board-arrow">▲</span>
-        </div>
-      </div>
-      <div class="board-body">
-        <div id="bd-empty" class="board-empty">本 Terminal 尚無航班記錄</div>
-        <div id="bd-list"></div>
-        <div id="bd-broadcasts" class="hidden">
-          <div class="board-sub-head" id="bd-broadcasts-head">機長廣播紀錄 ▾</div>
-          <div id="bd-broadcasts-list" class="hidden"></div>
-        </div>
-      </div>
-    </div>
-
     <!-- 契約隱藏欄位：tk-direction（羅盤把選擇同步進來） -->
     <select id="tk-direction" class="hidden" aria-hidden="true">
       <option value="auto" selected>自動</option>
@@ -326,8 +332,8 @@
     </div>
   </div>
 
-  <!-- 隊友航程詳情（點小隊看板成員開啟）-->
-  <div class="sheet" id="mate-sheet">
+  <!-- 隊友航程詳情（僅小隊看板點擊開啟；地圖點只顯示軌跡）-->
+  <div class="sheet sheet--mate-compact" id="mate-sheet">
     <button type="button" class="sheet-grip" id="btn-close-mate" aria-label="收起隊友詳情"></button>
     <div class="mate-head">
       <div class="mate-flag" id="mate-flag">🌍</div>
@@ -358,25 +364,27 @@
     </div>
     <div class="landed-meta" id="mate-meta"></div>
 
-    <div class="plane-window plane-window--porthole" id="mate-window" hidden>
-      <div class="pw-frame pw-frame--porthole">
-        <div class="pw-scene" id="mate-scene">
-          <div class="pw-fallback" id="mate-fallback"></div>
-          <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
-          <div class="pw-glare" aria-hidden="true"></div>
-          <div class="scenery-loading hidden" id="mate-loading">讀取降落風景中…</div>
+    <details class="mate-more" id="mate-more">
+      <summary class="mate-more-sum">風景與廣播</summary>
+      <div class="plane-window plane-window--porthole plane-window--mate-sm" id="mate-window" hidden>
+        <div class="pw-frame pw-frame--porthole">
+          <div class="pw-scene" id="mate-scene">
+            <div class="pw-fallback" id="mate-fallback"></div>
+            <img id="mate-img" class="scenery-img" alt="隊友降落風景" hidden>
+            <div class="pw-glare" aria-hidden="true"></div>
+            <div class="scenery-loading hidden" id="mate-loading">讀取降落風景中…</div>
+          </div>
+        </div>
+        <div class="pw-meta">
+          <span class="scenery-caption" id="mate-caption"></span>
         </div>
       </div>
-      <div class="pw-meta">
-        <span class="scenery-caption" id="mate-caption"></span>
+      <div class="broadcast-box" id="mate-bc">
+        <span class="bc-cap">機長廣播</span>
+        <span id="mate-bc-text">—</span>
       </div>
-    </div>
-
-    <div class="broadcast-box" id="mate-bc">
-      <span class="bc-cap">🎙 機長廣播</span>
-      <span id="mate-bc-text">—</span>
-    </div>
-    <div class="social-cue hidden" id="mate-cue"></div>
+      <div class="social-cue hidden" id="mate-cue"></div>
+    </details>
   </div>
 
   <!-- 起飛過場：舷窗影片（等待塔台／機長廣播） -->

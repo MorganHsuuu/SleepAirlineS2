@@ -614,7 +614,8 @@ const Globe = (() => {
 
   function anchorY() {
     const t = Math.max(0, Math.min(1, (1.15 - k) / 0.3));
-    return h * (0.44 + t * 0.06);
+    // 略往下置中，避開 topbar／看板，並讓底部 dock 上方更完整
+    return h * (0.52 + t * 0.05);
   }
 
   function applyProjection() {
@@ -887,6 +888,7 @@ const Globe = (() => {
     gPts.selectAll('g.pt').each(function (d) {
       const [x, y] = projection(d.c);
       const g = d3.select(this);
+      g.attr('opacity', 1);
       g.select('.plane-hit').attr('display', 'none');
       if (d.kind === 'plane') {
         g.attr('class', 'pt pt-pick');
@@ -940,15 +942,19 @@ const Globe = (() => {
         g.select('.plicon').attr('display', 'none');
         g.select('.plane-hit').attr('display', 'none');
         const col = d.mine ? gold : friendCol;
-        const coreR = d.focused ? 4.2 : (d.mine ? 3.4 : 2.8);
+        const faint = !!d.faint;
+        const bright = !!d.bright || (!faint && !!d.focused);
+        const coreR = bright ? 4.4 : (faint ? 2.1 : (d.mine ? 3.2 : 2.8));
+        const groupOp = faint ? 0.18 : 1;
+        g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
-          .attr('r', d.focused ? 10 : 6)
+          .attr('r', bright ? 11 : (faint ? 4 : 6))
           .attr('fill', col)
-          .attr('opacity', d.focused ? 0.3 : 0.14);
+          .attr('opacity', bright ? 0.32 : (faint ? 0.06 : 0.14));
         g.select('.core').attr('cx', x).attr('cy', y).attr('r', coreR)
-          .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', d.focused ? 1.4 : 1);
+          .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', bright ? 1.5 : 0.9);
         g.select('.lbl').attr('x', x).attr('y', y - 10).attr('text-anchor', 'middle')
-          .attr('font-size', '8px').attr('font-weight', d.focused ? '700' : '600')
+          .attr('font-size', '8px').attr('font-weight', bright ? '700' : '600')
           .attr('fill', labelInk)
           .text(d.showLabel ? (d.label || '') : '');
         const clickableDot = Number.isInteger(d.idx);
@@ -1748,10 +1754,25 @@ function getTrailsForPassenger(pid, name) {
   return [...byId.values()].sort((a, b) => String(a.landingTime || '').localeCompare(String(b.landingTime || '')));
 }
 
-function trailStyle(isMe, focused) {
-  if (focused) return { o: isMe ? 0.95 : 0.92, wd: isMe ? 2.35 : 2.15, focused: true };
-  if (globeFocusPid) return { o: 0.1, wd: 1.05, focused: false };
-  return { o: isMe ? 0.52 : 0.34, wd: isMe ? 1.7 : 1.35, focused: false };
+function trailStyle(isMe, focused, isLatest) {
+  // 個人／焦點軌跡：只亮最後一段，更早的幾乎隱形
+  if (focused) {
+    if (isLatest) return { o: 0.96, wd: 2.35, focused: true, faint: false, bright: true };
+    return { o: 0.14, wd: 1.15, focused: true, faint: true, bright: false };
+  }
+  if (globeFocusPid) return { o: 0.07, wd: 1, focused: false, faint: true, bright: false };
+  if (isMe) {
+    if (isLatest) return { o: 0.62, wd: 1.8, focused: false, faint: false, bright: true };
+    return { o: 0.08, wd: 1.05, focused: false, faint: true, bright: false };
+  }
+  if (isLatest) return { o: 0.34, wd: 1.35, focused: false, faint: false, bright: false };
+  return { o: 0.16, wd: 1.15, focused: false, faint: true, bright: false };
+}
+
+function sortTrailRecords(trails) {
+  return [...(trails || [])].sort((a, b) =>
+    String(a.landingTime || a.id || '').localeCompare(String(b.landingTime || b.id || '')),
+  );
 }
 
 let globeFocusPid = null;
@@ -1760,20 +1781,30 @@ function buildTrailRoutes() {
   if (!passenger) return [];
   const focusPid = globeFocusPid;
   if (previewMode) {
-    return groupFlights
-      .map((f, idx) => ({ f, idx }))
-      .filter(({ f }) => f.status === 'landed')
-      .map(({ f, idx }) => {
+    const byPid = new Map();
+    groupFlights.forEach((f, idx) => {
+      if (f.status !== 'landed') return;
+      const isMe = f.passengerName === passenger.name;
+      const pid = f.passengerId || (isMe ? passenger.passengerId : `name:${f.passengerName}`);
+      if (!byPid.has(pid)) byPid.set(pid, []);
+      byPid.get(pid).push({ f, idx });
+    });
+    const routes = [];
+    byPid.forEach((items, pid) => {
+      const sorted = items.sort((a, b) =>
+        String(a.f.landingTime || a.f.takeoffTime || '').localeCompare(String(b.f.landingTime || b.f.takeoffTime || '')),
+      );
+      sorted.forEach(({ f, idx }, ti) => {
         const from = coordOf(f, 'departureLatitude', 'departureLongitude');
         const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
-        if (!from || !to) return null;
+        if (!from || !to) return;
         const isMe = f.passengerName === passenger.name;
-        const pid = f.passengerId || (isMe ? passenger.passengerId : `name:${f.passengerName}`);
         const focused = !!(focusPid && (pid === focusPid || f.passengerName === focusPid));
-        if (isMe && !routeTrails.mine && !focused) return null;
-        if (!isMe && !routeTrails.friends && !focused) return null;
-        const st = trailStyle(isMe, focused);
-        return {
+        if (isMe && !routeTrails.mine && !focused) return;
+        if (!isMe && !routeTrails.friends && !focused) return;
+        const isLatest = ti === sorted.length - 1;
+        const st = trailStyle(isMe, focused, isLatest);
+        routes.push({
           id: `demo-trail-${idx}`,
           from, to,
           mine: isMe,
@@ -1781,26 +1812,35 @@ function buildTrailRoutes() {
           o: st.o,
           wd: st.wd,
           focused: st.focused,
+          faint: st.faint,
+          bright: st.bright,
+          isLatest,
           pick: !isMe ? 'friend' : null,
           idx,
-        };
-      })
-      .filter(Boolean);
+        });
+      });
+    });
+    return routes;
   }
   const store = loadTrailStore();
   const group = store[passenger.groupId] || {};
   const routes = [];
+  const covered = new Set();
   Object.entries(group).forEach(([pid, trails]) => {
     const isMe = pid === passenger.passengerId;
     const focused = !!(focusPid && pid === focusPid);
     if (isMe && !routeTrails.mine && !focused) return;
     if (!isMe && !routeTrails.friends && !focused) return;
-    const st = trailStyle(isMe, focused);
-    (trails || []).forEach((t, ti) => {
+    const sorted = sortTrailRecords(trails);
+    sorted.forEach((t, ti) => {
       if (!t.from || !t.to) return;
       const idx = groupFlights.findIndex((f) => f.passengerId === pid);
+      const isLatest = ti === sorted.length - 1;
+      const st = trailStyle(isMe, focused, isLatest);
+      const id = `trail-${pid}-${t.id || ti}`;
+      covered.add(`${pid}:${t.id}`);
       routes.push({
-        id: `trail-${pid}-${t.id || ti}`,
+        id,
         from: t.from,
         to: t.to,
         mine: isMe,
@@ -1808,52 +1848,78 @@ function buildTrailRoutes() {
         o: st.o,
         wd: st.wd,
         focused: st.focused,
+        faint: st.faint,
+        bright: st.bright,
+        isLatest,
         pick: !isMe && idx >= 0 ? 'friend' : null,
         idx: idx >= 0 ? idx : null,
       });
     });
   });
   // 看板已降落但尚未進 store 的補上
+  const boardByPid = new Map();
   groupFlights.forEach((f, idx) => {
     if (f.status !== 'landed' || !f.passengerId) return;
-    const isMe = f.passengerId === passenger.passengerId;
-    const focused = !!(focusPid && f.passengerId === focusPid);
+    if (!boardByPid.has(f.passengerId)) boardByPid.set(f.passengerId, []);
+    boardByPid.get(f.passengerId).push({ f, idx });
+  });
+  boardByPid.forEach((items, pid) => {
+    const isMe = pid === passenger.passengerId;
+    const focused = !!(focusPid && pid === focusPid);
     if (isMe && !routeTrails.mine && !focused) return;
     if (!isMe && !routeTrails.friends && !focused) return;
-    const rec = trailRecordFromFlight(f);
-    if (!rec) return;
-    if (routes.some((r) => r.id === `trail-${f.passengerId}-${rec.id}`)) return;
-    const st = trailStyle(isMe, focused);
-    routes.push({
-      id: `trail-${f.passengerId}-${rec.id}`,
-      from: rec.from,
-      to: rec.to,
-      mine: isMe,
-      passengerId: f.passengerId,
-      o: st.o,
-      wd: st.wd,
-      focused: st.focused,
-      pick: !isMe ? 'friend' : null,
-      idx,
+    const sorted = items.sort((a, b) =>
+      String(a.f.landingTime || '').localeCompare(String(b.f.landingTime || '')),
+    );
+    sorted.forEach(({ f, idx }, ti) => {
+      const rec = trailRecordFromFlight(f);
+      if (!rec) return;
+      if (covered.has(`${pid}:${rec.id}`)) return;
+      if (routes.some((r) => r.id === `trail-${pid}-${rec.id}`)) return;
+      const isLatest = ti === sorted.length - 1
+        && !routes.some((r) => r.passengerId === pid && r.isLatest);
+      const st = trailStyle(isMe, focused, isLatest);
+      routes.push({
+        id: `trail-${pid}-${rec.id}`,
+        from: rec.from,
+        to: rec.to,
+        mine: isMe,
+        passengerId: pid,
+        o: st.o,
+        wd: st.wd,
+        focused: st.focused,
+        faint: st.faint,
+        bright: st.bright,
+        isLatest,
+        pick: !isMe ? 'friend' : null,
+        idx,
+      });
     });
   });
   return routes;
 }
 
-/** 每個降落點一個圓點；焦點隊友顯示城市名 */
+/** 每個降落點一個圓點；個人／焦點只亮最後一點 */
 function buildTrailDots() {
   if (!passenger) return [];
   const focusPid = globeFocusPid;
   const dots = [];
   const seen = new Set();
-  const addDot = ({ key, c, label, mine, pid, idx, focused }) => {
+  const addDot = ({ key, c, label, mine, pid, idx, focused, isLatest }) => {
     if (!c) return;
     const geoKey = `${pid || ''}:${Number(c[0]).toFixed(3)},${Number(c[1]).toFixed(3)}`;
+    const faint = (mine || focused) ? !isLatest : false;
+    const bright = (mine || focused) && !!isLatest;
     if (seen.has(geoKey)) {
       const prev = dots.find((d) => d._geo === geoKey);
-      if (prev && label && !prev.label) {
-        prev.label = label;
-        prev.showLabel = !!(focused && label);
+      if (prev) {
+        if (label && !prev.label) prev.label = label;
+        if (isLatest) {
+          prev.isLatest = true;
+          prev.faint = false;
+          prev.bright = mine || focused;
+          prev.showLabel = !!(focused && (prev.label || label));
+        }
       }
       return;
     }
@@ -1867,28 +1933,43 @@ function buildTrailDots() {
       passengerId: pid,
       idx: Number.isInteger(idx) ? idx : null,
       focused: !!focused,
-      showLabel: !!(focused && label),
+      isLatest: !!isLatest,
+      faint,
+      bright,
+      showLabel: !!(focused && isLatest && label),
     });
   };
 
   if (previewMode) {
+    const byPid = new Map();
     groupFlights.forEach((f, idx) => {
       if (f.status !== 'landed') return;
-      const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
-      if (!to) return;
       const isMe = f.passengerName === passenger.name;
       const pid = f.passengerId || (isMe ? passenger.passengerId : `name:${f.passengerName}`);
-      const focused = !!(focusPid && (pid === focusPid || f.passengerName === focusPid || `name:${f.passengerName}` === focusPid));
-      if (isMe && !routeTrails.mine && !focused) return;
-      if (!isMe && !routeTrails.friends && !focused) return;
-      addDot({
-        key: `land-demo-${idx}`,
-        c: to,
-        label: cityOnly(f.arrivalLocation),
-        mine: isMe,
-        pid,
-        idx,
-        focused,
+      if (!byPid.has(pid)) byPid.set(pid, []);
+      byPid.get(pid).push({ f, idx });
+    });
+    byPid.forEach((items, pid) => {
+      const sorted = items.sort((a, b) =>
+        String(a.f.landingTime || '').localeCompare(String(b.f.landingTime || '')),
+      );
+      sorted.forEach(({ f, idx }, ti) => {
+        const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+        if (!to) return;
+        const isMe = f.passengerName === passenger.name;
+        const focused = !!(focusPid && (pid === focusPid || `name:${f.passengerName}` === focusPid));
+        if (isMe && !routeTrails.mine && !focused) return;
+        if (!isMe && !routeTrails.friends && !focused) return;
+        addDot({
+          key: `land-demo-${idx}`,
+          c: to,
+          label: cityOnly(f.arrivalLocation),
+          mine: isMe,
+          pid,
+          idx,
+          focused,
+          isLatest: ti === sorted.length - 1,
+        });
       });
     });
     return dots.map(({ _geo, ...rest }) => rest);
@@ -1902,7 +1983,8 @@ function buildTrailDots() {
     if (isMe && !routeTrails.mine && !focused) return;
     if (!isMe && !routeTrails.friends && !focused) return;
     const idx = groupFlights.findIndex((f) => f.passengerId === pid);
-    (trails || []).forEach((t, ti) => {
+    const sorted = sortTrailRecords(trails);
+    sorted.forEach((t, ti) => {
       if (!t.to) return;
       addDot({
         key: `land-trail-${pid}-${t.id || ti}`,
@@ -1912,26 +1994,38 @@ function buildTrailDots() {
         pid,
         idx: idx >= 0 ? idx : null,
         focused,
+        isLatest: ti === sorted.length - 1,
       });
     });
   });
 
+  const boardByPid = new Map();
   groupFlights.forEach((f, idx) => {
     if (f.status !== 'landed' || !f.passengerId) return;
-    const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
-    if (!to) return;
-    const isMe = f.passengerId === passenger.passengerId;
-    const focused = !!(focusPid && f.passengerId === focusPid);
+    if (!boardByPid.has(f.passengerId)) boardByPid.set(f.passengerId, []);
+    boardByPid.get(f.passengerId).push({ f, idx });
+  });
+  boardByPid.forEach((items, pid) => {
+    const isMe = pid === passenger.passengerId;
+    const focused = !!(focusPid && pid === focusPid);
     if (isMe && !routeTrails.mine && !focused) return;
     if (!isMe && !routeTrails.friends && !focused) return;
-    addDot({
-      key: `land-board-${f.flightId || idx}`,
-      c: to,
-      label: cityOnly(f.arrivalLocation),
-      mine: isMe,
-      pid: f.passengerId,
-      idx,
-      focused,
+    const sorted = items.sort((a, b) =>
+      String(a.f.landingTime || '').localeCompare(String(b.f.landingTime || '')),
+    );
+    sorted.forEach(({ f, idx }, ti) => {
+      const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+      if (!to) return;
+      addDot({
+        key: `land-board-${f.flightId || idx}`,
+        c: to,
+        label: cityOnly(f.arrivalLocation),
+        mine: isMe,
+        pid,
+        idx,
+        focused,
+        isLatest: ti === sorted.length - 1,
+      });
     });
   });
 
@@ -2271,6 +2365,9 @@ function populateMateSheet(f) {
       ? `飛行中 · 已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`
       : (STATUS_LABEL[f.status] || f.status);
 
+  const more = $('mate-more');
+  if (more) more.open = false;
+
   const arc = $('mate-arc');
   const hasDeparture = !!(f.departureLocation && depMeta.city !== '—');
   if (hasDeparture && (landed || flying)) {
@@ -2295,14 +2392,16 @@ function populateMateSheet(f) {
   }
 
   const chips = [];
-  if (landed) {
-    chips.push(`🌙 ${fmtDuration(f.flightDurationMinutes)}`);
-    if (f.estimatedFlightDistanceKm) {
-      chips.push(`📏 ${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
-    }
+  if (landed && f.flightDurationMinutes != null) {
+    chips.push(`${fmtDuration(f.flightDurationMinutes)}`);
+  } else if (flying) {
+    chips.push(`已飛 ${fmtDuration(minutesSince(f.takeoffTime))}`);
+  }
+  if (landed && f.estimatedFlightDistanceKm) {
+    chips.push(`${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
   }
   if (f.routeDirection && DIRECTION_LABEL[f.routeDirection]) {
-    chips.push(`🧭 ${DIRECTION_LABEL[f.routeDirection]}`);
+    chips.push(DIRECTION_LABEL[f.routeDirection]);
   }
   $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
 
@@ -2328,7 +2427,7 @@ async function renderMateScenery(f, meta, landed) {
   const fallback = $('mate-fallback');
   const token = ++mateSceneryToken;
 
-  $('mate-caption').textContent = '📍 ' + (meta.city || cityOnly(f.arrivalLocation)) +
+  $('mate-caption').textContent = (meta.city || cityOnly(f.arrivalLocation)) +
     (meta.countryZh ? ' · ' + meta.countryZh : '');
   img.hidden = true;
   img.removeAttribute('src');
@@ -2362,8 +2461,31 @@ async function renderMateScenery(f, meta, landed) {
   }
 }
 
-function focusGroupMate(f) {
+/** 地圖點隊友：只顯示運行軌跡，不開詳情面板 */
+function showMateTrailsOnGlobe(f) {
   if (!f) return;
+  dismissMateSheetOnly();
+  applyMateTrailFocus(f);
+}
+
+/** 小隊看板點隊友：開精簡詳情，並同步高亮軌跡 */
+function openMateFromBoard(f) {
+  if (!f) return;
+  document.querySelectorAll('.sheet').forEach((s) => s.classList.remove('show'));
+  applyMateTrailFocus(f);
+  populateMateSheet(f);
+  openSheet('mate-sheet');
+}
+
+function dismissMateSheetOnly() {
+  if (document.body.dataset.openSheet !== 'mate-sheet') return;
+  $('sheet-mask')?.classList.remove('show');
+  $('mate-sheet')?.classList.remove('show');
+  document.body.classList.remove('sheet-open');
+  delete document.body.dataset.openSheet;
+}
+
+function applyMateTrailFocus(f) {
   const depMeta = departureMeta(f);
   const landed = f.status === 'landed' && !!f.arrivalLocation;
   const flying = f.status === 'in_flight';
@@ -2371,8 +2493,6 @@ function focusGroupMate(f) {
   const arr = landed ? coordOf(f, 'arrivalLatitude', 'arrivalLongitude') : null;
   const idx = groupFlights.indexOf(f);
   const pid = f.passengerId || `name:${f.passengerName}`;
-
-  closeSheets();
 
   globeFocusPid = pid;
   archiveGroupTrails(groupFlights);
@@ -2405,10 +2525,7 @@ function focusGroupMate(f) {
     });
   }
 
-  // 歷史段靠 trail 高亮；mateArcs 保留完整旅程供鏡頭對焦，繪製時略過非飛行段
-  Globe.update({
-    ...globeTrailPatch(),
-  });
+  Globe.update({ ...globeTrailPatch() });
 
   if (journeyArcs.length) {
     const last = journeyArcs[journeyArcs.length - 1];
@@ -2427,9 +2544,11 @@ function focusGroupMate(f) {
     Globe.update({ ...globeTrailPatch() });
     Globe.flyTo(dep, 900);
   }
+}
 
-  populateMateSheet(f);
-  openSheet('mate-sheet');
+/** @deprecated 請用 showMateTrailsOnGlobe / openMateFromBoard */
+function focusGroupMate(f) {
+  openMateFromBoard(f);
 }
 
 // ── 舷窗影片 ─────────────────────────────────────────────────────────────────
@@ -3037,8 +3156,7 @@ async function bridgeAfterCaptainBroadcast() {
   BroadcastAudio?.stopPlayback?.();
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
-  // 不在這裡 restore wakeup：TTS 完直接接 takeoff.mp3（playLandingApproach），
-  // wakeup 留到 landing.mp4 播完由 resumeLandingMusicAfterApproach 帶回，避免閃一秒。
+  // wakeup 在機長／著陸段維持小聲；landing.mp4 結束後由 crossfadeApproachSfxToWakeup 拉回正常音量
   const video = $('landing-fx-video');
   if (video) {
     disableSeamlessVideoLoop(video);
@@ -3139,6 +3257,7 @@ function updateUI() {
   let showLanded = !isFlying && !!lastLandedFlight && !dismissed;
   if (isFlying || showLanded) closeSheets();
 
+  $('hdr-name').textContent = passenger.name || '乘客';
   $('hdr-badge').textContent = STATUS_LABEL[passenger.status] || passenger.status;
 
   let showReady;
@@ -3609,7 +3728,7 @@ async function doLand() {
       ? requestLandingScenery(landed.flightId)
       : Promise.resolve(!!landingScenery?.imageUrl);
 
-    // ② 機長廣播（takeoff2 + wakeup；TTS 時 wakeup 完全靜音）
+    // ② 機長廣播（captain + TTS；wakeup 壓成小聲底床持續播放）
     await ensureMediaUnlocked();
     await animateFxLine('landing-fx-sub', '機長廣播中…');
     if (landed.captainBroadcast) {
@@ -3620,7 +3739,7 @@ async function doLand() {
       );
     }
 
-    // ③ 機長播完 → landing.mp4 + takeoff.mp3，地球儀滑向抵達地
+    // ③ 機長播完 → landing.mp4 + takeoff.mp3（wakeup 仍小聲墊底），地球儀滑向抵達地
     await bridgeAfterCaptainBroadcast();
     const dep = coordOf(landed, 'departureLatitude', 'departureLongitude') || DEFAULT_COORD;
     const arr = coordOf(landed, 'arrivalLatitude', 'arrivalLongitude');
@@ -3866,25 +3985,28 @@ $('btn-share-terminal-board')?.addEventListener('click', () => { void shareTermi
 $('btn-takeoff').addEventListener('click', onTakeoffClick);
 $('btn-land').addEventListener('click', onLandClick);
 $('btn-logout').addEventListener('click', doLogout);
-$('btn-refresh').addEventListener('click', (e) => { e.stopPropagation(); fetchBoard(); });
 $('btn-theme').addEventListener('click', toggleTheme);
 $('trail-mine')?.addEventListener('click', () => toggleRouteTrail('mine'));
 $('trail-friends')?.addEventListener('click', () => toggleRouteTrail('friends'));
 
-$('board-head').addEventListener('click', () => $('board-card').classList.toggle('open'));
+$('board-head').addEventListener('click', () => {
+  const card = $('board-card');
+  card.classList.toggle('open');
+  if (card.classList.contains('open')) void fetchBoard();
+});
 $('bd-broadcasts-head').addEventListener('click', () => $('bd-broadcasts-list').classList.toggle('hidden'));
 
 $('bd-list').addEventListener('click', (e) => {
   const row = e.target.closest('.brow');
   if (!row) return;
-  focusGroupMate(groupFlights[+row.dataset.idx]);
+  openMateFromBoard(groupFlights[+row.dataset.idx]);
 });
 $('bd-list').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const row = e.target.closest('.brow');
   if (!row) return;
   e.preventDefault();
-  focusGroupMate(groupFlights[+row.dataset.idx]);
+  openMateFromBoard(groupFlights[+row.dataset.idx]);
 });
 
 $('btn-compass').addEventListener('click', () => openSheet('compass-sheet'));
@@ -3909,9 +4031,18 @@ $('btn-flight-window').addEventListener('click', () => toggleFlightWindow());
 
 $('btn-close-landed').addEventListener('click', dismissLandedPanel);
 $('globe-svg')?.addEventListener('click', (e) => {
-  if (!isLandedPanelVisible()) return;
-  if (e.target.closest('.pt-pick')) return;
-  dismissLandedPanel();
+  if (isLandedPanelVisible()) {
+    if (e.target.closest('.pt-pick')) return;
+    dismissLandedPanel();
+    return;
+  }
+  // 點空白處取消地圖軌跡焦點（看板詳情開著時不處理）
+  if (globeFocusPid && !document.body.classList.contains('sheet-open')) {
+    if (e.target.closest('.pt') || e.target.closest('.pt-pick')) return;
+    globeFocusPid = null;
+    Globe.clearMate();
+    restoreGlobeView();
+  }
 });
 
 // ── Init ─────────────────────────────────────────────────────────────────────
@@ -3925,8 +4056,8 @@ $('globe-svg')?.addEventListener('click', (e) => {
   if (document.readyState === 'complete') Globe.init();
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
-  // 點地球儀上的隊友點 → 開啟該隊友航程詳情
-  Globe.setFriendPick((idx) => { if (groupFlights[idx]) focusGroupMate(groupFlights[idx]); });
+  // 點地球儀上的隊友點 → 只顯示該隊友運行軌跡（詳情改由看板開啟）
+  Globe.setFriendPick((idx) => { if (groupFlights[idx]) showMateTrailsOnGlobe(groupFlights[idx]); });
   // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
   Globe.setPlanePick(() => openFlightWindowFromGlobe());
 
