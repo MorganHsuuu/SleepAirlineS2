@@ -1560,7 +1560,10 @@ function syncLandButton() {
   if (!btn) return;
   const icon = btn.querySelector('.pill-icon');
   const label = btn.querySelector('.pill-label');
+  const hint = $('land-confirm-hint');
   btn.classList.toggle('is-confirm', landArmed);
+  document.body.classList.toggle('land-confirming', landArmed);
+  hint?.classList.toggle('hidden', !landArmed);
   if (landArmed) {
     if (icon) icon.textContent = '✓';
     if (label) label.textContent = '確定降落';
@@ -1650,7 +1653,6 @@ function onLandClick() {
     landArmed = true;
     syncLandButton();
     clearMsg('main');
-    showMsg('main', 'success', '再按一次「確定降落」開始下降。');
     return;
   }
   primeMediaOnUserGesture();
@@ -2072,8 +2074,8 @@ function buildTrailDots() {
         isLatest,
         name: mateName,
       });
-      // 每個落點都標國家＋日期；透明度跟航跡段同一套漸層
-      const showLabel = !!displayLabel;
+      // 只標最新落點（國家＋日期），較早的點只留淡點，避免地球儀文字疊成一團
+      const showLabel = !!(isLatest && displayLabel);
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
         c: t.to,
@@ -2627,31 +2629,46 @@ function focusGroupMate(f) {
 
 const seamlessLoopHandlers = new WeakMap();
 
-/** 在結尾前提前 seek 回開頭，避免原生 loop 跳回 0 的卡頓 */
-function enableSeamlessVideoLoop(video, { leadSec = 0.1, startSec = 0.033 } = {}) {
+/**
+ * 循環播放：用原生 loop，避免 fade→seek→fade 在 iOS／Android 上出現黑幀。
+ * （交叉淡入只用於換片，見 crossfadeLandingFxTo）
+ */
+function enableSeamlessVideoLoop(video) {
   disableSeamlessVideoLoop(video);
-  const onTimeUpdate = () => {
-    const d = video.duration;
-    if (!d || !Number.isFinite(d) || d <= leadSec + startSec) return;
-    if (video.currentTime >= d - leadSec) {
-      try { video.currentTime = startSec; } catch { /* noop */ }
-    }
-  };
-  const onEnded = () => {
-    try { video.currentTime = startSec; } catch { /* noop */ }
-    video.play().catch(() => { });
-  };
-  video.addEventListener('timeupdate', onTimeUpdate);
-  video.addEventListener('ended', onEnded);
-  seamlessLoopHandlers.set(video, { onTimeUpdate, onEnded });
+  if (!video) return;
+  video.loop = true;
+  video.style.transition = '';
+  video.style.opacity = '1';
+  // 佔位：讓呼叫端可用 seamlessLoopHandlers.has(video) 判斷「正在循環」
+  seamlessLoopHandlers.set(video, { native: true });
 }
 
 function disableSeamlessVideoLoop(video) {
   const handlers = seamlessLoopHandlers.get(video);
   if (!handlers) return;
-  video.removeEventListener('timeupdate', handlers.onTimeUpdate);
-  video.removeEventListener('ended', handlers.onEnded);
+  if (handlers.onTimeUpdate) {
+    video.removeEventListener('timeupdate', handlers.onTimeUpdate);
+    video.removeEventListener('ended', handlers.onEnded);
+    handlers.genRef?.();
+  }
   seamlessLoopHandlers.delete(video);
+  if (video) {
+    video.loop = false;
+    video.style.transition = '';
+    video.style.opacity = '';
+  }
+}
+
+/** 卸掉閒置影片的 src，釋放手機解碼器（防雙片同時解碼導致黑屏） */
+function unloadVideoSrc(video) {
+  if (!video) return;
+  disableSeamlessVideoLoop(video);
+  try { video.pause(); } catch { /* noop */ }
+  video.removeAttribute('src');
+  try { video.load(); } catch { /* noop */ }
+  delete video.dataset.src;
+  video.hidden = false;
+  video.style.opacity = '';
 }
 
 function primeLandingVideoElement(video) {
@@ -2662,25 +2679,55 @@ function primeLandingVideoElement(video) {
   video.load();
 }
 
-/** 只換源並等到可播放，不開始播 — 讓音效與影片能同一刻起跑 */
-async function prepareWindowVideo(video, src) {
-  if (!video || !src || video.dataset.src === src) return;
-  video.src = src;
-  video.dataset.src = src;
-  await new Promise((resolve) => {
+/** 等影片有可播資料；逾時不丟錯，由呼叫端決定要不要硬切 */
+function waitVideoReady(video, timeoutMs = 2800) {
+  if (!video) return Promise.resolve(false);
+  if (video.readyState >= 2 && video.dataset.src) return Promise.resolve(true);
+  return new Promise((resolve) => {
     let settled = false;
-    const done = () => {
+    const done = (ok) => {
       if (settled) return;
       settled = true;
-      video.removeEventListener('loadeddata', done);
-      video.removeEventListener('canplay', done);
-      resolve();
+      video.removeEventListener('loadeddata', onReady);
+      video.removeEventListener('canplay', onReady);
+      resolve(ok);
     };
-    video.addEventListener('loadeddata', done, { once: true });
-    video.addEventListener('canplay', done, { once: true });
-    video.load();
-    setTimeout(done, 2800);
+    const onReady = () => done(video.readyState >= 2);
+    video.addEventListener('loadeddata', onReady);
+    video.addEventListener('canplay', onReady);
+    setTimeout(() => done(video.readyState >= 2), timeoutMs);
   });
+}
+
+/** 真的 play 成功才回 true（勿用 Promise.race(waitMs) 假裝成功） */
+async function tryPlayVideo(video, timeoutMs = 2000) {
+  if (!video) return false;
+  try {
+    const playPromise = video.play();
+    if (!playPromise || typeof playPromise.then !== 'function') {
+      return !video.paused;
+    }
+    let timedOut = false;
+    await Promise.race([
+      playPromise,
+      waitMs(timeoutMs).then(() => { timedOut = true; }),
+    ]);
+    if (timedOut && video.paused) return false;
+    return !video.paused;
+  } catch {
+    return false;
+  }
+}
+
+/** 只換源並等到可播放，不開始播 — 讓音效與影片能同一刻起跑 */
+async function prepareWindowVideo(video, src) {
+  if (!video || !src) return false;
+  if (video.dataset.src === src && video.readyState >= 2) return true;
+  video.src = src;
+  video.dataset.src = src;
+  video.preload = 'auto';
+  video.load();
+  return waitVideoReady(video, 3200);
 }
 
 async function playWindowVideo(video, src, { loop = true } = {}) {
@@ -2693,14 +2740,20 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
     && !video.paused
     && !video.ended
     && video.readyState >= 2;
-  if (sameLooping) return true;
+  if (sameLooping) {
+    video.style.opacity = '1';
+    video.hidden = false;
+    return true;
+  }
   if (!loop) {
     disableSeamlessVideoLoop(video);
     video.pause();
   }
-  if (srcChanged) await prepareWindowVideo(video, src);
+  if (srcChanged) {
+    await prepareWindowVideo(video, src);
+  }
   if (loop) {
-    video.loop = false;
+    video.style.opacity = '1';
     enableSeamlessVideoLoop(video);
   } else {
     video.loop = false;
@@ -2709,21 +2762,21 @@ async function playWindowVideo(video, src, { loop = true } = {}) {
   video.muted = true;
   video.playsInline = true;
   video.hidden = false;
+  video.style.opacity = '1';
   if (srcChanged || !loop) {
     try { video.currentTime = 0; } catch { /* noop */ }
   }
-  try {
-    await Promise.race([video.play(), waitMs(1200)]);
-    return true;
-  } catch {
+  let ok = await tryPlayVideo(video, 1400);
+  if (!ok) {
     try {
       await BroadcastAudio?.unlockMedia?.();
-      await Promise.race([video.play(), waitMs(1200)]);
-      return true;
+      ok = await tryPlayVideo(video, 1600);
     } catch {
-      return false;
+      ok = false;
     }
   }
+  if (ok) video.style.opacity = '1';
+  return ok;
 }
 
 function pauseWindowVideo(video) {
@@ -2741,6 +2794,8 @@ function waitForVideoEnd(video, fallbackMs = 4000) {
       done = true;
       video.removeEventListener('ended', finish);
       video.removeEventListener('timeupdate', onTime);
+      clearInterval(stallTimer);
+      clearTimeout(capTimer);
       resolve();
     };
     const onTime = () => {
@@ -2750,11 +2805,15 @@ function waitForVideoEnd(video, fallbackMs = 4000) {
     if (video.ended) { finish(); return; }
     video.addEventListener('ended', finish, { once: true });
     video.addEventListener('timeupdate', onTime);
+    // 播不起來／卡住：不要卡死過場
+    const stallTimer = setInterval(() => {
+      if (video.paused && video.currentTime < 0.25) finish();
+    }, 1600);
     const d = video.duration;
     const capMs = Number.isFinite(d) && d > 0
-      ? Math.max(fallbackMs, d * 1000 + 800)
+      ? Math.min(Math.max(fallbackMs, d * 1000 + 800), fallbackMs + 12000)
       : fallbackMs;
-    setTimeout(finish, capMs);
+    const capTimer = setTimeout(finish, capMs);
   });
 }
 
@@ -3032,19 +3091,22 @@ function setTakeoffFxPhase(phase) {
   } else if (phase === 'launch') {
     preloadTakeoffVideo();
     animateFxLine('takeoff-fx-title', '起飛中…');
-    playWindowVideo(video, FLIGHT_MEDIA.takeoff, { loop: false });
+    // 原生 loop：避免 fade-seek 在手機上黑屏
+    playWindowVideo(video, FLIGHT_MEDIA.takeoff, { loop: true });
     BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 800 });
   }
 }
 
-/** 起飛影片播完（至少 launchMin）再結束過場，避免過早露出地圖 */
+/** 起飛影片至少播 launchMin（原生 loop），再結束過場 */
 async function waitTakeoffLaunchComplete() {
   const video = $('takeoff-fx-video');
-  if (!video) {
-    await waitMs(TAKEOFF_FX_MS.launchMin);
-    return;
+  await waitMs(TAKEOFF_FX_MS.launchMin);
+  if (video) {
+    disableSeamlessVideoLoop(video);
+    video.style.transition = 'opacity .45s ease';
+    video.style.opacity = '0';
+    await waitMs(450);
   }
-  await waitForVideoEnd(video, TAKEOFF_FX_MS.launchMin);
   await BroadcastAudio?.stopFlightSfx?.({ fade: true, ms: 550 });
 }
 function showTakeoffFx(sub, { phase = 'prep' } = {}) {
@@ -3186,17 +3248,27 @@ function pauseAllLandingFxVideos() {
 }
 
 /**
- * takeoff2 → landing：雙層交叉淡入，載入期間舊片不停，避免黑屏。
+ * takeoff2 → landing：雙層交叉淡入。
+ * 新片沒有畫面就不淡（避免黑屏）；失敗則在舊片上硬切。
+ * 換完卸掉閒置片 src，釋放手機解碼器。
  */
 async function crossfadeLandingFxTo(src, { loop = false, fadeMs = 900 } = {}) {
   const from = activeLandingFxVideo();
   const to = idleLandingFxVideo();
   if (!src) return false;
+
+  // 舊片務必可見，作為防黑屏底
+  if (from) {
+    from.hidden = false;
+    from.style.opacity = '';
+    from.classList.add('is-fx-active');
+    from.classList.remove('is-fx-idle');
+  }
+
   if (!to || to === from) {
     return playWindowVideo(from, src, { loop });
   }
 
-  // 舊片繼續播；新片在底層備好再淡入
   await prepareWindowVideo(to, src);
   disableSeamlessVideoLoop(to);
   to.muted = true;
@@ -3205,17 +3277,32 @@ async function crossfadeLandingFxTo(src, { loop = false, fadeMs = 900 } = {}) {
   to.loop = false;
   try { to.currentTime = 0; } catch { /* noop */ }
 
-  try {
-    await Promise.race([to.play(), waitMs(1400)]);
-  } catch {
+  let played = await tryPlayVideo(to, 1600);
+  if (!played) {
     try {
       await BroadcastAudio?.unlockMedia?.();
-      await Promise.race([to.play(), waitMs(1400)]);
-    } catch { /* still try visual swap */ }
+      played = await tryPlayVideo(to, 1600);
+    } catch { /* noop */ }
   }
 
-  // 等新片有畫面再交叉，避免淡入黑幀
-  if (to.readyState < 2) await waitMs(120);
+  // 新片沒備好／播不出：硬切舊片，絕不把兩層都藏起來
+  if (!played || to.readyState < 2) {
+    pauseWindowVideo(to);
+    to.classList.add('is-fx-idle');
+    to.classList.remove('is-fx-active');
+    return playWindowVideo(from, src, { loop });
+  }
+
+  // 等一幀再交叉，避免淡入黑幀
+  if (typeof to.requestVideoFrameCallback === 'function') {
+    await Promise.race([
+      new Promise((r) => to.requestVideoFrameCallback(() => r())),
+      waitMs(400),
+    ]);
+  } else {
+    await waitMs(120);
+  }
+
   to.classList.add('is-fx-idle');
   from.classList.add('is-fx-active');
   void to.offsetWidth;
@@ -3226,8 +3313,13 @@ async function crossfadeLandingFxTo(src, { loop = false, fadeMs = 900 } = {}) {
   await waitMs(fadeMs);
 
   pauseWindowVideo(from);
+  unloadVideoSrc(from);
+  from.classList.add('is-fx-idle');
+  from.classList.remove('is-fx-active');
+
   if (loop) enableSeamlessVideoLoop(to);
   else disableSeamlessVideoLoop(to);
+  to.style.opacity = '1';
   return true;
 }
 
@@ -3322,11 +3414,16 @@ async function bridgeAfterCaptainBroadcast() {
   const video = activeLandingFxVideo();
   if (video) {
     video.hidden = false;
+    video.style.opacity = '1';
+    video.classList.add('is-fx-active');
+    video.classList.remove('is-fx-idle');
     if (video.paused || video.dataset.src !== FLIGHT_MEDIA.descent) {
       await playWindowVideo(video, FLIGHT_MEDIA.descent, { loop: true });
     } else if (!seamlessLoopHandlers.has(video)) {
       enableSeamlessVideoLoop(video);
-      try { await video.play(); } catch { /* noop */ }
+      await tryPlayVideo(video, 1200);
+    } else {
+      await tryPlayVideo(video, 800);
     }
   }
 }
@@ -3335,24 +3432,29 @@ async function bridgeAfterCaptainBroadcast() {
 async function playLandingApproach() {
   const fx = $('landing-fx');
   if (!fx) return;
-  await BroadcastAudio?.unlockMedia?.();
-  fx.dataset.phase = 'approach';
-  animateFxLine('landing-fx-title', '即將抵達…');
-  animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
+  const hardCapMs = LANDING_FX_MS.approachMin + 10000;
+  const run = async () => {
+    await BroadcastAudio?.unlockMedia?.();
+    fx.dataset.phase = 'approach';
+    animateFxLine('landing-fx-title', '即將抵達…');
+    animateFxLine('landing-fx-sub', '對準跑道 · 即將著陸…');
 
-  // 舊片繼續播；同時預載 landing + 壓低音景
-  const next = idleLandingFxVideo();
-  await Promise.all([
-    next ? prepareWindowVideo(next, FLIGHT_MEDIA.landing) : Promise.resolve(),
-    BroadcastAudio?.duckCeremonyBed?.(),
-  ]);
+    // 舊片繼續播；同時預載 landing + 壓低音景
+    const next = idleLandingFxVideo();
+    await Promise.all([
+      next ? prepareWindowVideo(next, FLIGHT_MEDIA.landing) : Promise.resolve(),
+      BroadcastAudio?.duckCeremonyBed?.(),
+    ]);
 
-  await Promise.all([
-    BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 900 }),
-    crossfadeLandingFxTo(FLIGHT_MEDIA.landing, { loop: false, fadeMs: 900 }),
-  ]);
-  await waitForVideoEnd(activeLandingFxVideo(), LANDING_FX_MS.approachMin);
-  await BroadcastAudio?.crossfadeApproachSfxToWakeup?.();
+    await Promise.all([
+      BroadcastAudio?.playFlightSfx?.(FLIGHT_SFX.takeoff, { loop: true, volume: 0.65, fadeInMs: 900 }),
+      crossfadeLandingFxTo(FLIGHT_MEDIA.landing, { loop: false, fadeMs: 900 }),
+    ]);
+    await waitForVideoEnd(activeLandingFxVideo(), LANDING_FX_MS.approachMin);
+    await BroadcastAudio?.crossfadeApproachSfxToWakeup?.();
+  };
+  // 硬超時：再華麗也不能卡死在過場
+  await Promise.race([run(), waitMs(hardCapMs)]);
 }
 async function hideLandingFx({ fast = false } = {}) {
   const fx = $('landing-fx');
@@ -3645,52 +3747,235 @@ async function shareTerminalLink(source = 'login') {
   }
 }
 
-/** 分享抵達地＋風景照連結（系統分享／複製文字） */
-function buildArrivalSharePayload() {
+/** 分享抵達圖卡：風景＋目的地合成小 JPEG，用系統分享檔案（避免文字亂碼） */
+function arrivalShareMeta() {
   const landed = lastLandedFlight;
   if (!landed) return null;
   const meta = arrivalMeta(landed);
   const flag = meta.flag || '🌍';
   const city = meta.city || cityOnly(landed.arrivalLocation) || '未知目的地';
   const country = meta.countryZh || meta.country || '';
-  const place = country ? `${flag} ${city} · ${country}` : `${flag} ${city}`;
-  const name = passenger?.name || '我';
+  const name = passenger?.name || '旅客';
   const imageUrl = landingScenery?.imageUrl || '';
-  const title = `甦醒航班 · 抵達 ${city}`;
-  const lines = [
-    `${name} 搭甦醒航班抵達了 ${place}`,
-  ];
-  if (imageUrl) lines.push(`窗外風景：${imageUrl}`);
-  lines.push('—— 甦航班 Sleep Airline');
-  return { title, text: lines.join('\n'), url: imageUrl || undefined, place, imageUrl };
+  return { landed, meta, flag, city, country, name, imageUrl };
+}
+
+function loadImageForShare(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const fromBlob = (blob) => {
+      const obj = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(obj); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(obj); resolve(null); };
+      img.src = obj;
+    };
+    // 已是 blob/data 的舷窗圖可直接用（不會污染 canvas）
+    const dom = $('scenery-img');
+    if (dom && !dom.hidden && dom.complete && dom.naturalWidth > 0) {
+      const src = dom.currentSrc || dom.src || '';
+      if (src.startsWith('blob:') || src.startsWith('data:')) {
+        resolve(dom);
+        return;
+      }
+    }
+    fetch(url, { mode: 'cors' })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('fetch fail'))))
+      .then(fromBlob)
+      .catch(() => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
+      });
+  });
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+function drawCoverImage(ctx, img, x, y, w, h) {
+  if (!img) return;
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const scale = Math.max(w / iw, h / ih);
+  const sw = w / scale;
+  const sh = h / scale;
+  const sx = (iw - sw) / 2;
+  const sy = (ih - sh) / 2;
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+async function canvasToJpegBlob(canvas, quality = 0.72) {
+  try {
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob empty'))), 'image/jpeg', quality);
+    });
+    return blob;
+  } catch (err) {
+    // canvas 被跨域圖污染時，改畫無圖版本
+    console.warn('[share card] canvas tainted, retry without photo', err);
+    return null;
+  }
+}
+
+async function renderArrivalShareCard(photo) {
+  const info = arrivalShareMeta();
+  if (!info) return null;
+
+  const W = 1080;
+  const H = 1350;
+  const photoH = 820;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#0c1428';
+  ctx.fillRect(0, 0, W, H);
+
+  if (photo) {
+    drawCoverImage(ctx, photo, 0, 0, W, photoH);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, photoH);
+    g.addColorStop(0, '#1a2a4a');
+    g.addColorStop(0.55, '#3d5a80');
+    g.addColorStop(1, '#c9a06a');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, photoH);
+  }
+
+  const fade = ctx.createLinearGradient(0, photoH - 160, 0, photoH + 40);
+  fade.addColorStop(0, 'rgba(12,20,40,0)');
+  fade.addColorStop(1, '#0c1428');
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, photoH - 160, W, 200);
+
+  const cardY = photoH - 40;
+  const cardH = H - cardY - 48;
+  roundRectPath(ctx, 48, cardY, W - 96, cardH, 36);
+  ctx.fillStyle = 'rgba(255, 250, 242, 0.96)';
+  ctx.fill();
+
+  const cx = W / 2;
+  let ty = cardY + 56;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#8a6a28';
+  ctx.font = '700 28px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+  ctx.fillText('SLEEP AIRLINE  ·  甦航班', cx, ty);
+
+  ty += 52;
+  ctx.fillStyle = '#c4892a';
+  ctx.font = '700 26px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+  ctx.fillText('已抵達', cx, ty);
+
+  ty += 78;
+  ctx.fillStyle = '#1a2438';
+  ctx.font = '800 64px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+  ctx.fillText(`${info.flag}  ${info.city}`, cx, ty);
+
+  if (info.country) {
+    ty += 52;
+    ctx.fillStyle = '#5a6a86';
+    ctx.font = '600 34px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+    ctx.fillText(info.country, cx, ty);
+  }
+
+  ty += 58;
+  ctx.fillStyle = '#33415c';
+  ctx.font = '600 30px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+  ctx.fillText(`${info.name} 的夜航降落`, cx, ty);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.font = '600 22px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
+  ctx.fillText('Sleep Airline', cx, H - 28);
+
+  return canvas;
+}
+
+async function buildArrivalShareCardBlob() {
+  const info = arrivalShareMeta();
+  if (!info) return null;
+  const photo = await loadImageForShare(info.imageUrl);
+  let canvas = await renderArrivalShareCard(photo);
+  if (!canvas) return null;
+  let blob = await canvasToJpegBlob(canvas, 0.72);
+  if (!blob && photo) {
+    canvas = await renderArrivalShareCard(null);
+    blob = canvas ? await canvasToJpegBlob(canvas, 0.72) : null;
+  }
+  return blob;
+}
+
+function downloadShareBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 async function shareArrivalJourney(source = 'panel') {
-  const payload = buildArrivalSharePayload();
-  if (!payload) {
+  const info = arrivalShareMeta();
+  if (!info) {
     showMsg('main', 'error', '目前沒有可分享的抵達紀錄。');
     return;
   }
-  if (navigator.share) {
-    try {
-      const data = { title: payload.title, text: payload.text };
-      if (payload.url && navigator.canShare?.({ ...data, url: payload.url })) {
-        data.url = payload.url;
-      } else if (payload.url) {
-        data.url = payload.url;
-      }
-      await navigator.share(data);
-      showMsg('main', 'success', '已分享這趟抵達');
-      return;
-    } catch (err) {
-      if (err?.name === 'AbortError') return;
-    }
+
+  const shareBtn = source === 'panel' ? $('btn-share-arrival') : null;
+  if (shareBtn) {
+    shareBtn.disabled = true;
+    shareBtn.classList.add('is-loading');
   }
+
   try {
-    await navigator.clipboard.writeText(payload.text);
-    showMsg('main', 'success', payload.imageUrl ? '抵達與風景連結已複製' : '抵達訊息已複製');
-  } catch {
-    showMsg('main', 'error', '無法分享，請稍後再試');
+    const blob = await buildArrivalShareCardBlob();
+    if (!blob) {
+      showMsg('main', 'error', '圖卡產生失敗，請稍後再試。');
+      return;
+    }
+    const safeCity = (info.city || 'arrival').replace(/[^\w\u4e00-\u9fff-]+/g, '_').slice(0, 24);
+    const filename = `sleep-airline-${safeCity}.jpg`;
+    const file = new File([blob], filename, { type: 'image/jpeg' });
+    const title = `Sleep Airline · ${info.city}`;
+    const text = `${info.flag} ${info.city}${info.country ? ` · ${info.country}` : ''}`;
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title, text });
+        showMsg('main', 'success', '圖卡已分享');
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+
+    // 不支援檔案分享：改下載 JPEG
+    downloadShareBlob(blob, filename);
+    showMsg('main', 'success', '已下載分享圖卡（JPEG）');
+  } catch (err) {
+    console.warn('[share card]', err);
+    showMsg('main', 'error', '分享失敗，請稍後再試');
+  } finally {
+    if (shareBtn) {
+      shareBtn.disabled = false;
+      shareBtn.classList.remove('is-loading');
+    }
   }
 }
 

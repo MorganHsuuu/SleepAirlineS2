@@ -907,17 +907,77 @@ body[data-theme="dusk"] .dock-action--gold::before {
   box-shadow: 0 6px 18px rgba(60, 140, 100, .18), inset 0 1px 0 rgba(255, 255, 255, .52);
 }
 .dock-action--green.is-confirm {
-  border-color: color-mix(in srgb, var(--green) 55%, #fff 20%);
-  background: linear-gradient(180deg, #e8fff3, #9fe0bf);
+  border-color: color-mix(in srgb, #fff 55%, var(--green));
+  background: linear-gradient(180deg, #f3fff8 0%, #b8f0d2 45%, #6ed6a4 100%);
+  color: #0f5c38;
   box-shadow:
-    0 8px 22px rgba(40, 130, 90, .28),
-    0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, .7);
-  animation: land-confirm-pulse 1.2s ease-in-out infinite;
+    0 10px 28px rgba(20, 100, 70, .42),
+    0 0 0 4px color-mix(in srgb, var(--green) 35%, transparent),
+    0 0 36px rgba(90, 220, 160, .45),
+    inset 0 1px 0 rgba(255, 255, 255, .85);
+  animation: land-confirm-pulse 1.05s ease-in-out infinite;
+  z-index: 5;
 }
 @keyframes land-confirm-pulse {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-2px) scale(1.02); }
+}
+body[data-theme="dusk"] .dock-action--green.is-confirm {
+  border-color: rgba(180, 255, 220, .55);
+  background: linear-gradient(180deg, rgba(230, 255, 242, .42) 0%, rgba(110, 210, 160, .5) 100%);
+  color: #e8fff4;
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, .45),
+    0 0 0 4px rgba(120, 230, 180, .28),
+    0 0 40px rgba(90, 220, 160, .35),
+    inset 0 1px 0 rgba(255, 255, 255, .22);
+}
+
+/* 確認降落：壓暗全場，凸顯 dock 按鈕 */
+.land-confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 78%, rgba(20, 90, 60, .18) 0%, transparent 62%),
+    rgba(6, 12, 24, .58);
+  transition: opacity .28s ease;
+}
+body.land-confirming .land-confirm-scrim {
+  opacity: 1;
+}
+body.land-confirming .dock {
+  z-index: 32;
+}
+body.land-confirming #flight-panel .dock-panel--cta {
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, .35),
+    0 0 0 1px color-mix(in srgb, var(--green) 35%, transparent),
+    0 0 48px rgba(80, 200, 140, .22);
+}
+.land-confirm-hint {
+  margin: 0 4px 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #0f5c38;
+  background: color-mix(in srgb, #c8f5dc 78%, #fff);
+  border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+  animation: land-hint-in .35s cubic-bezier(.22, 1, .36, 1) both;
+}
+body[data-theme="dusk"] .land-confirm-hint {
+  color: #d8ffe9;
+  background: rgba(40, 90, 65, .55);
+  border-color: rgba(140, 230, 180, .35);
+}
+@keyframes land-hint-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .dock-action--green::before {
   content: '';
@@ -1034,12 +1094,6 @@ body[data-theme="dusk"] .dock-action--green {
   display: flex; justify-content: center;
   width: 100%; margin-top: 14px; padding: 0;
   border: none; background: transparent; cursor: pointer; font-family: inherit;
-}
-.fly-portal[aria-expanded="true"]::after {
-  content: '點舷窗外收起';
-  display: block; margin-top: 7px;
-  font-size: 9px; font-weight: 600; letter-spacing: .14em;
-  color: var(--ink-faint);
 }
 .fly-portal-lane {
   position: relative; display: block;
@@ -1716,6 +1770,10 @@ body[data-theme="dusk"] .pw-frame {
   min-width: 118px;
   border-color: color-mix(in srgb, var(--gold) 35%, var(--divider));
   color: var(--gold-deep);
+}
+.btn-soft--share.is-loading {
+  opacity: 0.65;
+  pointer-events: none;
 }
 
 /* ═══ 小隊看板（與 topbar 同寬，向下展開）═══ */

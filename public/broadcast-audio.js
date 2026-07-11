@@ -8,7 +8,7 @@ let landingVolume = 0.22;
 const CAPTAIN_SFX = {
   url: 'media/captain.mp3',
   seconds: 7,
-  volume: 0.72,
+  volume: 0.95,
 };
 
 const TAKEOFF_SFX_URL = 'media/takeoff.mp3';
@@ -100,13 +100,27 @@ function fadeAudioVolume(audio, from, to, ms) {
 
 async function playAudioElement(audio) {
   try {
-    await audio.play();
-    return true;
+    const p = audio.play();
+    if (!p || typeof p.then !== 'function') return !audio.paused;
+    let timedOut = false;
+    await Promise.race([
+      p,
+      delay(2000).then(() => { timedOut = true; }),
+    ]);
+    if (timedOut && audio.paused) throw new Error('play timeout');
+    return !audio.paused;
   } catch {
     await unlockMedia();
     try {
-      await audio.play();
-      return true;
+      const p2 = audio.play();
+      if (!p2 || typeof p2.then !== 'function') return !audio.paused;
+      let timedOut = false;
+      await Promise.race([
+        p2,
+        delay(2000).then(() => { timedOut = true; }),
+      ]);
+      if (timedOut && audio.paused) return false;
+      return !audio.paused;
     } catch {
       return false;
     }
@@ -817,6 +831,7 @@ function speakTextOnce(text) {
     utter.lang = 'zh-TW';
     utter.rate = 0.9;
     utter.pitch = 0.95;
+    utter.volume = 1;
     const voice = pickZhVoice();
     if (voice) utter.voice = voice;
     utter.onend = () => finish(true);
@@ -897,7 +912,7 @@ async function playPreparedSpeech(prepared) {
   const blob = prepared.blob
     || (prepared.url ? await fetch(prepared.url).then((r) => r.blob()).catch(() => null) : null);
   if (blob) {
-    const ok = await playMp3Blob(blob, { volume: 1, tag: 'speech', fadeInMs: 400 });
+    const ok = await playMp3Blob(blob, { volume: 1.35, tag: 'speech', fadeInMs: 280 });
     if (ok) {
       if (prepared.url) URL.revokeObjectURL(prepared.url);
       return true;
@@ -907,6 +922,7 @@ async function playPreparedSpeech(prepared) {
   await unlockMedia();
   const { audio, url } = prepared;
   markInlineAudio(audio);
+  audio.volume = 1;
   currentAudio = audio;
   const ok = await playAudioElement(audio);
   if (!ok) {
@@ -1030,6 +1046,18 @@ if (window.speechSynthesis) {
   speechSynthesis.getVoices();
   speechSynthesis.addEventListener('voiceschanged', () => speechSynthesis.getVoices());
 }
+
+/** iOS／背景回來後：喚醒 AudioContext，避免廣播突然無聲 */
+function resumeAudioOnForeground() {
+  if (document.visibilityState && document.visibilityState !== 'visible') return;
+  void ensureAudioCtx();
+  if (keepAliveAudio?.paused && mediaUnlocked) {
+    try { void tryPlayKeepAlive(keepAliveAudio, keepAliveAudio.dataset.src || SILENT_KEEPALIVE); } catch { /* noop */ }
+  }
+}
+document.addEventListener('visibilitychange', resumeAudioOnForeground);
+window.addEventListener('pageshow', resumeAudioOnForeground);
+window.addEventListener('focus', resumeAudioOnForeground);
 
 window.BroadcastAudio = {
   playCaptainBroadcast,

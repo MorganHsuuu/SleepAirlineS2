@@ -29,6 +29,7 @@
     <div class="glow glow-b"></div>
     <svg id="globe-svg"></svg>
   </div>
+  <div class="land-confirm-scrim" aria-hidden="true"></div>
 
   <!-- ════ 登入（浮在地球上） ════ -->
   <div id="login-section">
@@ -207,6 +208,9 @@
             </div>
             <span class="sr-only" id="fl-direction"></span>
           </div>
+          <p class="land-confirm-hint hidden" id="land-confirm-hint" aria-live="polite">
+            再按一次下方按鈕，確認開始下降
+          </p>
           <button class="dock-action dock-action--green" id="btn-land" type="button">
             <span class="pill-icon">🌅</span>
             <span class="pill-label">降落</span>

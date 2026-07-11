@@ -120,7 +120,7 @@ ${STYLE_DESCRIPTIONS[input.style]}
 
 身分（非常重要）：
 - 你是機長，在對「乘客」說話；乘客姓名只是對象，不是你的名字
-- 第一句必須自然包含「歡迎搭乘 Sleep Airline」與「這裡是機長」
+- 第一句必須自然包含「歡迎搭乘 Sleep Airline」與「這裡是機長」（「歡迎」二字不可省略，禁止只寫「搭乘 Sleep Airline」）
 - 禁止寫「我是機長〇〇」若〇〇是乘客姓名
 - 禁止冒充乘客、禁止用第一人稱代替乘客說話
 - 用「各位乘客」或「${pax}」稱呼對方；不要稱自己為乘客姓名
@@ -165,7 +165,7 @@ ${input.localContext ? `\n【當地資訊 · 出發地】\n${buildLocalBlock(inp
 【同組社交】
 ${socialLine}
 
-請依「3–4 句」結構寫一段流暢口語廣播，第一句以「歡迎搭乘 Sleep Airline，這裡是機長」開頭。
+請依「3–4 句」結構寫一段流暢口語廣播，第一句必須以「歡迎搭乘 Sleep Airline，這裡是機長」開頭（完整八字「歡迎搭乘」，不可省略「歡迎」）。
 同組社交若有：用一句過去式／進行式帶過，禁止隊友降落倒數。`;
 
   const duration = formatDuration(input.flightDurationMinutes);
@@ -195,7 +195,21 @@ ${buildSocialBlock(input.socialCue)}
     temperature: isTakeoff ? 0.42 : 0.55,
   });
 
-  return completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
+  const raw = completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
+  return isTakeoff ? ensureWelcomeAboardPhrase(raw) : raw;
+}
+
+/** 起飛廣播必須含「歡迎搭乘 Sleep Airline」；模型若省略「歡迎」則補上 */
+function ensureWelcomeAboardPhrase(text: string): string {
+  const body = (text || '').trim();
+  if (!body) {
+    return '歡迎搭乘 Sleep Airline，這裡是機長。';
+  }
+  if (/歡迎搭乘\s*Sleep\s*Airline/i.test(body)) return body;
+  if (/搭乘\s*Sleep\s*Airline/i.test(body)) {
+    return body.replace(/搭乘\s*Sleep\s*Airline/i, '歡迎搭乘 Sleep Airline');
+  }
+  return `歡迎搭乘 Sleep Airline，這裡是機長。${body}`;
 }
 
 /** OpenAI 不可用時的簡短 fallback */
