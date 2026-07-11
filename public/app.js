@@ -448,16 +448,27 @@ function parseCitiesPayload(raw) {
   return raw
     .filter((e) => e.latitude != null && e.longitude != null && e.city)
     .map((entry) => {
+      const countryRaw = String(entry.country || '').trim();
       const country =
-        entry.country && entry.country.length > 2
-          ? entry.country
-          : entry.country_zh || entry.country;
+        countryRaw.length > 2
+          ? countryRaw
+          : entry.country_zh || countryRaw;
+      const iso = String(
+        entry.iso2
+        || entry.iso
+        || entry.country_iso
+        || entry.country_code
+        || (countryRaw.length === 2 ? countryRaw : ''),
+      ).trim().slice(0, 2).toUpperCase();
       const displayName =
         entry.city_zh && entry.country_zh
           ? `${entry.city_zh}, ${entry.country_zh}`
           : `${entry.city}, ${entry.country}`;
       return {
         displayName,
+        country,
+        countryZh: entry.country_zh || '',
+        iso,
         latitude: entry.latitude,
         longitude: entry.longitude,
         availableForLanding: true,
@@ -479,6 +490,25 @@ async function ensureCities() {
     return citiesCache;
   })();
   return citiesLoadPromise;
+}
+
+/** 舊航跡缺少國碼時，以落點座標回查最近城市的國家資料。 */
+function countryMetaNearCoordinate(lat, lon) {
+  if (!citiesCache?.length || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  let nearest = null;
+  let nearestKm = Infinity;
+  for (const city of citiesCache) {
+    const km = haversineKm(lat, lon, city.latitude, city.longitude);
+    if (km < nearestKm) {
+      nearest = city;
+      nearestKm = km;
+    }
+  }
+  if (!nearest || nearestKm > 500) return null;
+  return locationMeta(nearest.displayName, {
+    iso: nearest.iso,
+    country: nearest.countryZh || nearest.country,
+  });
 }
 
 /** 與後端 findArrivalDestination 一致：選最靠近軌跡尖端的城市 */
@@ -876,13 +906,14 @@ const Globe = (() => {
     }
     view.friends.forEach((f, i) => {
       const focused = !!(view.focusPid && f.passengerId && f.passengerId === view.focusPid);
-      // 焦點軌跡時落點城市由 land-dot 顯示，避免與隊友名重疊
-      const hideName = focused && (f.kind || 'friend') !== 'friend-plane';
+      const isPlane = (f.kind || 'friend') === 'friend-plane';
+      // 靜態隊友點平常不掛名字；點擊後再顯示，避免與密集航點互相壓字。
+      const pointLabel = isPlane || focused ? f.label : '';
       pts.push({
         key: 'f' + i + f.label,
         c: f.c,
         ahead: f.ahead,
-        label: hideName ? '' : f.label,
+        label: pointLabel,
         kind: f.kind || 'friend',
         idx: f.idx,
         dim: view.focusPid && f.passengerId && f.passengerId !== view.focusPid,
@@ -1000,28 +1031,30 @@ const Globe = (() => {
       if (d.kind === 'land-dot') {
         g.attr('class', Number.isInteger(d.idx) ? 'pt pt-pick' : 'pt');
         g.select('.plicon').attr('display', 'none');
-        g.select('.plane-hit').attr('display', 'none');
         const col = d.mine ? gold : friendCol;
         const faint = !!d.faint;
         const bright = !!d.bright || (!faint && !!d.focused);
-        // 落點加大：平常也清楚，高亮時更明顯
-        const coreR = bright ? 7.2 : (faint ? 4.2 : (d.mine ? 5.8 : 5.2));
-        const haloR = bright ? 13 : (faint ? 8 : 11);
+        const coreR = bright ? 3.5 : (faint ? 2.1 : 2.8);
         const groupOp = typeof d.o === 'number' ? Math.max(0.2, Math.min(1, d.o)) : (faint ? 0.28 : 1);
         g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
-          .attr('r', haloR)
-          .attr('fill', col)
-          .attr('opacity', bright ? 0.38 : (faint ? 0.14 : 0.2));
+          .attr('r', 0)
+          .attr('opacity', 0);
         g.select('.core').attr('cx', x).attr('cy', y).attr('r', coreR)
-          .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', bright ? 2 : 1.35);
-        g.select('.lbl').attr('x', x).attr('y', y - (bright ? 16 : 13)).attr('text-anchor', 'middle')
+          .attr('fill', col).attr('stroke', 'none').attr('stroke-width', 0);
+        g.select('.lbl').attr('x', x).attr('y', y - 11).attr('text-anchor', 'middle')
           .attr('font-size', bright ? '10px' : '8.5px')
           .attr('font-weight', bright ? '800' : '700')
           .attr('fill', labelInk)
           .attr('opacity', d.showLabel ? 1 : 0)
           .text(d.showLabel ? (d.label || '') : '');
         const clickableDot = Number.isInteger(d.idx);
+        g.select('.plane-hit')
+          .attr('display', clickableDot ? null : 'none')
+          .attr('cx', x).attr('cy', y).attr('r', 18)
+          .attr('fill', 'transparent').attr('stroke', 'none')
+          .attr('pointer-events', clickableDot ? 'all' : 'none')
+          .raise();
         g.style('cursor', clickableDot ? 'pointer' : null)
           .on('click', clickableDot ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
         return;
@@ -1032,16 +1065,22 @@ const Globe = (() => {
       const main = d.kind !== 'friend';
       const col = main ? gold : friendCol;
       const dim = !!d.dim;
-      g.select('.halo').attr('cx', x).attr('cy', y).attr('r', main ? 10 : (d.focused ? 11 : 7))
-        .attr('fill', col).attr('opacity', dim ? 0.06 : (d.focused ? 0.28 : 0.18));
-      g.select('.core').attr('cx', x).attr('cy', y).attr('r', main ? 4.5 : (d.focused ? 4.2 : 3.5))
-        .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', 1.2)
+      g.select('.halo').attr('cx', x).attr('cy', y).attr('r', 0)
+        .attr('fill', col).attr('opacity', 0);
+      g.select('.core').attr('cx', x).attr('cy', y).attr('r', main ? 3.2 : (d.focused ? 3 : 2.5))
+        .attr('fill', col).attr('stroke', 'none').attr('stroke-width', 0)
         .attr('opacity', dim ? 0.3 : 1);
       g.select('.lbl').attr('x', x).attr('y', y - 11).attr('text-anchor', 'middle')
         .attr('font-size', '9px').attr('font-weight', main ? '800' : '600')
         .attr('fill', labelInk).attr('opacity', dim ? 0.35 : 1).text(d.label || '');
       // 可點擊的隊友點：開啟該隊友航程詳情
       const clickable = d.kind === 'friend' && Number.isInteger(d.idx);
+      g.select('.plane-hit')
+        .attr('display', clickable ? null : 'none')
+        .attr('cx', x).attr('cy', y).attr('r', 18)
+        .attr('fill', 'transparent').attr('stroke', 'none')
+        .attr('pointer-events', clickable ? 'all' : 'none')
+        .raise();
       g.style('cursor', clickable ? 'pointer' : null)
         .on('click', clickable ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
     });
@@ -1965,7 +2004,8 @@ function collectPassengerTrailRecords(pid, name) {
   const byId = new Map();
   const push = (rec) => {
     if (!rec?.from || !rec?.to || !rec.id) return;
-    if (!byId.has(rec.id)) byId.set(rec.id, rec);
+    const previous = byId.get(rec.id);
+    byId.set(rec.id, previous ? { ...previous, ...rec } : rec);
   };
   if (previewMode) {
     groupFlights
@@ -2077,12 +2117,6 @@ function buildTrailDots() {
       const isLatest = ti === trails.length - 1;
       const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
       const displayLabel = formatTrailDotLabel(t);
-      // 無焦點：每人最新落點標國家；有焦點：只標被點的人（其所有落點國家）
-      let showLabel = false;
-      if (displayLabel) {
-        if (focused) showLabel = true;
-        else if (!focusPid && isLatest) showLabel = true;
-      }
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
         c: t.to,
@@ -2095,7 +2129,8 @@ function buildTrailDots() {
         faint: st.faint,
         bright: st.bright,
         o: st.o,
-        showLabel,
+        // 地圖只保留小點；城市、國家等資訊改由點擊後的詳情面板呈現。
+        showLabel: false,
       });
     });
   };
@@ -2118,29 +2153,6 @@ function buildTrailDots() {
     groupFlights.forEach((f, idx) => {
       if (f.status !== 'landed' || !f.passengerId) return;
       emitForPassenger(f.passengerId, f.passengerName, idx);
-    });
-  }
-
-  // 無焦點時：同國家只留一個標籤，減少疊字
-  if (!focusPid) {
-    const byCountry = new Map();
-    dots.forEach((d) => {
-      if (!d.showLabel || !d.label) return;
-      const key = d.label;
-      const prev = byCountry.get(key);
-      if (!prev) {
-        byCountry.set(key, d);
-        return;
-      }
-      const prefer = (d.mine && !prev.mine)
-        || ((d.o || 0) > (prev.o || 0) && d.mine === prev.mine)
-        || (d.isLatest && !prev.isLatest);
-      if (prefer) {
-        prev.showLabel = false;
-        byCountry.set(key, d);
-      } else {
-        d.showLabel = false;
-      }
     });
   }
 
@@ -4289,20 +4301,22 @@ async function shareArrivalJourney(source = 'panel') {
 
 function memoryFlightFromTrail(t) {
   if (!t) return null;
+  const depGeo = countryMetaNearCoordinate(t.from?.[1], t.from?.[0]);
+  const arrGeo = countryMetaNearCoordinate(t.to?.[1], t.to?.[0]);
   return {
     flightId: t.id,
     notionId: t.id,
     passengerId: t.passengerId || passenger?.passengerId,
     passengerName: t.passengerName || passenger?.name || '旅客',
     status: 'landed',
-    departureLocation: t.departureLocation || t.depLabel || '出發地',
-    departureIso: t.departureIso || '',
-    departureCountry: t.departureCountry || '',
+    departureLocation: t.departureLocation || t.depLabel || depGeo?.city || '出發地',
+    departureIso: t.departureIso || depGeo?.iso || '',
+    departureCountry: t.departureCountry || depGeo?.countryZh || depGeo?.country || '',
     departureLatitude: t.from?.[1],
     departureLongitude: t.from?.[0],
-    arrivalLocation: t.arrivalLocation || t.arrLabel || '抵達地',
-    arrivalIso: t.arrivalIso || '',
-    arrivalCountry: t.arrivalCountry || t.arrCountry || '',
+    arrivalLocation: t.arrivalLocation || t.arrLabel || arrGeo?.city || '抵達地',
+    arrivalIso: t.arrivalIso || arrGeo?.iso || '',
+    arrivalCountry: t.arrivalCountry || t.arrCountry || arrGeo?.countryZh || arrGeo?.country || '',
     arrivalLatitude: t.to?.[1],
     arrivalLongitude: t.to?.[0],
     flightDurationMinutes: t.flightDurationMinutes || null,
@@ -4541,9 +4555,10 @@ function syncMemoryGalleryFromScroll() {
   if (nearest !== memoryActiveIndex) updateMemoryGalleryPosition(nearest);
 }
 
-function openMemoryGallery() {
+async function openMemoryGallery() {
   const gallery = $('memory-gallery');
   if (!gallery || !passenger) return;
+  await ensureCities();
   renderMemoryGallery();
   gallery.classList.remove('hidden');
   gallery.setAttribute('aria-hidden', 'false');
@@ -5255,8 +5270,8 @@ $('globe-svg')?.addEventListener('click', (e) => {
   if (document.readyState === 'complete') Globe.init();
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
-  // 點地球儀上的隊友點 → 只顯示該隊友運行軌跡（詳情改由看板開啟）
-  Globe.setFriendPick((idx) => { if (groupFlights[idx]) showMateTrailsOnGlobe(groupFlights[idx]); });
+  // 點地球儀上的隊友／航點才展開詳細資訊；平常地圖維持純淨。
+  Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateFromBoard(groupFlights[idx]); });
   // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
   Globe.setPlanePick(() => openFlightWindowFromGlobe());
 

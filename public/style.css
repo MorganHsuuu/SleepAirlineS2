@@ -3427,7 +3427,7 @@ body[data-theme="dusk"] .memory-gallery-shell {
 /* Liquid Glass 版本：舷窗與航程卡統一為現有 UI 的輕量語彙 */
 .memory-window {
   width: clamp(218px, 62%, 236px);
-  height: clamp(284px, 38dvh, 316px);
+  height: clamp(270px, 36dvh, 300px);
   margin-bottom: -20px;
   padding: 8px;
   border: 1px solid rgba(255, 255, 255, .34);
@@ -3598,7 +3598,7 @@ body[data-theme="dusk"] .memory-ticket-share--standalone {
 }
 @media (max-height: 680px) {
   .memory-window {
-    height: 244px;
+    height: 232px;
     width: 204px;
     border-radius: 70px;
   }
