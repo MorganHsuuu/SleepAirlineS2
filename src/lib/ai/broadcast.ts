@@ -47,8 +47,7 @@ interface BroadcastInput {
 function passengerLabel(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return '這位乘客';
-  if (/先生|女士|小姐/.test(trimmed)) return trimmed;
-  return `${trimmed}先生／女士`;
+  return trimmed.replace(/(?:先生|女士|小姐)$/u, '').trim() || '這位乘客';
 }
 
 function formatDuration(minutes: number | null): string {
@@ -124,6 +123,7 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - 禁止寫「我是機長〇〇」若〇〇是乘客姓名
 - 禁止冒充乘客、禁止用第一人稱代替乘客說話
 - 用「各位乘客」或「${pax}」稱呼對方；不要稱自己為乘客姓名
+- 稱呼乘客時直接使用名字，禁止附加「先生」「女士」「小姐」或「先生／女士」
 
 地理（非常重要）：
 - 使用【廣播用地名】；不要照念難懂的羅馬字、音標、撇號地名

@@ -3,20 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/sync-cities-public.mjs",
-    "prestart": "node scripts/sync-cities-public.mjs",
-    "postinstall": "node scripts/sync-cities-public.mjs",
+    "predev": "node scripts/sync-cities-public.mjs && node scripts/sync-browser-vendor.mjs",
+    "prestart": "node scripts/sync-cities-public.mjs && node scripts/sync-browser-vendor.mjs",
+    "prebuild": "node scripts/sync-browser-vendor.mjs",
+    "postinstall": "node scripts/sync-cities-public.mjs && node scripts/sync-browser-vendor.mjs",
     "dev": "tsx watch server.ts",
     "start": "tsx server.ts",
     "build": "node scripts/build-vercel.mjs",
     "setup": "tsx scripts/setup-notion.ts",
     "notion:verify": "node scripts/verify-notion-landscape.mjs",
-    "check:contract": "node scripts/check-workshop-contract.mjs"
+    "check:contract": "node scripts/check-workshop-contract.mjs",
+    "check:share-card": "node scripts/check-share-card-dom.mjs"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "html2canvas": "^1.4.1",
     "openai": "^4.52.7"
   },
   "devDependencies": {

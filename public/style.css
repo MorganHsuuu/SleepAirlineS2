@@ -1592,23 +1592,6 @@ body[data-theme="dusk"] .captain-transcript {
   max-height: 9.5em;
   overflow-y: auto;
 }
-.landed-broadcast-copy {
-  position: relative;
-  z-index: 1;
-  margin-top: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--divider);
-  border-radius: 12px;
-  background: rgba(255,255,255,.24);
-}
-body[data-theme="dusk"] .landed-broadcast-copy {
-  background: rgba(255,255,255,.035);
-}
-.landed-broadcast-copy .captain-transcript {
-  max-height: none;
-  padding: 0;
-  overflow: visible;
-}
 .landed-music {
   position: relative; z-index: 1;
   margin: 6px 0 0;
@@ -2686,8 +2669,7 @@ body.sheet-open #main-section {
   }
   #landed-panel .landed-hero,
   #landed-panel .route-arc,
-  #landed-panel .landed-summary,
-  #landed-panel .landed-broadcast-copy {
+  #landed-panel .landed-summary {
     grid-column: 1;
   }
   #landed-panel .landed-window-zone {
@@ -2938,6 +2920,7 @@ body.memory-gallery-open { overflow: hidden; }
   z-index: 115;
   display: grid;
   place-items: center;
+  overflow-y: auto;
   padding:
     max(12px, env(safe-area-inset-top))
     0
@@ -2957,10 +2940,12 @@ body.memory-gallery-open { overflow: hidden; }
   position: relative;
   z-index: 1;
   width: min(100%, 470px);
-  height: min(94dvh, 850px);
-  min-height: 560px;
+  height: auto;
+  max-height: min(94dvh, 850px);
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
   overflow: hidden;
   color: var(--ink);
   background:
@@ -3030,6 +3015,7 @@ body[data-theme="dusk"] .memory-gallery-shell {
 
 .memory-gallery-track {
   min-height: 0;
+  height: max-content;
   display: flex;
   gap: 16px;
   overflow-x: auto;
@@ -3311,7 +3297,7 @@ body[data-theme="dusk"] .memory-gallery-shell {
   flex: 1;
   border-top: 1px dashed rgba(189, 141, 52, .55);
 }
-.memory-ticket-flight b { font-size: 16px; transform: rotate(6deg); }
+.memory-ticket-flight .memory-plane-svg { flex: 0 0 auto; }
 .memory-ticket-stub {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
@@ -3510,6 +3496,19 @@ body[data-theme="dusk"] .memory-ticket--liquid {
   background: rgba(255,255,255,.24);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.42);
 }
+.memory-ticket-logo .memory-plane-svg {
+  width: 21px;
+  height: 21px;
+}
+.memory-plane-svg {
+  display: block;
+  overflow: visible;
+}
+.memory-plane-svg--route {
+  width: 22px;
+  height: 22px;
+  transform: none;
+}
 body[data-theme="dusk"] .memory-ticket--liquid .memory-ticket-logo {
   color: #f3cc7b;
   background: rgba(255,255,255,.09);
@@ -3520,15 +3519,12 @@ body[data-theme="dusk"] .memory-ticket--liquid .memory-ticket-logo {
   color: var(--gold-deep);
   font-family: inherit;
 }
-.memory-ticket--liquid .memory-ticket-serial i {
-  opacity: .36;
-  background: repeating-linear-gradient(
-    90deg,
-    currentColor 0 1px,
-    transparent 1px 3px,
-    currentColor 3px 4px,
-    transparent 4px 7px
-  );
+.memory-ticket--liquid .memory-ticket-barcode {
+  width: 58px;
+  height: 14px;
+  display: block;
+  color: currentColor;
+  opacity: .82;
 }
 .memory-ticket--liquid .memory-ticket-route {
   position: relative;
@@ -3604,4 +3600,93 @@ body[data-theme="dusk"] .memory-ticket-share--standalone {
   }
   .memory-window-rim { border-radius: 63px; }
   .memory-window-view { border-radius: 57px; }
+}
+
+/* 分享圖直接擷取同一張回憶卡；此容器只提供輸出圖片的留白與背景。 */
+.memory-share-capture {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  z-index: -1;
+  box-sizing: border-box;
+  padding: 28px 24px 30px;
+  border-radius: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 72% 13%, rgba(230,185,92,.18), transparent 29%),
+    linear-gradient(155deg, #172844 0%, #13223b 58%, #4d3f49 100%);
+}
+.memory-share-capture .memory-card {
+  flex: none;
+  align-self: auto;
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+.memory-share-capture .memory-ticket-share--standalone {
+  display: none;
+}
+/* html2canvas 對 backdrop-filter／多層半透明圓角支援不完整；
+   擷取時只將玻璃底色實體化，DOM、尺寸與文字排版仍完全沿用畫面卡片。 */
+.memory-share-capture .memory-window {
+  border-color: rgba(230,238,250,.45);
+  background:
+    linear-gradient(145deg, rgba(229,238,251,.88), rgba(118,139,173,.72) 52%, rgba(42,59,89,.86));
+  box-shadow:
+    0 18px 34px rgba(6,17,35,.32),
+    inset 0 1px 0 rgba(255,255,255,.72),
+    inset 0 -2px 5px rgba(18,31,54,.22);
+}
+.memory-share-capture .memory-window-rim {
+  border-color: rgba(240,245,252,.24);
+  background: linear-gradient(145deg, rgba(97,116,148,.88), rgba(39,54,82,.92));
+  box-shadow: inset 0 0 14px rgba(5,14,30,.28);
+}
+.memory-share-capture .memory-window-view {
+  box-shadow: none;
+}
+.memory-share-capture .memory-ticket--liquid,
+body[data-theme="dusk"] .memory-share-capture .memory-ticket--liquid {
+  overflow: hidden;
+  border-color: rgba(255,255,255,.42);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.26) 0%, rgba(255,255,255,.08) 28%, transparent 52%),
+    linear-gradient(145deg,
+      #7f93b2 0%,
+      #4a5d7c 46%,
+      #6a5568 100%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow:
+    0 18px 34px rgba(2,8,20,.3),
+    inset 0 1px 0 rgba(255,255,255,.48),
+    inset 0 -1px 0 rgba(9,19,38,.28),
+    inset 1px 0 0 rgba(255,255,255,.14),
+    inset -1px 0 0 rgba(255,255,255,.08);
+}
+.memory-share-capture .memory-ticket--liquid::before {
+  display: block;
+  inset: 1px 12px auto;
+  height: 46%;
+  background: linear-gradient(180deg, rgba(255,255,255,.34), transparent 78%);
+}
+/* html2canvas 對半透明 SVG 常出現棋盤格；擷取時改成實底＋明確金色 */
+.memory-share-capture .memory-ticket-logo {
+  color: #f0d08a;
+  background: #51627f;
+  border-color: rgba(255,255,255,.38);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+}
+.memory-share-capture .memory-ticket-barcode {
+  width: 58px;
+  height: 14px;
+  color: #f0d08a;
+  opacity: 1;
+}
+.memory-share-capture .memory-ticket-flight {
+  color: #f0d08a;
+}
+.memory-share-capture .memory-plane-svg path,
+.memory-share-capture .memory-ticket-barcode rect {
+  fill: #f0d08a;
 }

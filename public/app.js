@@ -3637,10 +3637,6 @@ function updateUI() {
     $('bc-origin').textContent = `${dur} · ${dist}`;
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
-    const broadcastEl = $('bc-broadcast');
-    if (broadcastEl) {
-      broadcastEl.textContent = lastLandedFlight.captainBroadcast || '尚無機長廣播。';
-    }
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
@@ -3790,7 +3786,7 @@ async function shareTerminalLink(source = 'login') {
   }
 }
 
-/** 分享抵達圖卡：舷窗風景＋登機證排版 JPEG，先預覽再分享 */
+/** 分享抵達圖卡：直接擷取夜航回憶 DOM，先預覽再分享 PNG。 */
 function arrivalShareMeta(landed = lastLandedFlight, scenery = landingScenery) {
   if (!landed) return null;
   const arr = arrivalMeta(landed);
@@ -3816,370 +3812,105 @@ function arrivalShareMeta(landed = lastLandedFlight, scenery = landingScenery) {
   };
 }
 
-function loadImageForShare(url) {
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('image data read failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function waitForCaptureImage(img) {
+  if (!img?.src) return Promise.resolve(false);
+  if (img.complete) return Promise.resolve(img.naturalWidth > 0);
   return new Promise((resolve) => {
-    if (!url) { resolve(null); return; }
-    const fromBlob = (blob) => {
-      const obj = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => { URL.revokeObjectURL(obj); resolve(img); };
-      img.onerror = () => { URL.revokeObjectURL(obj); resolve(null); };
-      img.src = obj;
-    };
-    const dom = $('scenery-img');
-    if (dom && !dom.hidden && dom.complete && dom.naturalWidth > 0) {
-      const src = dom.currentSrc || dom.src || '';
-      if (src.startsWith('blob:') || src.startsWith('data:')) {
-        resolve(dom);
-        return;
-      }
+    img.addEventListener('load', () => resolve(true), { once: true });
+    img.addEventListener('error', () => resolve(false), { once: true });
+  });
+}
+
+async function inlineCaptureImages(root) {
+  const images = [...root.querySelectorAll('img')];
+  await Promise.all(images.map(async (img) => {
+    const src = img.currentSrc || img.src || '';
+    if (!src || src.startsWith('data:')) return;
+    try {
+      const response = await fetch(src, { mode: 'cors', cache: 'force-cache' });
+      if (!response.ok) throw new Error(`image ${response.status}`);
+      img.src = await blobToDataUrl(await response.blob());
+      if (!(await waitForCaptureImage(img))) throw new Error('image decode failed');
+    } catch (err) {
+      console.warn('[share card] image fallback', err);
+      img.removeAttribute('src');
+      img.closest('.memory-card')?.classList.remove('has-photo');
     }
-    fetch(url, { mode: 'cors' })
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('fetch fail'))))
-      .then(fromBlob)
-      .catch(() => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = url;
-      });
-  });
+  }));
 }
 
-function loadShareLogo() {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = 'media/icon-192.png';
-  });
-}
-
-function roundRectPath(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-function drawCoverImage(ctx, img, x, y, w, h) {
-  if (!img) return;
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
-  if (!iw || !ih) return;
-  const scale = Math.max(w / iw, h / ih);
-  const sw = w / scale;
-  const sh = h / scale;
-  const sx = (iw - sw) / 2;
-  const sy = (ih - sh) / 2;
-  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-}
-
-const SHARE_FONT = '"PingFang TC","Noto Sans TC","Hiragino Sans GB","Microsoft JhengHei",sans-serif';
-
-function fitShareText(ctx, text, maxWidth, weight, maxSize, minSize = 22) {
-  let size = maxSize;
-  while (size > minSize) {
-    ctx.font = `${weight} ${size}px ${SHARE_FONT}`;
-    if (ctx.measureText(text).width <= maxWidth) return size;
-    size -= 2;
-  }
-  ctx.font = `${weight} ${minSize}px ${SHARE_FONT}`;
-  return minSize;
-}
-
-function ellipsizeShareText(ctx, text, maxWidth) {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let t = String(text || '');
-  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxWidth) t = t.slice(0, -1);
-  return `${t}…`;
-}
-
-function drawPlaneWindowFrame(ctx, x, y, w, h, photo) {
-  const rx = Math.min(w * .35, h * .22);
-  // 單純向量橢圓窗框：薄、柔和、沒有寫實塑膠層次
-  ctx.save();
-  ctx.shadowColor = 'rgba(3, 12, 28, 0.42)';
-  ctx.shadowBlur = 42;
-  ctx.shadowOffsetY = 16;
-  roundRectPath(ctx, x, y, w, h, rx);
-  const frame = ctx.createLinearGradient(x, y, x + w, y + h);
-  frame.addColorStop(0, 'rgba(224, 233, 247, .78)');
-  frame.addColorStop(.5, 'rgba(109, 128, 158, .68)');
-  frame.addColorStop(1, 'rgba(39, 55, 82, .84)');
-  ctx.fillStyle = frame;
-  ctx.fill();
-  ctx.restore();
-
-  const inset = 16;
-  const ix = x + inset;
-  const iy = y + inset;
-  const iw = w - inset * 2;
-  const ih = h - inset * 2;
-  const ir = Math.max(28, rx - 10);
-  roundRectPath(ctx, ix, iy, iw, ih, ir);
-  ctx.fillStyle = '#13213a';
-  ctx.fill();
-
-  ctx.save();
-  roundRectPath(ctx, ix + 3, iy + 3, iw - 6, ih - 6, Math.max(24, ir - 3));
-  ctx.clip();
-  if (photo) {
-    drawCoverImage(ctx, photo, ix + 3, iy + 3, iw - 6, ih - 6);
-  } else {
-    const g = ctx.createLinearGradient(ix, iy, ix, iy + ih);
-    g.addColorStop(0, '#172a50');
-    g.addColorStop(.58, '#4b416a');
-    g.addColorStop(1, '#a87569');
-    ctx.fillStyle = g;
-    ctx.fillRect(ix + 3, iy + 3, iw - 6, ih - 6);
-    // 與 UI fallback 相同的極簡晨景
-    ctx.fillStyle = 'rgba(255, 211, 138, .26)';
-    ctx.beginPath();
-    ctx.arc(ix + iw * .64, iy + ih * .46, 104, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffd58d';
-    ctx.beginPath();
-    ctx.arc(ix + iw * .64, iy + ih * .46, 43, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(25, 29, 56, .78)';
-    ctx.beginPath();
-    ctx.moveTo(ix, iy + ih * .7);
-    ctx.quadraticCurveTo(ix + iw * .42, iy + ih * .62, ix + iw, iy + ih * .72);
-    ctx.lineTo(ix + iw, iy + ih);
-    ctx.lineTo(ix, iy + ih);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  const glare = ctx.createLinearGradient(ix, iy, ix + iw, iy + ih);
-  glare.addColorStop(0, 'rgba(255,255,255,.22)');
-  glare.addColorStop(.3, 'rgba(255,255,255,0)');
-  glare.addColorStop(1, 'rgba(10,24,48,.12)');
-  ctx.fillStyle = glare;
-  ctx.fillRect(ix + 3, iy + 3, iw - 6, ih - 6);
-  ctx.restore();
-
-  roundRectPath(ctx, x + w / 2 - 40, y + 9, 80, 11, 6);
-  ctx.fillStyle = 'rgba(213, 224, 241, .46)';
-  ctx.fill();
-}
-
-async function canvasToJpegBlob(canvas, quality = 0.86) {
+async function waitForShareCardAssets(root) {
   try {
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob empty'))), 'image/jpeg', quality);
+    if (document.fonts?.ready) await document.fonts.ready;
+  } catch { /* use system fallback font */ }
+  await inlineCaptureImages(root);
+  await Promise.all([...root.querySelectorAll('img')].map(waitForCaptureImage));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+function memoryCardSourceForFlight(flight) {
+  const id = String(flight?.flightId || flight?.notionId || '');
+  const index = memoryFlights.findIndex((item) =>
+    String(item?.flightId || item?.notionId || '') === id,
+  );
+  return index >= 0 ? memoryCardAt(index) : null;
+}
+
+async function captureMemoryCardBlob(landed = lastLandedFlight, scenery = landingScenery) {
+  if (!landed || typeof window.html2canvas !== 'function') return null;
+  const source = memoryCardSourceForFlight(landed);
+  const cardWidth = Math.round(source?.getBoundingClientRect().width || Math.min(window.innerWidth * .82, 378));
+  const capture = document.createElement('div');
+  capture.className = 'memory-share-capture';
+  capture.setAttribute('aria-hidden', 'true');
+  capture.style.width = `${cardWidth + 48}px`;
+  capture.innerHTML = source?.outerHTML || memoryCardMarkup(landed, 0);
+  const card = capture.querySelector('.memory-card');
+  if (!card) return null;
+  card.classList.add('is-active');
+  card.style.width = `${cardWidth}px`;
+  card.querySelector('.memory-window-loading')?.classList.remove('is-visible');
+
+  const image = card.querySelector('.memory-window-img');
+  const imageUrl = scenery?.imageUrl || '';
+  if (image && imageUrl) {
+    image.src = imageUrl;
+    card.classList.add('has-photo');
+  }
+
+  document.body.appendChild(capture);
+  try {
+    await waitForShareCardAssets(capture);
+    const pixelRatio = Math.min(3, Math.max(2, window.devicePixelRatio || 1));
+    const canvas = await window.html2canvas(capture, {
+      backgroundColor: null,
+      scale: pixelRatio,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      imageTimeout: 8000,
+      removeContainer: true,
     });
-    return blob;
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   } catch (err) {
-    console.warn('[share card] canvas tainted, retry without photo', err);
+    console.warn('[share card] DOM capture failed', err);
     return null;
+  } finally {
+    capture.remove();
   }
 }
 
-function drawFakeBarcode(ctx, x, y, w, h, seed = 'SLEEP-AIRLINE', color = '#17243a') {
-  const text = String(seed || 'SLEEP-AIRLINE');
-  let cursor = x;
-  let i = 0;
-  ctx.fillStyle = color;
-  while (cursor < x + w - 2) {
-    const code = text.charCodeAt(i % text.length) + i * 17;
-    const bar = 1 + (code % 4);
-    const gap = 1 + ((code >> 2) % 3);
-    const short = code % 5 === 0;
-    ctx.fillRect(cursor, y + (short ? h * .18 : 0), bar, h * (short ? .82 : 1));
-    cursor += bar + gap;
-    i += 1;
-  }
-}
-
-async function renderArrivalShareCard(photo, logo, info = arrivalShareMeta()) {
-  if (!info) return null;
-
-  const W = 1080;
-  const H = 1480;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  // 與主介面一致的夜航漸層
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, '#13284d');
-  bg.addColorStop(.5, '#253a62');
-  bg.addColorStop(1, '#765e68');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
-  const aura = ctx.createRadialGradient(W * .5, H * .22, 20, W * .5, H * .22, 520);
-  aura.addColorStop(0, 'rgba(255, 214, 145, .18)');
-  aura.addColorStop(1, 'rgba(255, 214, 145, 0)');
-  ctx.fillStyle = aura;
-  ctx.fillRect(0, 0, W, H);
-
-  // 使用與 UI 相同的簡單橢圓向量舷窗
-  const winW = 650;
-  const winH = 880;
-  const winX = (W - winW) / 2;
-  const winY = 48;
-  drawPlaneWindowFrame(ctx, winX, winY, winW, winH, photo);
-
-  // Liquid Glass 航程卡：圓角、半透明、資訊精簡
-  const cardX = 58;
-  const cardY = 900;
-  const cardW = W - 116;
-  const cardH = H - cardY - 54;
-  ctx.save();
-  ctx.shadowColor = 'rgba(3, 12, 28, .34)';
-  ctx.shadowBlur = 40;
-  ctx.shadowOffsetY = 18;
-  roundRectPath(ctx, cardX, cardY, cardW, cardH, 42);
-  const glass = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
-  glass.addColorStop(0, 'rgba(105, 125, 160, .84)');
-  glass.addColorStop(.5, 'rgba(40, 58, 88, .9)');
-  glass.addColorStop(1, 'rgba(120, 86, 83, .78)');
-  ctx.fillStyle = glass;
-  ctx.fill();
-  ctx.restore();
-
-  roundRectPath(ctx, cardX + 2, cardY + 2, cardW - 4, cardH - 4, 40);
-  ctx.strokeStyle = 'rgba(255, 255, 255, .24)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // 上緣玻璃高光
-  ctx.save();
-  roundRectPath(ctx, cardX + 12, cardY + 10, cardW - 24, 92, 32);
-  const shine = ctx.createLinearGradient(cardX, cardY, cardX, cardY + 100);
-  shine.addColorStop(0, 'rgba(255,255,255,.22)');
-  shine.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = shine;
-  ctx.fill();
-  ctx.restore();
-
-  const pad = 42;
-  const contentL = cardX + pad;
-  const contentR = cardX + cardW - pad;
-
-  // Logo + 品牌
-  const logoSize = 68;
-  if (logo) {
-    const lx = contentL;
-    roundRectPath(ctx, lx, cardY + 30, logoSize, logoSize, 18);
-    ctx.save();
-    roundRectPath(ctx, lx, cardY + 30, logoSize, logoSize, 18);
-    ctx.clip();
-    ctx.drawImage(logo, lx, cardY + 30, logoSize, logoSize);
-    ctx.restore();
-  }
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#edf3fb';
-  ctx.font = `800 36px ${SHARE_FONT}`;
-  ctx.fillText('SLEEP AIRLINE', contentL + (logo ? logoSize + 18 : 0), cardY + 62);
-  ctx.fillStyle = '#f3cc7b';
-  ctx.font = `700 18px ${SHARE_FONT}`;
-  ctx.fillText(
-    `夜航回憶 · ${formatMemoryDate(info.landed?.landingTime)}`,
-    contentL + (logo ? logoSize + 18 : 0),
-    cardY + 91,
-  );
-
-  // 與夜航回憶票面相同的序號＋低調條碼
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#f3cc7b';
-  ctx.font = `800 48px ${SHARE_FONT}`;
-  ctx.fillText('01', contentR, cardY + 69);
-  drawFakeBarcode(
-    ctx,
-    contentR - 132,
-    cardY + 79,
-    132,
-    22,
-    String(info.landed?.flightId || 'SLEEP-AIRLINE'),
-    'rgba(238, 244, 252, .48)',
-  );
-
-  // 精簡航線
-  const depCode = memoryRouteCode(info.dep) || 'DEP';
-  const arrCode = memoryRouteCode(info.meta) || 'ARR';
-  const routeY = cardY + 160;
-  const routeMid = W / 2;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#aebbd0';
-  ctx.font = `800 16px ${SHARE_FONT}`;
-  ctx.fillText('FROM', contentL, routeY);
-  ctx.textAlign = 'right';
-  ctx.fillText('TO', contentR, routeY);
-
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#f4f7fc';
-  fitShareText(ctx, depCode, 250, 800, 84, 48);
-  ctx.fillText(ellipsizeShareText(ctx, depCode, 250), contentL, routeY + 76);
-  ctx.textAlign = 'right';
-  fitShareText(ctx, arrCode, 250, 800, 84, 48);
-  ctx.fillText(ellipsizeShareText(ctx, arrCode, 250), contentR, routeY + 76);
-
-  ctx.strokeStyle = 'rgba(158, 116, 45, .48)';
-  ctx.setLineDash([6, 8]);
-  ctx.beginPath();
-  ctx.moveTo(routeMid - 86, routeY + 43);
-  ctx.lineTo(routeMid + 86, routeY + 43);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#a8792d';
-  ctx.font = `700 34px ${SHARE_FONT}`;
-  ctx.fillText('✈', routeMid, routeY + 54);
-
-  const cityY = routeY + 112;
-  ctx.fillStyle = '#c5d0e2';
-  ctx.font = `700 24px ${SHARE_FONT}`;
-  ctx.textAlign = 'left';
-  ctx.fillText(
-    ellipsizeShareText(ctx, `${info.depFlag} ${info.dep.city || info.depCountry}`, 270),
-    contentL,
-    cityY,
-  );
-  ctx.textAlign = 'right';
-  ctx.fillText(
-    ellipsizeShareText(ctx, `${info.flag} ${info.city}`, 270),
-    contentR,
-    cityY,
-  );
-
-  // 一列即可讀完的航程資訊
-  const metaY = cityY + 76;
-  const duration = info.landed?.flightDurationMinutes
-    ? fmtDuration(info.landed.flightDurationMinutes)
-    : '一段夜航';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#d9e2ef';
-  ctx.font = `750 25px ${SHARE_FONT}`;
-  const metaLine = `${info.name || '旅客'}   ·   ${duration}`;
-  fitShareText(ctx, metaLine, cardW - 120, 750, 25, 18);
-  ctx.fillText(ellipsizeShareText(ctx, metaLine, cardW - 120), W / 2, metaY);
-
-  // 假條碼保留為低調的航空識別紋理，不再形成制式票根
-  const barcodeW = 220;
-  const barcodeX = contentR - barcodeW;
-  const barcodeY = cardY + cardH - 90;
-  const flightNo = `SA${String(info.landed?.flightId || 'WAKE').replace(/\W/g, '').slice(-6).toUpperCase()}`;
-  drawFakeBarcode(ctx, barcodeX, barcodeY, barcodeW, 34, flightNo + info.city, 'rgba(238, 244, 252, .64)');
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#f2cd83';
-  ctx.font = `700 16px ${SHARE_FONT}`;
-  ctx.fillText('WAKE SOMEWHERE NEW', contentL, barcodeY + 23);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#aebbd0';
-  ctx.font = `650 9px ${SHARE_FONT}`;
-  ctx.fillText(flightNo, contentR, barcodeY + 50);
-
-  return canvas;
+async function buildArrivalShareCardBlob(landed = lastLandedFlight, scenery = landingScenery) {
+  return captureMemoryCardBlob(landed, scenery);
 }
 
 let sharePreviewState = null;
@@ -4205,7 +3936,7 @@ function openSharePreview(blob, info) {
   sharePreviewState = {
     blob,
     url,
-    filename: `sleep-airline-${safeCity}.jpg`,
+    filename: `sleep-airline-${safeCity}.png`,
     title: `Sleep Airline · ${info.city}`,
     text: `${info.depFlag} ${info.depCountry} → ${info.flag} ${info.city}${info.country ? ` · ${info.country}` : ''}`,
   };
@@ -4213,27 +3944,6 @@ function openSharePreview(blob, info) {
   modal.classList.remove('hidden');
   modal.setAttribute('aria-hidden', 'false');
   document.body.classList.add('share-preview-open');
-}
-
-async function canvasToShareBlob(canvas) {
-  return canvasToJpegBlob(canvas, 0.86);
-}
-
-async function buildArrivalShareCardBlob(landed = lastLandedFlight, scenery = landingScenery) {
-  const info = arrivalShareMeta(landed, scenery);
-  if (!info) return null;
-  const [photo, logo] = await Promise.all([
-    loadImageForShare(info.imageUrl),
-    loadShareLogo(),
-  ]);
-  let canvas = await renderArrivalShareCard(photo, logo, info);
-  if (!canvas) return null;
-  let blob = await canvasToShareBlob(canvas);
-  if (!blob && photo) {
-    canvas = await renderArrivalShareCard(null, logo, info);
-    blob = canvas ? await canvasToShareBlob(canvas) : null;
-  }
-  return blob;
 }
 
 function downloadShareBlob(blob, filename) {
@@ -4251,7 +3961,7 @@ function downloadShareBlob(blob, filename) {
 async function sendSharePreview() {
   const state = sharePreviewState;
   if (!state?.blob) return;
-  const file = new File([state.blob], state.filename, { type: 'image/jpeg' });
+  const file = new File([state.blob], state.filename, { type: state.blob.type || 'image/png' });
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: state.title, text: state.text });
@@ -4355,6 +4065,24 @@ function memoryRouteCode(meta) {
   return ascii ? ascii.toUpperCase() : city.slice(0, 2);
 }
 
+function memoryPlaneSvg(extraClass = '') {
+  const cls = ['memory-plane-svg', extraClass].filter(Boolean).join(' ');
+  const isRoute = /\bmemory-plane-svg--route\b/.test(extraClass);
+  // logo：俯視機身；航線：側向右飛剪影（不靠 rotate，避免分享圖變形）
+  const path = isRoute
+    ? 'M2.8 12.9h6.8L11.9 7h1.8l-2.1 5.9H16.2l2.5-2.6h1.4l-1.6 2.6h1.7c1.3 0 1.3 1.9 0 1.9h-1.7l1.6 2.6h-1.4l-2.5-2.6h-3.6l2.1 5.9H11.9l-2.3-5.9H2.8c-1.2 0-1.2-1.9 0-1.9z'
+    : 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16z';
+  return `<svg class="${cls}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="${path}"/></svg>`;
+}
+
+function memoryBarcodeSvg() {
+  const bars = [
+    [0, 2], [3.2, 1], [5.4, 2.4], [9, 1], [11.2, 1.6], [14.2, 2.6], [18.2, 1], [20.4, 1.8],
+    [23.6, 1], [26, 2.4], [29.8, 1.2], [32.4, 2], [35.8, 1], [38.2, 2.6], [42.2, 1.4], [45.2, 1.8], [48.6, 2.4],
+  ];
+  return `<svg class="memory-ticket-barcode" viewBox="0 0 52 14" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${bars.map(([x, w]) => `<rect x="${x}" y="0" width="${w}" height="14" rx=".2" fill="currentColor"/>`).join('')}</svg>`;
+}
+
 function memoryCardMarkup(f, index) {
   const dep = departureMeta(f);
   const arr = arrivalMeta(f);
@@ -4376,11 +4104,11 @@ function memoryCardMarkup(f, index) {
       </div>
       <div class="memory-ticket memory-ticket--liquid">
         <header class="memory-ticket-brand">
-          <span class="memory-ticket-logo">✈</span>
+          <span class="memory-ticket-logo">${memoryPlaneSvg()}</span>
           <span><b>SLEEP AIRLINE</b><small>夜航回憶 · ${escHtml(formatMemoryDate(f.landingTime))}</small></span>
           <span class="memory-ticket-serial">
             <em>${String(index + 1).padStart(2, '0')}</em>
-            <i aria-hidden="true"></i>
+            ${memoryBarcodeSvg()}
           </span>
         </header>
         <div class="memory-ticket-route">
@@ -4390,7 +4118,9 @@ function memoryCardMarkup(f, index) {
             <small>${escHtml(`${dep.flag} ${dep.city}`)}</small>
           </div>
           <div class="memory-ticket-flight" aria-hidden="true">
-            <i></i><b>✈</b><i></i>
+            <i></i>
+            ${memoryPlaneSvg('memory-plane-svg--route')}
+            <i></i>
           </div>
           <div>
             <span>TO</span>
@@ -4404,7 +4134,7 @@ function memoryCardMarkup(f, index) {
           <span>${escHtml(duration)}</span>
         </div>
       </div>
-      <button type="button" class="memory-ticket-share memory-ticket-share--standalone" data-memory-share="${index}">
+      <button type="button" class="memory-ticket-share memory-ticket-share--standalone" data-memory-share="${index}" data-html2canvas-ignore="true">
         <span>分享機票</span>
         <svg class="memory-share-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>

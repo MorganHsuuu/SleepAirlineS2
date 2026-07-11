@@ -1020,19 +1020,19 @@ function playCompassTick({ major = false } = {}) {
     const t0 = audioCtx.currentTime;
     const dur = major ? 0.038 : 0.028;
 
-    // 清脆短促「滴」：偏中低頻三角波 + 快速衰減
+    // 清脆短促「滴」：提高音高與音量，拖曳時在手機喇叭上也能清楚辨識
     const tick = audioCtx.createOscillator();
     const tickGain = audioCtx.createGain();
     const tickFilter = audioCtx.createBiquadFilter();
     tick.type = 'triangle';
-    const fStart = major ? 420 : 360;
-    const fEnd = major ? 180 : 150;
+    const fStart = major ? 560 : 480;
+    const fEnd = major ? 250 : 210;
     tick.frequency.setValueAtTime(fStart, t0);
     tick.frequency.exponentialRampToValueAtTime(fEnd, t0 + dur);
     tickFilter.type = 'bandpass';
-    tickFilter.frequency.setValueAtTime(major ? 680 : 560, t0);
+    tickFilter.frequency.setValueAtTime(major ? 900 : 780, t0);
     tickFilter.Q.value = 1.4;
-    const peak = major ? 0.055 : 0.038;
+    const peak = major ? 0.075 : 0.052;
     tickGain.gain.setValueAtTime(0.0001, t0);
     tickGain.gain.exponentialRampToValueAtTime(peak, t0 + 0.004);
     tickGain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
@@ -1046,8 +1046,8 @@ function playCompassTick({ major = false } = {}) {
     const edge = audioCtx.createOscillator();
     const edgeGain = audioCtx.createGain();
     edge.type = 'sine';
-    edge.frequency.setValueAtTime(major ? 880 : 740, t0);
-    edgeGain.gain.setValueAtTime(major ? 0.012 : 0.008, t0);
+    edge.frequency.setValueAtTime(major ? 1180 : 980, t0);
+    edgeGain.gain.setValueAtTime(major ? 0.017 : 0.012, t0);
     edgeGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.012);
     edge.connect(edgeGain);
     edgeGain.connect(audioCtx.destination);
