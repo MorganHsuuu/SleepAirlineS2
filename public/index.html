@@ -117,6 +117,11 @@
         <div class="topbar-actions">
           <span id="hdr-preview-hint" class="hidden">UI 示範</span>
           <button type="button" class="icon-btn" id="btn-theme" title="切換日夜" aria-label="切換日夜">🌙</button>
+          <button type="button" class="icon-btn icon-btn--memories" id="btn-memories" title="我的夜航回憶" aria-label="開啟我的夜航回憶">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6.5h16v11H4zM4 9h16M8 6.5v11M10.7 13h6.2M10.7 15.4h4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <button type="button" class="icon-btn icon-btn--text" id="btn-logout" title="登出">登出</button>
         </div>
       </header>
@@ -223,41 +228,42 @@
         <div class="arrival-burst" id="arrival-burst" aria-hidden="true"></div>
 
         <header class="landed-hero">
-          <div class="landed-flag" id="bc-flag">🌍</div>
           <div class="landed-place">
             <p class="landed-kicker"><span class="stamp" id="bc-stamp">已抵達</span></p>
-            <h2 class="landed-city" id="bc-route">—</h2>
+            <h2 class="landed-city"><span class="landed-flag" id="bc-flag">🌍</span><span id="bc-route">—</span></h2>
             <p class="landed-country" id="bc-country">—</p>
           </div>
         </header>
 
-        <div class="route-arc" id="bc-arc">
+        <div class="route-arc route-arc--compact" id="bc-arc">
           <div class="ra-end">
             <span class="ra-dot"></span>
             <div class="ra-place">
-              <span class="ra-flag" id="bc-dep-flag">🌍</span>
+              <span class="sr-only" id="bc-dep-flag">🌍</span>
               <span class="ra-city" id="bc-dep-city">—</span>
-              <span class="ra-country" id="bc-dep-country">—</span>
+              <span class="sr-only" id="bc-dep-country">—</span>
             </div>
           </div>
           <div class="ra-track"><span class="ra-plane">✈</span></div>
           <div class="ra-end ra-end-r">
             <div class="ra-place ra-place-r">
-              <span class="ra-flag" id="bc-arr-flag">🌍</span>
+              <span class="sr-only" id="bc-arr-flag">🌍</span>
               <span class="ra-city" id="bc-arr-city">—</span>
-              <span class="ra-country" id="bc-arr-country">—</span>
+              <span class="sr-only" id="bc-arr-country">—</span>
             </div>
             <span class="ra-dot ra-dot-arr"></span>
           </div>
         </div>
 
-        <p class="landed-summary" id="bc-origin">—</p>
-        <details class="landed-more" id="bc-broadcast-fold">
-          <summary>🎙 機長廣播</summary>
+        <div class="landed-stats" aria-label="本趟航程摘要">
+          <span><b id="bc-duration">—</b><small>飛行時間</small></span>
+          <i aria-hidden="true"></i>
+          <span><b id="bc-distance">—</b><small>航程</small></span>
+        </div>
+        <span class="sr-only" id="bc-origin">—</span>
+        <div class="landed-broadcast-copy" id="bc-broadcast-fold">
           <p class="captain-transcript" id="bc-broadcast">—</p>
-        </details>
-        <span class="sr-only" id="bc-duration"></span>
-        <span class="sr-only" id="bc-distance"></span>
+        </div>
 
         <div class="landed-window-zone">
           <div class="plane-window plane-window--porthole" id="plane-window" hidden>
@@ -270,7 +276,7 @@
               </div>
             </div>
             <div class="pw-meta">
-              <span class="scenery-caption" id="scenery-caption"></span>
+              <span class="sr-only" id="scenery-caption"></span>
               <a id="scenery-link" class="scenery-link hidden" href="#" target="_blank" rel="noopener">原圖 ↗</a>
             </div>
           </div>
@@ -279,6 +285,7 @@
             <span class="fly-portal-lane" aria-hidden="true">
               <span class="fly-portal-shimmer"></span>
             </span>
+            <span class="fly-portal-label">看看窗外</span>
           </button>
         </div>
 
@@ -453,6 +460,42 @@
         <div class="fx-bar"><i></i></div>
       </div>
     </div>
+    </div>
+  </div>
+
+  <div id="memory-gallery" class="memory-gallery hidden" aria-hidden="true">
+    <div class="memory-gallery-backdrop" id="memory-gallery-backdrop"></div>
+    <section class="memory-gallery-shell" role="dialog" aria-modal="true" aria-labelledby="memory-gallery-title">
+      <header class="memory-gallery-head">
+        <div>
+          <p>PERSONAL FLIGHT ARCHIVE</p>
+          <h2 id="memory-gallery-title">我的夜航回憶</h2>
+        </div>
+        <div class="memory-gallery-head-actions">
+          <span id="memory-gallery-count">0 / 0</span>
+          <button type="button" class="memory-gallery-close" id="memory-gallery-close" aria-label="關閉夜航回憶">×</button>
+        </div>
+      </header>
+      <div class="memory-gallery-track" id="memory-gallery-track" aria-live="polite"></div>
+      <div class="memory-gallery-dots" id="memory-gallery-dots" aria-hidden="true"></div>
+      <p class="memory-gallery-swipe">左右滑動 · 翻閱最近五趟航程</p>
+    </section>
+  </div>
+
+  <div id="share-preview" class="share-preview hidden" aria-hidden="true">
+    <div class="share-preview-backdrop" id="share-preview-backdrop"></div>
+    <div class="share-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="share-preview-title">
+      <header class="share-preview-head">
+        <h3 id="share-preview-title">分享預覽</h3>
+        <button type="button" class="share-preview-x" id="share-preview-close" aria-label="關閉預覽">×</button>
+      </header>
+      <div class="share-preview-frame">
+        <img id="share-preview-img" alt="抵達分享圖卡預覽">
+      </div>
+      <div class="share-preview-actions">
+        <button type="button" class="btn-soft" id="share-preview-download">下載圖卡</button>
+        <button type="button" class="btn-soft btn-soft--share" id="share-preview-send">分享</button>
+      </div>
     </div>
   </div>
 

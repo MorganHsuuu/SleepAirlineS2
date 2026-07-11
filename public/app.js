@@ -376,6 +376,12 @@ let fxDockLock = null; // 'takeoff' | 'landing'
 /** 地球儀航跡圖層：我的／隊友歷史航程 */
 let routeTrails = { mine: true, friends: true };
 const TRAILS_KEY = 'sleepAirline_trails_v1';
+const MEMORY_DISPLAY_LIMIT = 5;
+let memoryFlights = [];
+let memoryActiveIndex = 0;
+let memoryScrollTimer = null;
+const memorySceneryCache = new Map();
+const memorySceneryJobs = new Map();
 
 const $ = (id) => document.getElementById(id);
 
@@ -654,7 +660,12 @@ const Globe = (() => {
     w = stage.clientWidth; h = stage.clientHeight;
     svg.attr('viewBox', `0 0 ${w} ${h}`);
     const { gap } = frameBand();
-    baseR = Math.min(w * 0.72, gap * 0.46, h * 0.42);
+    const fittedR = Math.min(w * 0.72, gap * 0.46, h * 0.42);
+    const landedPanel = $('landed-panel');
+    const landedVisible = !!(landedPanel && !landedPanel.classList.contains('hidden'));
+    // 抵達面板／窗景展開時不再把地球壓成小球；讓下緣自然隱入玻璃面板後方。
+    const landedFloorR = Math.min(w * 0.31, h * 0.18, 168);
+    baseR = landedVisible ? Math.max(fittedR, landedFloorR) : fittedR;
     applyProjection();
     render();
   }
@@ -993,20 +1004,22 @@ const Globe = (() => {
         const col = d.mine ? gold : friendCol;
         const faint = !!d.faint;
         const bright = !!d.bright || (!faint && !!d.focused);
-        const coreR = bright ? 4.4 : (faint ? 2.4 : (d.mine ? 3.2 : 2.8));
-        const groupOp = typeof d.o === 'number' ? Math.max(0.12, Math.min(1, d.o)) : (faint ? 0.22 : 1);
+        // 落點加大：平常也清楚，高亮時更明顯
+        const coreR = bright ? 7.2 : (faint ? 4.2 : (d.mine ? 5.8 : 5.2));
+        const haloR = bright ? 13 : (faint ? 8 : 11);
+        const groupOp = typeof d.o === 'number' ? Math.max(0.2, Math.min(1, d.o)) : (faint ? 0.28 : 1);
         g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
-          .attr('r', bright ? 11 : (faint ? 5 : 6))
+          .attr('r', haloR)
           .attr('fill', col)
-          .attr('opacity', bright ? 0.32 : (faint ? 0.1 : 0.14));
+          .attr('opacity', bright ? 0.38 : (faint ? 0.14 : 0.2));
         g.select('.core').attr('cx', x).attr('cy', y).attr('r', coreR)
-          .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', bright ? 1.5 : 0.9);
-        g.select('.lbl').attr('x', x).attr('y', y - (bright ? 14 : 11)).attr('text-anchor', 'middle')
-          .attr('font-size', bright ? '9px' : '7.5px')
-          .attr('font-weight', bright ? '700' : '600')
+          .attr('fill', col).attr('stroke', '#fff').attr('stroke-width', bright ? 2 : 1.35);
+        g.select('.lbl').attr('x', x).attr('y', y - (bright ? 16 : 13)).attr('text-anchor', 'middle')
+          .attr('font-size', bright ? '10px' : '8.5px')
+          .attr('font-weight', bright ? '800' : '700')
           .attr('fill', labelInk)
-          .attr('opacity', 1)
+          .attr('opacity', d.showLabel ? 1 : 0)
           .text(d.showLabel ? (d.label || '') : '');
         const clickableDot = Number.isInteger(d.idx);
         g.style('cursor', clickableDot ? 'pointer' : null)
@@ -1825,49 +1838,42 @@ function trailRecordFromFlight(f) {
     from, to,
     depLabel: cityOnly(f.departureLocation),
     arrLabel: meta.city || cityOnly(f.arrivalLocation),
+    departureLocation: f.departureLocation || '',
+    departureIso: f.departureIso || '',
+    departureCountry: f.departureCountry || '',
     arrCountry: meta.countryZh || '',
     arrFlag: meta.flag || '',
     arrivalLocation: f.arrivalLocation || '',
     arrivalIso: f.arrivalIso || '',
+    arrivalCountry: f.arrivalCountry || '',
+    flightDurationMinutes: f.flightDurationMinutes || null,
+    estimatedFlightDistanceKm: f.estimatedFlightDistanceKm || null,
+    takeoffTime: f.takeoffTime || '',
     landingTime: f.landingTime || f.takeoffTime,
   };
 }
 
-function fmtTrailDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
-/** 航跡落點標籤：國旗＋國家（或城市）＋日期 */
-function formatTrailDotLabel(t, { focused = false, isLatest = false, name = '' } = {}) {
-  let flag = t.arrFlag || '';
+/** 航跡落點標籤：只顯示國家，避免字疊在一起 */
+function formatTrailDotLabel(t) {
   let country = t.arrCountry || '';
-  let city = t.arrLabel || '';
-  if ((!flag || !country) && t.arrivalLocation) {
+  if (!country && t.arrivalLocation) {
     const meta = locationMeta(t.arrivalLocation, { iso: t.arrivalIso, country: t.arrCountry });
-    flag = flag || meta.flag || '';
-    country = country || meta.countryZh || '';
-    city = city || meta.city || '';
+    country = meta.countryZh || meta.country || '';
   }
-  if ((!flag || !country) && t.id) {
+  if (!country && t.id) {
     const f = groupFlights.find((x) =>
       String(x.flightId || x.notionId || '') === String(t.id)
       || (t.passengerId && x.passengerId === t.passengerId && cityOnly(x.arrivalLocation) === t.arrLabel));
     if (f) {
       const meta = arrivalMeta(f);
-      flag = flag || meta.flag || '';
-      country = country || meta.countryZh || '';
-      city = city || meta.city || '';
+      country = meta.countryZh || meta.country || '';
     }
   }
-  const place = [flag, country || city].filter(Boolean).join(' ').trim();
-  const date = fmtTrailDate(t.landingTime);
-  const base = [place, date].filter(Boolean).join(' · ');
-  if (!base) return '';
-  if (focused && isLatest && name) return `${name} · ${base}`;
-  return base;
+  if (!country && t.arrLabel) {
+    // 最後手段：城市名當備援（仍保持短字）
+    country = t.arrLabel;
+  }
+  return String(country || '').trim();
 }
 function archiveFlightTrail(f) {
   if (!passenger || !f?.passengerId || f.status !== 'landed') return;
@@ -1878,7 +1884,9 @@ function archiveFlightTrail(f) {
   if (!store[gkey]) store[gkey] = {};
   if (!store[gkey][f.passengerId]) store[gkey][f.passengerId] = [];
   const list = store[gkey][f.passengerId];
-  if (!list.some((t) => t.id === rec.id)) list.unshift(rec);
+  const existing = list.findIndex((t) => t.id === rec.id);
+  if (existing >= 0) list[existing] = { ...list[existing], ...rec };
+  else list.unshift(rec);
   store[gkey][f.passengerId] = list.slice(0, 30);
   saveTrailStore(store);
 }
@@ -1918,8 +1926,8 @@ function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
   const isLatest = rank >= total - 1;
   if (focused) {
     return {
-      o: 0.22 + t * 0.73, // 0.22 → 0.95
-      wd: 1.2 + t * 1.15,
+      o: 0.35 + t * 0.65, // 0.35 → 1.0：點擊後整段航跡更亮
+      wd: 1.6 + t * 1.4,
       focused: true,
       faint: !isLatest,
       bright: isLatest,
@@ -2044,7 +2052,7 @@ function buildTrailRoutes() {
   return routes;
 }
 
-/** 每個降落點一個圓點＋國家／日期標籤；透明度與航跡段同漸層（最多 5） */
+/** 降落點：平常只標國家；點擊某人後才高亮其航跡與落點 */
 function buildTrailDots() {
   if (!passenger) return [];
   const focusPid = globeFocusPid;
@@ -2068,14 +2076,13 @@ function buildTrailDots() {
       if (!t.to) return;
       const isLatest = ti === trails.length - 1;
       const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
-      const mateName = t.passengerName || name || '';
-      const displayLabel = formatTrailDotLabel(t, {
-        focused,
-        isLatest,
-        name: mateName,
-      });
-      // 只標最新落點（國家＋日期），較早的點只留淡點，避免地球儀文字疊成一團
-      const showLabel = !!(isLatest && displayLabel);
+      const displayLabel = formatTrailDotLabel(t);
+      // 無焦點：每人最新落點標國家；有焦點：只標被點的人（其所有落點國家）
+      let showLabel = false;
+      if (displayLabel) {
+        if (focused) showLabel = true;
+        else if (!focusPid && isLatest) showLabel = true;
+      }
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
         c: t.to,
@@ -2100,20 +2107,43 @@ function buildTrailDots() {
       const pid = f.passengerId || (isMe ? passenger.passengerId : `name:${f.passengerName}`);
       emitForPassenger(pid, f.passengerName, idx);
     });
-    return dots;
+  } else {
+    const store = loadTrailStore();
+    const group = store[passenger.groupId] || {};
+    Object.keys(group).forEach((pid) => {
+      const name = group[pid]?.[0]?.passengerName
+        || groupFlights.find((f) => f.passengerId === pid)?.passengerName;
+      emitForPassenger(pid, name);
+    });
+    groupFlights.forEach((f, idx) => {
+      if (f.status !== 'landed' || !f.passengerId) return;
+      emitForPassenger(f.passengerId, f.passengerName, idx);
+    });
   }
 
-  const store = loadTrailStore();
-  const group = store[passenger.groupId] || {};
-  Object.keys(group).forEach((pid) => {
-    const name = group[pid]?.[0]?.passengerName
-      || groupFlights.find((f) => f.passengerId === pid)?.passengerName;
-    emitForPassenger(pid, name);
-  });
-  groupFlights.forEach((f, idx) => {
-    if (f.status !== 'landed' || !f.passengerId) return;
-    emitForPassenger(f.passengerId, f.passengerName, idx);
-  });
+  // 無焦點時：同國家只留一個標籤，減少疊字
+  if (!focusPid) {
+    const byCountry = new Map();
+    dots.forEach((d) => {
+      if (!d.showLabel || !d.label) return;
+      const key = d.label;
+      const prev = byCountry.get(key);
+      if (!prev) {
+        byCountry.set(key, d);
+        return;
+      }
+      const prefer = (d.mine && !prev.mine)
+        || ((d.o || 0) > (prev.o || 0) && d.mine === prev.mine)
+        || (d.isLatest && !prev.isLatest);
+      if (prefer) {
+        prev.showLabel = false;
+        byCountry.set(key, d);
+      } else {
+        d.showLabel = false;
+      }
+    });
+  }
+
   return dots;
 }
 function syncTrailControls() {
@@ -2839,6 +2869,8 @@ function setWindowOpen(open) {
   if (!btn || !win) return;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   btn.setAttribute('aria-label', open ? '收起舷窗' : '看看窗外風景');
+  const label = btn.querySelector('.fly-portal-label');
+  if (label) label.textContent = open ? '收起窗外' : '看看窗外';
   win.hidden = !open;
   if (open) renderSceneryCard(false);
 }
@@ -2960,7 +2992,8 @@ function celebrateArrival(flightId) {
   celebratedFlightId = flightId;
   const burst = $('arrival-burst');
   if (burst) { burst.classList.remove('go'); void burst.offsetWidth; burst.classList.add('go'); }
-  setWindowOpen(true);
+  // 抵達風景已在降落過場看過；面板預設收起，避免資訊與高度一次全展開
+  setWindowOpen(false);
   const panel = $('landed-panel');
   if (panel) requestAnimationFrame(() => { panel.scrollTop = 0; });
 }
@@ -3593,11 +3626,9 @@ function updateUI() {
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
     const broadcastEl = $('bc-broadcast');
-    const fold = $('bc-broadcast-fold');
     if (broadcastEl) {
       broadcastEl.textContent = lastLandedFlight.captainBroadcast || '尚無機長廣播。';
     }
-    if (fold) fold.open = false;
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
@@ -3747,17 +3778,30 @@ async function shareTerminalLink(source = 'login') {
   }
 }
 
-/** 分享抵達圖卡：風景＋目的地合成小 JPEG，用系統分享檔案（避免文字亂碼） */
-function arrivalShareMeta() {
-  const landed = lastLandedFlight;
+/** 分享抵達圖卡：舷窗風景＋登機證排版 JPEG，先預覽再分享 */
+function arrivalShareMeta(landed = lastLandedFlight, scenery = landingScenery) {
   if (!landed) return null;
-  const meta = arrivalMeta(landed);
-  const flag = meta.flag || '🌍';
-  const city = meta.city || cityOnly(landed.arrivalLocation) || '未知目的地';
-  const country = meta.countryZh || meta.country || '';
-  const name = passenger?.name || '旅客';
-  const imageUrl = landingScenery?.imageUrl || '';
-  return { landed, meta, flag, city, country, name, imageUrl };
+  const arr = arrivalMeta(landed);
+  const dep = departureMeta(landed);
+  const flag = arr.flag || '🌍';
+  const city = arr.city || cityOnly(landed.arrivalLocation) || '未知目的地';
+  const country = arr.countryZh || arr.country || '';
+  const depCountry = dep.countryZh || dep.country || cityOnly(landed.departureLocation) || '出發地';
+  const depFlag = dep.flag || '🌍';
+  const name = landed.passengerName || passenger?.name || '旅客';
+  const imageUrl = scenery?.imageUrl || '';
+  return {
+    landed,
+    meta: arr,
+    dep,
+    flag,
+    city,
+    country,
+    depCountry,
+    depFlag,
+    name,
+    imageUrl,
+  };
 }
 
 function loadImageForShare(url) {
@@ -3770,7 +3814,6 @@ function loadImageForShare(url) {
       img.onerror = () => { URL.revokeObjectURL(obj); resolve(null); };
       img.src = obj;
     };
-    // 已是 blob/data 的舷窗圖可直接用（不會污染 canvas）
     const dom = $('scenery-img');
     if (dom && !dom.hidden && dom.complete && dom.naturalWidth > 0) {
       const src = dom.currentSrc || dom.src || '';
@@ -3789,6 +3832,15 @@ function loadImageForShare(url) {
         img.onerror = () => resolve(null);
         img.src = url;
       });
+  });
+}
+
+function loadShareLogo() {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = 'media/icon-192.png';
   });
 }
 
@@ -3816,104 +3868,358 @@ function drawCoverImage(ctx, img, x, y, w, h) {
   ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
 }
 
-async function canvasToJpegBlob(canvas, quality = 0.72) {
+const SHARE_FONT = '"PingFang TC","Noto Sans TC","Hiragino Sans GB","Microsoft JhengHei",sans-serif';
+
+function fitShareText(ctx, text, maxWidth, weight, maxSize, minSize = 22) {
+  let size = maxSize;
+  while (size > minSize) {
+    ctx.font = `${weight} ${size}px ${SHARE_FONT}`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
+    size -= 2;
+  }
+  ctx.font = `${weight} ${minSize}px ${SHARE_FONT}`;
+  return minSize;
+}
+
+function ellipsizeShareText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = String(text || '');
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxWidth) t = t.slice(0, -1);
+  return `${t}…`;
+}
+
+function drawPlaneWindowFrame(ctx, x, y, w, h, photo) {
+  const rx = Math.min(w * .35, h * .22);
+  // 單純向量橢圓窗框：薄、柔和、沒有寫實塑膠層次
+  ctx.save();
+  ctx.shadowColor = 'rgba(3, 12, 28, 0.42)';
+  ctx.shadowBlur = 42;
+  ctx.shadowOffsetY = 16;
+  roundRectPath(ctx, x, y, w, h, rx);
+  const frame = ctx.createLinearGradient(x, y, x + w, y + h);
+  frame.addColorStop(0, 'rgba(224, 233, 247, .78)');
+  frame.addColorStop(.5, 'rgba(109, 128, 158, .68)');
+  frame.addColorStop(1, 'rgba(39, 55, 82, .84)');
+  ctx.fillStyle = frame;
+  ctx.fill();
+  ctx.restore();
+
+  const inset = 16;
+  const ix = x + inset;
+  const iy = y + inset;
+  const iw = w - inset * 2;
+  const ih = h - inset * 2;
+  const ir = Math.max(28, rx - 10);
+  roundRectPath(ctx, ix, iy, iw, ih, ir);
+  ctx.fillStyle = '#13213a';
+  ctx.fill();
+
+  ctx.save();
+  roundRectPath(ctx, ix + 3, iy + 3, iw - 6, ih - 6, Math.max(24, ir - 3));
+  ctx.clip();
+  if (photo) {
+    drawCoverImage(ctx, photo, ix + 3, iy + 3, iw - 6, ih - 6);
+  } else {
+    const g = ctx.createLinearGradient(ix, iy, ix, iy + ih);
+    g.addColorStop(0, '#172a50');
+    g.addColorStop(.58, '#4b416a');
+    g.addColorStop(1, '#a87569');
+    ctx.fillStyle = g;
+    ctx.fillRect(ix + 3, iy + 3, iw - 6, ih - 6);
+    // 與 UI fallback 相同的極簡晨景
+    ctx.fillStyle = 'rgba(255, 211, 138, .26)';
+    ctx.beginPath();
+    ctx.arc(ix + iw * .64, iy + ih * .46, 104, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd58d';
+    ctx.beginPath();
+    ctx.arc(ix + iw * .64, iy + ih * .46, 43, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(25, 29, 56, .78)';
+    ctx.beginPath();
+    ctx.moveTo(ix, iy + ih * .7);
+    ctx.quadraticCurveTo(ix + iw * .42, iy + ih * .62, ix + iw, iy + ih * .72);
+    ctx.lineTo(ix + iw, iy + ih);
+    ctx.lineTo(ix, iy + ih);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const glare = ctx.createLinearGradient(ix, iy, ix + iw, iy + ih);
+  glare.addColorStop(0, 'rgba(255,255,255,.22)');
+  glare.addColorStop(.3, 'rgba(255,255,255,0)');
+  glare.addColorStop(1, 'rgba(10,24,48,.12)');
+  ctx.fillStyle = glare;
+  ctx.fillRect(ix + 3, iy + 3, iw - 6, ih - 6);
+  ctx.restore();
+
+  roundRectPath(ctx, x + w / 2 - 40, y + 9, 80, 11, 6);
+  ctx.fillStyle = 'rgba(213, 224, 241, .46)';
+  ctx.fill();
+}
+
+async function canvasToJpegBlob(canvas, quality = 0.86) {
   try {
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob empty'))), 'image/jpeg', quality);
     });
     return blob;
   } catch (err) {
-    // canvas 被跨域圖污染時，改畫無圖版本
     console.warn('[share card] canvas tainted, retry without photo', err);
     return null;
   }
 }
 
-async function renderArrivalShareCard(photo) {
-  const info = arrivalShareMeta();
+function drawFakeBarcode(ctx, x, y, w, h, seed = 'SLEEP-AIRLINE', color = '#17243a') {
+  const text = String(seed || 'SLEEP-AIRLINE');
+  let cursor = x;
+  let i = 0;
+  ctx.fillStyle = color;
+  while (cursor < x + w - 2) {
+    const code = text.charCodeAt(i % text.length) + i * 17;
+    const bar = 1 + (code % 4);
+    const gap = 1 + ((code >> 2) % 3);
+    const short = code % 5 === 0;
+    ctx.fillRect(cursor, y + (short ? h * .18 : 0), bar, h * (short ? .82 : 1));
+    cursor += bar + gap;
+    i += 1;
+  }
+}
+
+async function renderArrivalShareCard(photo, logo, info = arrivalShareMeta()) {
   if (!info) return null;
 
   const W = 1080;
-  const H = 1350;
-  const photoH = 820;
+  const H = 1480;
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  ctx.fillStyle = '#0c1428';
+  // 與主介面一致的夜航漸層
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#13284d');
+  bg.addColorStop(.5, '#253a62');
+  bg.addColorStop(1, '#765e68');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  const aura = ctx.createRadialGradient(W * .5, H * .22, 20, W * .5, H * .22, 520);
+  aura.addColorStop(0, 'rgba(255, 214, 145, .18)');
+  aura.addColorStop(1, 'rgba(255, 214, 145, 0)');
+  ctx.fillStyle = aura;
   ctx.fillRect(0, 0, W, H);
 
-  if (photo) {
-    drawCoverImage(ctx, photo, 0, 0, W, photoH);
-  } else {
-    const g = ctx.createLinearGradient(0, 0, 0, photoH);
-    g.addColorStop(0, '#1a2a4a');
-    g.addColorStop(0.55, '#3d5a80');
-    g.addColorStop(1, '#c9a06a');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, photoH);
-  }
+  // 使用與 UI 相同的簡單橢圓向量舷窗
+  const winW = 650;
+  const winH = 880;
+  const winX = (W - winW) / 2;
+  const winY = 48;
+  drawPlaneWindowFrame(ctx, winX, winY, winW, winH, photo);
 
-  const fade = ctx.createLinearGradient(0, photoH - 160, 0, photoH + 40);
-  fade.addColorStop(0, 'rgba(12,20,40,0)');
-  fade.addColorStop(1, '#0c1428');
-  ctx.fillStyle = fade;
-  ctx.fillRect(0, photoH - 160, W, 200);
-
-  const cardY = photoH - 40;
-  const cardH = H - cardY - 48;
-  roundRectPath(ctx, 48, cardY, W - 96, cardH, 36);
-  ctx.fillStyle = 'rgba(255, 250, 242, 0.96)';
+  // Liquid Glass 航程卡：圓角、半透明、資訊精簡
+  const cardX = 58;
+  const cardY = 900;
+  const cardW = W - 116;
+  const cardH = H - cardY - 54;
+  ctx.save();
+  ctx.shadowColor = 'rgba(3, 12, 28, .34)';
+  ctx.shadowBlur = 40;
+  ctx.shadowOffsetY = 18;
+  roundRectPath(ctx, cardX, cardY, cardW, cardH, 42);
+  const glass = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+  glass.addColorStop(0, 'rgba(105, 125, 160, .84)');
+  glass.addColorStop(.5, 'rgba(40, 58, 88, .9)');
+  glass.addColorStop(1, 'rgba(120, 86, 83, .78)');
+  ctx.fillStyle = glass;
   ctx.fill();
+  ctx.restore();
 
-  const cx = W / 2;
-  let ty = cardY + 56;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#8a6a28';
-  ctx.font = '700 28px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-  ctx.fillText('SLEEP AIRLINE  ·  甦航班', cx, ty);
+  roundRectPath(ctx, cardX + 2, cardY + 2, cardW - 4, cardH - 4, 40);
+  ctx.strokeStyle = 'rgba(255, 255, 255, .24)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  ty += 52;
-  ctx.fillStyle = '#c4892a';
-  ctx.font = '700 26px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-  ctx.fillText('已抵達', cx, ty);
+  // 上緣玻璃高光
+  ctx.save();
+  roundRectPath(ctx, cardX + 12, cardY + 10, cardW - 24, 92, 32);
+  const shine = ctx.createLinearGradient(cardX, cardY, cardX, cardY + 100);
+  shine.addColorStop(0, 'rgba(255,255,255,.22)');
+  shine.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = shine;
+  ctx.fill();
+  ctx.restore();
 
-  ty += 78;
-  ctx.fillStyle = '#1a2438';
-  ctx.font = '800 64px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-  ctx.fillText(`${info.flag}  ${info.city}`, cx, ty);
+  const pad = 42;
+  const contentL = cardX + pad;
+  const contentR = cardX + cardW - pad;
 
-  if (info.country) {
-    ty += 52;
-    ctx.fillStyle = '#5a6a86';
-    ctx.font = '600 34px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-    ctx.fillText(info.country, cx, ty);
+  // Logo + 品牌
+  const logoSize = 68;
+  if (logo) {
+    const lx = contentL;
+    roundRectPath(ctx, lx, cardY + 30, logoSize, logoSize, 18);
+    ctx.save();
+    roundRectPath(ctx, lx, cardY + 30, logoSize, logoSize, 18);
+    ctx.clip();
+    ctx.drawImage(logo, lx, cardY + 30, logoSize, logoSize);
+    ctx.restore();
   }
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#edf3fb';
+  ctx.font = `800 36px ${SHARE_FONT}`;
+  ctx.fillText('SLEEP AIRLINE', contentL + (logo ? logoSize + 18 : 0), cardY + 62);
+  ctx.fillStyle = '#f3cc7b';
+  ctx.font = `700 18px ${SHARE_FONT}`;
+  ctx.fillText(
+    `夜航回憶 · ${formatMemoryDate(info.landed?.landingTime)}`,
+    contentL + (logo ? logoSize + 18 : 0),
+    cardY + 91,
+  );
 
-  ty += 58;
-  ctx.fillStyle = '#33415c';
-  ctx.font = '600 30px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-  ctx.fillText(`${info.name} 的夜航降落`, cx, ty);
+  // 與夜航回憶票面相同的序號＋低調條碼
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#f3cc7b';
+  ctx.font = `800 48px ${SHARE_FONT}`;
+  ctx.fillText('01', contentR, cardY + 69);
+  drawFakeBarcode(
+    ctx,
+    contentR - 132,
+    cardY + 79,
+    132,
+    22,
+    String(info.landed?.flightId || 'SLEEP-AIRLINE'),
+    'rgba(238, 244, 252, .48)',
+  );
 
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.font = '600 22px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif';
-  ctx.fillText('Sleep Airline', cx, H - 28);
+  // 精簡航線
+  const depCode = memoryRouteCode(info.dep) || 'DEP';
+  const arrCode = memoryRouteCode(info.meta) || 'ARR';
+  const routeY = cardY + 160;
+  const routeMid = W / 2;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#aebbd0';
+  ctx.font = `800 16px ${SHARE_FONT}`;
+  ctx.fillText('FROM', contentL, routeY);
+  ctx.textAlign = 'right';
+  ctx.fillText('TO', contentR, routeY);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#f4f7fc';
+  fitShareText(ctx, depCode, 250, 800, 84, 48);
+  ctx.fillText(ellipsizeShareText(ctx, depCode, 250), contentL, routeY + 76);
+  ctx.textAlign = 'right';
+  fitShareText(ctx, arrCode, 250, 800, 84, 48);
+  ctx.fillText(ellipsizeShareText(ctx, arrCode, 250), contentR, routeY + 76);
+
+  ctx.strokeStyle = 'rgba(158, 116, 45, .48)';
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath();
+  ctx.moveTo(routeMid - 86, routeY + 43);
+  ctx.lineTo(routeMid + 86, routeY + 43);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#a8792d';
+  ctx.font = `700 34px ${SHARE_FONT}`;
+  ctx.fillText('✈', routeMid, routeY + 54);
+
+  const cityY = routeY + 112;
+  ctx.fillStyle = '#c5d0e2';
+  ctx.font = `700 24px ${SHARE_FONT}`;
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    ellipsizeShareText(ctx, `${info.depFlag} ${info.dep.city || info.depCountry}`, 270),
+    contentL,
+    cityY,
+  );
+  ctx.textAlign = 'right';
+  ctx.fillText(
+    ellipsizeShareText(ctx, `${info.flag} ${info.city}`, 270),
+    contentR,
+    cityY,
+  );
+
+  // 一列即可讀完的航程資訊
+  const metaY = cityY + 76;
+  const duration = info.landed?.flightDurationMinutes
+    ? fmtDuration(info.landed.flightDurationMinutes)
+    : '一段夜航';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#d9e2ef';
+  ctx.font = `750 25px ${SHARE_FONT}`;
+  const metaLine = `${info.name || '旅客'}   ·   ${duration}`;
+  fitShareText(ctx, metaLine, cardW - 120, 750, 25, 18);
+  ctx.fillText(ellipsizeShareText(ctx, metaLine, cardW - 120), W / 2, metaY);
+
+  // 假條碼保留為低調的航空識別紋理，不再形成制式票根
+  const barcodeW = 220;
+  const barcodeX = contentR - barcodeW;
+  const barcodeY = cardY + cardH - 90;
+  const flightNo = `SA${String(info.landed?.flightId || 'WAKE').replace(/\W/g, '').slice(-6).toUpperCase()}`;
+  drawFakeBarcode(ctx, barcodeX, barcodeY, barcodeW, 34, flightNo + info.city, 'rgba(238, 244, 252, .64)');
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#f2cd83';
+  ctx.font = `700 16px ${SHARE_FONT}`;
+  ctx.fillText('WAKE SOMEWHERE NEW', contentL, barcodeY + 23);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#aebbd0';
+  ctx.font = `650 9px ${SHARE_FONT}`;
+  ctx.fillText(flightNo, contentR, barcodeY + 50);
 
   return canvas;
 }
 
-async function buildArrivalShareCardBlob() {
-  const info = arrivalShareMeta();
+let sharePreviewState = null;
+
+function closeSharePreview() {
+  const modal = $('share-preview');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  document.body.classList.remove('share-preview-open');
+  if (sharePreviewState?.url) URL.revokeObjectURL(sharePreviewState.url);
+  sharePreviewState = null;
+}
+
+function openSharePreview(blob, info) {
+  const modal = $('share-preview');
+  const img = $('share-preview-img');
+  if (!modal || !img || !blob) return;
+  if (sharePreviewState?.url) URL.revokeObjectURL(sharePreviewState.url);
+  const url = URL.createObjectURL(blob);
+  const safeCity = (info.city || 'arrival').replace(/[^\w\u4e00-\u9fff-]+/g, '_').slice(0, 24);
+  sharePreviewState = {
+    blob,
+    url,
+    filename: `sleep-airline-${safeCity}.jpg`,
+    title: `Sleep Airline · ${info.city}`,
+    text: `${info.depFlag} ${info.depCountry} → ${info.flag} ${info.city}${info.country ? ` · ${info.country}` : ''}`,
+  };
+  img.src = url;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('share-preview-open');
+}
+
+async function canvasToShareBlob(canvas) {
+  return canvasToJpegBlob(canvas, 0.86);
+}
+
+async function buildArrivalShareCardBlob(landed = lastLandedFlight, scenery = landingScenery) {
+  const info = arrivalShareMeta(landed, scenery);
   if (!info) return null;
-  const photo = await loadImageForShare(info.imageUrl);
-  let canvas = await renderArrivalShareCard(photo);
+  const [photo, logo] = await Promise.all([
+    loadImageForShare(info.imageUrl),
+    loadShareLogo(),
+  ]);
+  let canvas = await renderArrivalShareCard(photo, logo, info);
   if (!canvas) return null;
-  let blob = await canvasToJpegBlob(canvas, 0.72);
+  let blob = await canvasToShareBlob(canvas);
   if (!blob && photo) {
-    canvas = await renderArrivalShareCard(null);
-    blob = canvas ? await canvasToJpegBlob(canvas, 0.72) : null;
+    canvas = await renderArrivalShareCard(null, logo, info);
+    blob = canvas ? await canvasToShareBlob(canvas) : null;
   }
   return blob;
 }
@@ -3928,6 +4234,24 @@ function downloadShareBlob(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function sendSharePreview() {
+  const state = sharePreviewState;
+  if (!state?.blob) return;
+  const file = new File([state.blob], state.filename, { type: 'image/jpeg' });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: state.title, text: state.text });
+      showMsg('main', 'success', '圖卡已分享');
+      closeSharePreview();
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  downloadShareBlob(state.blob, state.filename);
+  showMsg('main', 'success', '已下載分享圖卡（JPEG）');
 }
 
 async function shareArrivalJourney(source = 'panel') {
@@ -3949,25 +4273,7 @@ async function shareArrivalJourney(source = 'panel') {
       showMsg('main', 'error', '圖卡產生失敗，請稍後再試。');
       return;
     }
-    const safeCity = (info.city || 'arrival').replace(/[^\w\u4e00-\u9fff-]+/g, '_').slice(0, 24);
-    const filename = `sleep-airline-${safeCity}.jpg`;
-    const file = new File([blob], filename, { type: 'image/jpeg' });
-    const title = `Sleep Airline · ${info.city}`;
-    const text = `${info.flag} ${info.city}${info.country ? ` · ${info.country}` : ''}`;
-
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title, text });
-        showMsg('main', 'success', '圖卡已分享');
-        return;
-      } catch (err) {
-        if (err?.name === 'AbortError') return;
-      }
-    }
-
-    // 不支援檔案分享：改下載 JPEG
-    downloadShareBlob(blob, filename);
-    showMsg('main', 'success', '已下載分享圖卡（JPEG）');
+    openSharePreview(blob, info);
   } catch (err) {
     console.warn('[share card]', err);
     showMsg('main', 'error', '分享失敗，請稍後再試');
@@ -3976,6 +4282,300 @@ async function shareArrivalJourney(source = 'panel') {
       shareBtn.disabled = false;
       shareBtn.classList.remove('is-loading');
     }
+  }
+}
+
+// ── 我的夜航回憶（最近五趟、逐張延遲載入風景）───────────────────────────────
+
+function memoryFlightFromTrail(t) {
+  if (!t) return null;
+  return {
+    flightId: t.id,
+    notionId: t.id,
+    passengerId: t.passengerId || passenger?.passengerId,
+    passengerName: t.passengerName || passenger?.name || '旅客',
+    status: 'landed',
+    departureLocation: t.departureLocation || t.depLabel || '出發地',
+    departureIso: t.departureIso || '',
+    departureCountry: t.departureCountry || '',
+    departureLatitude: t.from?.[1],
+    departureLongitude: t.from?.[0],
+    arrivalLocation: t.arrivalLocation || t.arrLabel || '抵達地',
+    arrivalIso: t.arrivalIso || '',
+    arrivalCountry: t.arrivalCountry || t.arrCountry || '',
+    arrivalLatitude: t.to?.[1],
+    arrivalLongitude: t.to?.[0],
+    flightDurationMinutes: t.flightDurationMinutes || null,
+    estimatedFlightDistanceKm: t.estimatedFlightDistanceKm || null,
+    takeoffTime: t.takeoffTime || '',
+    landingTime: t.landingTime || '',
+  };
+}
+
+function collectMyMemoryFlights() {
+  if (!passenger) return [];
+  const trails = collectPassengerTrailRecords(passenger.passengerId, passenger.name);
+  return trails
+    .slice(-MEMORY_DISPLAY_LIMIT)
+    .reverse()
+    .map(memoryFlightFromTrail)
+    .filter(Boolean);
+}
+
+function formatMemoryDate(value) {
+  if (!value) return '日期未記錄';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '日期未記錄';
+  return new Intl.DateTimeFormat('zh-TW', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(d);
+}
+
+function memoryRouteCode(meta) {
+  const city = String(meta?.city || '').trim();
+  const iso = String(meta?.iso || '').trim();
+  if (iso) return iso.slice(0, 3).toUpperCase();
+  const ascii = city.replace(/[^A-Za-z]/g, '').slice(0, 3);
+  return ascii ? ascii.toUpperCase() : city.slice(0, 2);
+}
+
+function memoryCardMarkup(f, index) {
+  const dep = departureMeta(f);
+  const arr = arrivalMeta(f);
+  const duration = f.flightDurationMinutes ? fmtDuration(f.flightDurationMinutes) : '一段夜航';
+  const fallback = buildWindowScene(arr.city || f.arrivalLocation || `memory-${index}`);
+  return `
+    <article class="memory-card" data-memory-index="${index}" aria-label="第 ${index + 1} 趟航程，${escHtml(dep.city)}到${escHtml(arr.city)}">
+      <div class="memory-window">
+        <div class="memory-window-rim">
+          <div class="memory-window-view">
+            <div class="memory-window-fallback">${fallback}</div>
+            <img class="memory-window-img" alt="${escHtml(arr.city || '抵達風景')}" decoding="async">
+            <div class="memory-window-glare" aria-hidden="true"></div>
+            <div class="memory-window-wing" aria-hidden="true"></div>
+            <div class="memory-window-loading" aria-hidden="true"><i></i><span>風景載入中</span></div>
+          </div>
+          <span class="memory-window-handle" aria-hidden="true"></span>
+        </div>
+      </div>
+      <div class="memory-ticket memory-ticket--liquid">
+        <header class="memory-ticket-brand">
+          <span class="memory-ticket-logo">✈</span>
+          <span><b>SLEEP AIRLINE</b><small>夜航回憶 · ${escHtml(formatMemoryDate(f.landingTime))}</small></span>
+          <span class="memory-ticket-serial">
+            <em>${String(index + 1).padStart(2, '0')}</em>
+            <i aria-hidden="true"></i>
+          </span>
+        </header>
+        <div class="memory-ticket-route">
+          <div>
+            <span>FROM</span>
+            <strong>${escHtml(memoryRouteCode(dep))}</strong>
+            <small>${escHtml(`${dep.flag} ${dep.city}`)}</small>
+          </div>
+          <div class="memory-ticket-flight" aria-hidden="true">
+            <i></i><b>✈</b><i></i>
+          </div>
+          <div>
+            <span>TO</span>
+            <strong>${escHtml(memoryRouteCode(arr))}</strong>
+            <small>${escHtml(`${arr.flag} ${arr.city}`)}</small>
+          </div>
+        </div>
+        <div class="memory-ticket-meta">
+          <span>${escHtml(f.passengerName || passenger?.name || '旅客')}</span>
+          <i></i>
+          <span>${escHtml(duration)}</span>
+        </div>
+      </div>
+      <button type="button" class="memory-ticket-share memory-ticket-share--standalone" data-memory-share="${index}">
+        <span>分享機票</span>
+        <svg class="memory-share-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </article>`;
+}
+
+function renderMemoryGallery() {
+  const track = $('memory-gallery-track');
+  const dots = $('memory-gallery-dots');
+  if (!track || !dots) return;
+  memoryFlights = collectMyMemoryFlights();
+  memoryActiveIndex = 0;
+
+  if (!memoryFlights.length) {
+    track.innerHTML = `
+      <div class="memory-gallery-empty">
+        <span>🎫</span>
+        <b>還沒有夜航回憶</b>
+        <p>完成第一次降落後，機票會收藏在這裡。</p>
+      </div>`;
+    dots.innerHTML = '';
+    $('memory-gallery-count').textContent = '0 / 0';
+    return;
+  }
+
+  track.innerHTML = memoryFlights.map(memoryCardMarkup).join('');
+  dots.innerHTML = memoryFlights
+    .map((_, i) => `<i class="${i === 0 ? 'is-active' : ''}" data-memory-dot="${i}"></i>`)
+    .join('');
+  updateMemoryGalleryPosition(0, { scroll: true, smooth: false });
+}
+
+function memoryCardAt(index) {
+  return $('memory-gallery-track')?.querySelector(`[data-memory-index="${index}"]`) || null;
+}
+
+function applyMemoryScenery(index, scenery) {
+  const card = memoryCardAt(index);
+  const img = card?.querySelector('.memory-window-img');
+  const loading = card?.querySelector('.memory-window-loading');
+  if (!card || !img) return;
+  loading?.classList.remove('is-visible');
+  if (!scenery?.imageUrl) {
+    card.classList.add('is-fallback');
+    return;
+  }
+  if (img.dataset.src === scenery.imageUrl && img.complete) {
+    card.classList.add('has-photo');
+    return;
+  }
+  img.onload = () => {
+    card.classList.add('has-photo');
+    card.classList.remove('is-fallback');
+    loading?.classList.remove('is-visible');
+  };
+  img.onerror = () => {
+    card.classList.add('is-fallback');
+    loading?.classList.remove('is-visible');
+    img.removeAttribute('src');
+  };
+  img.dataset.src = scenery.imageUrl;
+  img.src = scenery.imageUrl;
+}
+
+async function loadMemoryScenery(index) {
+  const flight = memoryFlights[index];
+  const id = flight?.flightId;
+  if (!flight || !id) return null;
+  const card = memoryCardAt(index);
+  card?.querySelector('.memory-window-loading')?.classList.add('is-visible');
+
+  if (memorySceneryCache.has(id)) {
+    const cached = memorySceneryCache.get(id);
+    applyMemoryScenery(index, cached);
+    return cached;
+  }
+  if (memorySceneryJobs.has(id)) {
+    const pending = await memorySceneryJobs.get(id);
+    applyMemoryScenery(index, pending);
+    return pending;
+  }
+
+  if (lastLandedFlight?.flightId === id && landingScenery?.imageUrl) {
+    memorySceneryCache.set(id, landingScenery);
+    applyMemoryScenery(index, landingScenery);
+    return landingScenery;
+  }
+
+  const job = (async () => {
+    if (previewMode || window.WorkshopLocal?.isActive()) return null;
+    try {
+      const data = await api('GET', `/api/scenery?flightId=${encodeURIComponent(id)}`, null, { timeoutMs: 9000 });
+      return data.scenery?.imageUrl ? data.scenery : null;
+    } catch {
+      return null;
+    }
+  })();
+  memorySceneryJobs.set(id, job);
+  const scenery = await job;
+  memorySceneryJobs.delete(id);
+  if (scenery?.imageUrl) memorySceneryCache.set(id, scenery);
+  applyMemoryScenery(index, scenery);
+  return scenery;
+}
+
+function preloadMemoryNeighborhood(index) {
+  [index, index - 1, index + 1]
+    .filter((i) => i >= 0 && i < memoryFlights.length)
+    .forEach((i) => { void loadMemoryScenery(i); });
+}
+
+function updateMemoryGalleryPosition(index, { scroll = false, smooth = true } = {}) {
+  if (!memoryFlights.length) return;
+  const next = Math.max(0, Math.min(memoryFlights.length - 1, index));
+  memoryActiveIndex = next;
+  $('memory-gallery-count').textContent = `${next + 1} / ${memoryFlights.length}`;
+  document.querySelectorAll('[data-memory-dot]').forEach((dot, i) => {
+    dot.classList.toggle('is-active', i === next);
+  });
+  document.querySelectorAll('.memory-card').forEach((card, i) => {
+    card.classList.toggle('is-active', i === next);
+  });
+  if (scroll) {
+    memoryCardAt(next)?.scrollIntoView({
+      behavior: smooth ? 'smooth' : 'auto',
+      inline: 'center',
+      block: 'nearest',
+    });
+  }
+  preloadMemoryNeighborhood(next);
+}
+
+function syncMemoryGalleryFromScroll() {
+  const track = $('memory-gallery-track');
+  if (!track || !memoryFlights.length) return;
+  const center = track.scrollLeft + track.clientWidth / 2;
+  let nearest = 0;
+  let distance = Infinity;
+  track.querySelectorAll('.memory-card').forEach((card, i) => {
+    const d = Math.abs(card.offsetLeft + card.offsetWidth / 2 - center);
+    if (d < distance) {
+      distance = d;
+      nearest = i;
+    }
+  });
+  if (nearest !== memoryActiveIndex) updateMemoryGalleryPosition(nearest);
+}
+
+function openMemoryGallery() {
+  const gallery = $('memory-gallery');
+  if (!gallery || !passenger) return;
+  renderMemoryGallery();
+  gallery.classList.remove('hidden');
+  gallery.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('memory-gallery-open');
+  requestAnimationFrame(() => updateMemoryGalleryPosition(0, { scroll: true, smooth: false }));
+}
+
+function closeMemoryGallery() {
+  const gallery = $('memory-gallery');
+  gallery?.classList.add('hidden');
+  gallery?.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('memory-gallery-open');
+}
+
+async function shareMemoryFlight(index, button) {
+  const flight = memoryFlights[index];
+  if (!flight) return;
+  button?.classList.add('is-loading');
+  button?.setAttribute('disabled', '');
+  try {
+    const scenery = await loadMemoryScenery(index);
+    const info = arrivalShareMeta(flight, scenery);
+    const blob = await buildArrivalShareCardBlob(flight, scenery);
+    if (!blob || !info) throw new Error('share card failed');
+    closeMemoryGallery();
+    openSharePreview(blob, info);
+  } catch (err) {
+    console.warn('[memory share]', err);
+    showMsg('main', 'error', '回憶圖卡產生失敗，請稍後再試。');
+  } finally {
+    button?.classList.remove('is-loading');
+    button?.removeAttribute('disabled');
   }
 }
 
@@ -4420,6 +5020,33 @@ function enterDemoPreview() {
   landingScenery = null;
   groupFlights = [
     {
+      flightId: 'demo-memory-3', passengerId: 'demo_preview', passengerName: '示範乘客', status: 'landed',
+      departureLocation: 'Taipei, Taiwan', departureIso: 'TW',
+      departureLatitude: 25.03, departureLongitude: 121.56,
+      arrivalLocation: 'Kyoto, Japan', arrivalIso: 'JP',
+      arrivalLatitude: 35.01, arrivalLongitude: 135.77,
+      flightDurationMinutes: 168, estimatedFlightDistanceKm: 1724,
+      landingTime: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+      flightId: 'demo-memory-2', passengerId: 'demo_preview', passengerName: '示範乘客', status: 'landed',
+      departureLocation: 'Kyoto, Japan', departureIso: 'JP',
+      departureLatitude: 35.01, departureLongitude: 135.77,
+      arrivalLocation: 'Reykjavik, Iceland', arrivalIso: 'IS',
+      arrivalLatitude: 64.15, arrivalLongitude: -21.94,
+      flightDurationMinutes: 612, estimatedFlightDistanceKm: 8930,
+      landingTime: new Date(Date.now() - 3 * 86400000).toISOString(),
+    },
+    {
+      flightId: 'demo-memory-1', passengerId: 'demo_preview', passengerName: '示範乘客', status: 'landed',
+      departureLocation: 'Reykjavik, Iceland', departureIso: 'IS',
+      departureLatitude: 64.15, departureLongitude: -21.94,
+      arrivalLocation: 'Lisbon, Portugal', arrivalIso: 'PT',
+      arrivalLatitude: 38.72, arrivalLongitude: -9.14,
+      flightDurationMinutes: 278, estimatedFlightDistanceKm: 2948,
+      landingTime: new Date(Date.now() - 6 * 86400000).toISOString(),
+    },
+    {
       passengerName: 'Amy', status: 'in_flight', routeDirection: 'eastbound',
       departureLocation: 'London, UK', departureLatitude: 51.5, departureLongitude: -0.12,
       takeoffTime: new Date(Date.now() - 190 * 60000).toISOString(),
@@ -4444,7 +5071,38 @@ function enterDemoPreview() {
   Globe.flyTo(DEFAULT_COORD, 1000);
 }
 
+let logoutConfirmTimer = null;
+
+function resetLogoutConfirm() {
+  const btn = $('btn-logout');
+  if (logoutConfirmTimer) {
+    clearTimeout(logoutConfirmTimer);
+    logoutConfirmTimer = null;
+  }
+  if (!btn) return;
+  btn.classList.remove('is-confirming');
+  btn.textContent = '登出';
+  btn.title = '登出';
+  btn.setAttribute('aria-label', '登出');
+}
+
+function onLogoutClick() {
+  const btn = $('btn-logout');
+  if (!btn) return;
+  if (!btn.classList.contains('is-confirming')) {
+    btn.classList.add('is-confirming');
+    btn.textContent = '確認登出？';
+    btn.title = '再次點擊以確認登出';
+    btn.setAttribute('aria-label', '確認登出，再按一次');
+    logoutConfirmTimer = setTimeout(resetLogoutConfirm, 3600);
+    return;
+  }
+  resetLogoutConfirm();
+  doLogout();
+}
+
 function doLogout() {
+  resetLogoutConfirm();
   previewMode = false;
   passenger = null;
   activeFlight = null;
@@ -4453,6 +5111,10 @@ function doLogout() {
   landingScenery = null;
   resetTakeoffPrep();
   resetLandPrep();
+  closeMemoryGallery();
+  memoryFlights = [];
+  memorySceneryCache.clear();
+  memorySceneryJobs.clear();
   closeSheets();
   stopAutoRefresh();
   stopFlightTicker();
@@ -4486,8 +5148,25 @@ $('btn-share-terminal')?.addEventListener('click', () => { void shareTerminalLin
 $('btn-share-terminal-board')?.addEventListener('click', () => { void shareTerminalLink('board'); });
 $('btn-takeoff').addEventListener('click', onTakeoffClick);
 $('btn-land').addEventListener('click', onLandClick);
-$('btn-logout').addEventListener('click', doLogout);
+$('btn-logout').addEventListener('click', onLogoutClick);
 $('btn-theme').addEventListener('click', toggleTheme);
+$('btn-memories')?.addEventListener('click', openMemoryGallery);
+$('memory-gallery-close')?.addEventListener('click', closeMemoryGallery);
+$('memory-gallery-backdrop')?.addEventListener('click', closeMemoryGallery);
+$('memory-gallery-track')?.addEventListener('scroll', () => {
+  if (memoryScrollTimer) clearTimeout(memoryScrollTimer);
+  memoryScrollTimer = setTimeout(syncMemoryGalleryFromScroll, 90);
+}, { passive: true });
+$('memory-gallery-track')?.addEventListener('click', (e) => {
+  const share = e.target.closest('[data-memory-share]');
+  if (!share) return;
+  void shareMemoryFlight(Number(share.dataset.memoryShare), share);
+});
+$('memory-gallery-dots')?.addEventListener('click', (e) => {
+  const dot = e.target.closest('[data-memory-dot]');
+  if (!dot) return;
+  updateMemoryGalleryPosition(Number(dot.dataset.memoryDot), { scroll: true });
+});
 $('trail-mine')?.addEventListener('click', () => toggleRouteTrail('mine'));
 $('trail-friends')?.addEventListener('click', () => toggleRouteTrail('friends'));
 
@@ -4533,6 +5212,23 @@ $('btn-flight-window').addEventListener('click', () => toggleFlightWindow());
 
 $('btn-close-landed').addEventListener('click', dismissLandedPanel);
 $('btn-share-arrival')?.addEventListener('click', () => { void shareArrivalJourney('panel'); });
+$('share-preview-close')?.addEventListener('click', closeSharePreview);
+$('share-preview-backdrop')?.addEventListener('click', closeSharePreview);
+$('share-preview-download')?.addEventListener('click', () => {
+  if (!sharePreviewState?.blob) return;
+  downloadShareBlob(sharePreviewState.blob, sharePreviewState.filename);
+  showMsg('main', 'success', '已下載分享圖卡（JPEG）');
+});
+$('share-preview-send')?.addEventListener('click', () => { void sendSharePreview(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('share-preview')?.classList.contains('hidden')) {
+    closeSharePreview();
+    return;
+  }
+  if (e.key === 'Escape' && !$('memory-gallery')?.classList.contains('hidden')) {
+    closeMemoryGallery();
+  }
+});
 $('globe-svg')?.addEventListener('click', (e) => {
   if (isLandedPanelVisible()) {
     if (e.target.closest('.pt-pick')) return;

@@ -120,7 +120,7 @@ ${STYLE_DESCRIPTIONS[input.style]}
 
 身分（非常重要）：
 - 你是機長，在對「乘客」說話；乘客姓名只是對象，不是你的名字
-- 第一句必須自然包含「歡迎搭乘 Sleep Airline」與「這裡是機長」（「歡迎」二字不可省略，禁止只寫「搭乘 Sleep Airline」）
+- 第一句必須自然包含「歡迎搭乘 Sleep Airline」與「這裡是機長」（「歡迎」二字不可省略，禁止只寫「搭乘 Sleep Airline」）${isTakeoff ? '' : '；若有當地語言早安，早安為第一句，「歡迎搭乘 Sleep Airline，這裡是機長」必須完整出現在第二句開頭'}
 - 禁止寫「我是機長〇〇」若〇〇是乘客姓名
 - 禁止冒充乘客、禁止用第一人稱代替乘客說話
 - 用「各位乘客」或「${pax}」稱呼對方；不要稱自己為乘客姓名
@@ -182,8 +182,8 @@ ${input.localContext ? `\n【當地資訊 · 抵達地】\n${buildLocalBlock(inp
 【同組社交】
 ${buildSocialBlock(input.socialCue)}
 
-請宣布：醒來抵達、飛了多久、從哪到哪；第一句以當地語言早安開頭，必須融入一筆當地文化或天氣（改寫），
-並在第一句或第二句自然包含「歡迎搭乘 Sleep Airline」與「這裡是機長」；用一句話點出社交情境，合併成一段流暢廣播，勿列點、勿照搬。`;
+請宣布：醒來抵達、飛了多久、從哪到哪；第一句以當地語言早安開頭，第二句必須以「歡迎搭乘 Sleep Airline，這裡是機長」完整開頭（「歡迎」不可省略、禁止只寫「搭乘 Sleep Airline」），
+必須融入一筆當地文化或天氣（改寫）；用一句話點出社交情境，合併成一段流暢廣播，勿列點、勿照搬。`;
 
   const completion = await client.chat.completions.create({
     model,
@@ -196,10 +196,10 @@ ${buildSocialBlock(input.socialCue)}
   });
 
   const raw = completion.choices[0]?.message?.content?.trim() ?? '廣播生成失敗，請重試。';
-  return isTakeoff ? ensureWelcomeAboardPhrase(raw) : raw;
+  return ensureWelcomeAboardPhrase(raw);
 }
 
-/** 起飛廣播必須含「歡迎搭乘 Sleep Airline」；模型若省略「歡迎」則補上 */
+/** 起飛／降落廣播必須含「歡迎搭乘 Sleep Airline」；模型若省略「歡迎」則補上 */
 function ensureWelcomeAboardPhrase(text: string): string {
   const body = (text || '').trim();
   if (!body) {
@@ -208,6 +208,11 @@ function ensureWelcomeAboardPhrase(text: string): string {
   if (/歡迎搭乘\s*Sleep\s*Airline/i.test(body)) return body;
   if (/搭乘\s*Sleep\s*Airline/i.test(body)) {
     return body.replace(/搭乘\s*Sleep\s*Airline/i, '歡迎搭乘 Sleep Airline');
+  }
+  // 若以當地語言早安開頭，插在問候之後，避免蓋掉 morningGreeting
+  const greet = body.match(/^(.{1,48}[!！.。…]+)(\s*)/);
+  if (greet && !/[\u4e00-\u9fff]{4,}/.test(greet[1])) {
+    return `${greet[1]}${greet[2] || ' '}歡迎搭乘 Sleep Airline，這裡是機長。${body.slice(greet[0].length)}`;
   }
   return `歡迎搭乘 Sleep Airline，這裡是機長。${body}`;
 }

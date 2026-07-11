@@ -229,7 +229,7 @@
     const dur = h > 0 ? `${h} 小時 ${m} 分鐘` : m > 0 ? `${m} 分鐘` : '一段';
     const greet = (iso && MORNING_GREETING[iso]) ? `${MORNING_GREETING[iso]}！` : '';
     const hint = (iso && CULTURE_HINT[iso]) || '走出艙門，帶著好奇心向當地人微笑問好吧。';
-    return `${greet}各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
+    return `${greet}歡迎搭乘 Sleep Airline，這裡是機長。各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
   }
 
   function buildBoardFlights(flights, groupId) {

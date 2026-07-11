@@ -194,19 +194,31 @@ async function playWebAudioBuffer(buffer, {
   loop = false,
   maxSeconds = 0,
   fadeInMs = 0,
+  padSec = 0,
   tag = 'speech',
 } = {}) {
   const ctx = await ensureAudioCtx();
   if (!ctx || !buffer) return false;
+
+  let playBuffer = buffer;
+  const pad = Math.max(0, Number(padSec) || 0);
+  if (pad > 0 && !loop) {
+    const padSamples = Math.floor(ctx.sampleRate * pad);
+    const out = ctx.createBuffer(buffer.numberOfChannels, buffer.length + padSamples, buffer.sampleRate);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      out.getChannelData(c).set(buffer.getChannelData(c), padSamples);
+    }
+    playBuffer = out;
+  }
 
   if (tag === 'flightSfx') stopCeremonyWebAudio('flightSfx');
   else if (tag === 'captain') stopCeremonyWebAudio('captain');
   else stopCeremonyWebAudio('speech');
 
   const source = ctx.createBufferSource();
-  source.buffer = buffer;
+  source.buffer = playBuffer;
   source.loop = !!(loop && maxSeconds <= 0);
-  const bufDur = Number.isFinite(buffer.duration) && buffer.duration > 0 ? buffer.duration : 0;
+  const bufDur = Number.isFinite(playBuffer.duration) && playBuffer.duration > 0 ? playBuffer.duration : 0;
   const clipSec = maxSeconds > 0 && bufDur > 0 ? Math.min(maxSeconds, bufDur) : (maxSeconds > 0 ? maxSeconds : 0);
   const gain = ctx.createGain();
   const targetVol = Math.max(volume, 0.0001);
@@ -241,7 +253,7 @@ async function playWebAudioBuffer(buffer, {
     source.onended = () => { if (!source.loop) finish(true); };
     const timerMs = clipSec > 0
       ? clipSec * 1000 + 250
-      : loop ? 0 : Math.min(120000, buffer.duration * 1000 + 800);
+      : loop ? 0 : Math.min(120000, playBuffer.duration * 1000 + 800);
     if (timerMs > 0) timer = setTimeout(() => finish(true), timerMs);
     try {
       if (clipSec > 0) source.start(0, 0, clipSec);
@@ -827,7 +839,8 @@ function speakTextOnce(text) {
     const estMs = Math.min(180000, Math.max(45000, text.length * 650));
     const timer = setTimeout(() => finish(true), estMs);
     speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
+    // 開頭短停頓，減少首字「歡迎」被吃掉
+    const utter = new SpeechSynthesisUtterance(`… ${text}`);
     utter.lang = 'zh-TW';
     utter.rate = 0.9;
     utter.pitch = 0.95;
@@ -912,7 +925,8 @@ async function playPreparedSpeech(prepared) {
   const blob = prepared.blob
     || (prepared.url ? await fetch(prepared.url).then((r) => r.blob()).catch(() => null) : null);
   if (blob) {
-    const ok = await playMp3Blob(blob, { volume: 1.35, tag: 'speech', fadeInMs: 280 });
+    // padSec：開頭留白，避免「歡迎」被 captain 交叉／裝置緩衝吃掉
+    const ok = await playMp3Blob(blob, { volume: 1.35, tag: 'speech', fadeInMs: 0, padSec: 0.48 });
     if (ok) {
       if (prepared.url) URL.revokeObjectURL(prepared.url);
       return true;
@@ -924,6 +938,7 @@ async function playPreparedSpeech(prepared) {
   markInlineAudio(audio);
   audio.volume = 1;
   currentAudio = audio;
+  await delay(420);
   const ok = await playAudioElement(audio);
   if (!ok) {
     URL.revokeObjectURL(url);
@@ -977,6 +992,8 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
     await unlockMedia();
+    // 短間隔，讓裝置緩衝就緒，減少首字「歡迎」被吃
+    await delay(280);
     if (!prepared) return await speakText(text);
     return await playPreparedSpeech(prepared);
   } catch {
