@@ -907,8 +907,8 @@ const Globe = (() => {
     view.friends.forEach((f, i) => {
       const focused = !!(view.focusPid && f.passengerId && f.passengerId === view.focusPid);
       const isPlane = (f.kind || 'friend') === 'friend-plane';
-      // 靜態隊友點平常不掛名字；點擊後再顯示，避免與密集航點互相壓字。
-      const pointLabel = isPlane || focused ? f.label : '';
+      // 隊友目前位置一律掛名字，才知道藍點是誰；聚焦其他隊友時會隨 dim 淡化
+      const pointLabel = f.label;
       pts.push({
         key: 'f' + i + f.label,
         c: f.c,
@@ -1158,6 +1158,8 @@ const Globe = (() => {
     })(t0);
   }
 
+  let lastDragEndAt = 0;
+
   function gestures() {
     const el = document.getElementById('globe-svg');
     const touches = new Map();
@@ -1216,7 +1218,10 @@ const Globe = (() => {
       }
     });
 
-    const end = (e) => { clearPointer(e.pointerId); };
+    const end = (e) => {
+      if (dragging) lastDragEndAt = Date.now();
+      clearPointer(e.pointerId);
+    };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     el.addEventListener('lostpointercapture', end);
@@ -1297,6 +1302,9 @@ const Globe = (() => {
     clearRoute() { Object.assign(view, { heading: null, traveledKm: 0, possibilityKm: 0, routeArc: null, planeC: null, arrival: null }); render(); },
     setFriendPick(fn) { onFriendPick = fn; },
     setPlanePick(fn) { onPlanePick = fn; render(); },
+    isPickTarget: isGlobePickTarget,
+    /** 拖曳剛結束（用來忽略拖曳後瀏覽器補發的 click） */
+    dragJustEnded() { return Date.now() - lastDragEndAt < 350; },
     /** 高亮某位隊友的完整航跡（多段弧 + 降落點），並把鏡頭轉到旅程中心 */
     focusMateJourney({ from, to, arrLabel, depLabel, idx, pid, arcs }) {
       view.focusPid = pid || null;
@@ -2593,12 +2601,15 @@ function openMateFromBoard(f) {
   openSheet('mate-sheet');
 }
 
+let mateSheetDismissedAt = 0;
+
 function dismissMateSheetOnly() {
   if (document.body.dataset.openSheet !== 'mate-sheet') return;
   $('sheet-mask')?.classList.remove('show');
   $('mate-sheet')?.classList.remove('show');
   document.body.classList.remove('sheet-open');
   delete document.body.dataset.openSheet;
+  mateSheetDismissedAt = Date.now();
 }
 
 function applyMateTrailFocus(f) {
@@ -3880,11 +3891,17 @@ async function captureMemoryCardBlob(landed = lastLandedFlight, scenery = landin
   card.style.width = `${cardWidth}px`;
   card.querySelector('.memory-window-loading')?.classList.remove('is-visible');
 
+  // Notion 上的風景圖是跨域 S3 網址、無 CORS 標頭，擷取讀不到 pixel；
+  // 改走伺服器同源代理。本機記憶體模式的 data: 圖直接沿用。
+  const proxySrc = landed.flightId
+    ? `/api/scenery-image?flightId=${encodeURIComponent(landed.flightId)}` : '';
   const image = card.querySelector('.memory-window-img');
   const imageUrl = scenery?.imageUrl || '';
   if (image && imageUrl) {
-    image.src = imageUrl;
+    image.src = (/^https?:/i.test(imageUrl) && proxySrc) ? proxySrc : imageUrl;
     card.classList.add('has-photo');
+  } else if (image && /^https?:/i.test(image.src || '') && proxySrc) {
+    image.src = proxySrc;
   }
 
   document.body.appendChild(capture);
@@ -3938,7 +3955,8 @@ function openSharePreview(blob, info) {
     url,
     filename: `sleep-airline-${safeCity}.png`,
     title: `Sleep Airline · ${info.city}`,
-    text: `${info.depFlag} ${info.depCountry} → ${info.flag} ${info.city}${info.country ? ` · ${info.country}` : ''}`,
+    text: `歡迎搭乘 Sleep Airline ✈ 今天我在 ${info.flag} ${info.city}${info.country ? `・${info.country}` : ''} 降落！`,
+    shareUrl: location.origin + location.pathname,
   };
   img.src = url;
   modal.classList.remove('hidden');
@@ -3964,7 +3982,12 @@ async function sendSharePreview() {
   const file = new File([state.blob], state.filename, { type: state.blob.type || 'image/png' });
   if (navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: state.title, text: state.text });
+      await navigator.share({
+        files: [file],
+        title: state.title,
+        text: state.text,
+        url: state.shareUrl,
+      });
       showMsg('main', 'success', '圖卡已分享');
       closeSharePreview();
       return;
@@ -3973,7 +3996,13 @@ async function sendSharePreview() {
     }
   }
   downloadShareBlob(state.blob, state.filename);
-  showMsg('main', 'success', '已下載分享圖卡（JPEG）');
+  // 沒有系統分享面板時，順手把邀請文案放進剪貼簿
+  try {
+    await navigator.clipboard?.writeText(`${state.text}\n${state.shareUrl}`);
+    showMsg('main', 'success', '已下載分享圖卡，邀請文字已複製');
+  } catch {
+    showMsg('main', 'success', '已下載分享圖卡（JPEG）');
+  }
 }
 
 async function shareArrivalJourney(source = 'panel') {
@@ -4976,14 +5005,22 @@ document.addEventListener('keydown', (e) => {
     closeMemoryGallery();
   }
 });
+// 隊友詳情開著時，一碰地球就先收起資訊卡，讓拖曳／縮放直接繼續（高亮航跡保留）
+$('globe-svg')?.addEventListener('pointerdown', (e) => {
+  if (document.body.dataset.openSheet !== 'mate-sheet') return;
+  if (Globe.isPickTarget(e.target)) return;
+  dismissMateSheetOnly();
+});
 $('globe-svg')?.addEventListener('click', (e) => {
+  if (Globe.dragJustEnded()) return; // 拖曳結束補發的 click 不當作「點空白」
   if (isLandedPanelVisible()) {
     if (e.target.closest('.pt-pick')) return;
     dismissLandedPanel();
     return;
   }
-  // 點空白處取消地圖軌跡焦點（看板詳情開著時不處理）
+  // 點空白處取消地圖軌跡焦點（看板詳情開著時不處理；剛收起詳情的那一下也不算）
   if (globeFocusPid && !document.body.classList.contains('sheet-open')) {
+    if (Date.now() - mateSheetDismissedAt < 400) return;
     if (e.target.closest('.pt') || e.target.closest('.pt-pick')) return;
     globeFocusPid = null;
     Globe.clearMate();

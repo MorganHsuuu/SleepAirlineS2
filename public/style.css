@@ -1993,14 +1993,18 @@ body[data-ui-phase="landed"] #sheet-mask.show {
   opacity: 0 !important;
   pointer-events: none !important;
 }
-/* 隊友詳情：飛行／抵達階段仍可按遮罩或拖曳條收起。
-   遮罩保持全透明、不模糊——地球與高亮航跡維持清晰，點空白處即收起 */
+/* 隊友詳情：遮罩全透明且不攔截事件——地球維持清晰、可直接繼續拖曳
+   （碰地球時由 app.js 收起資訊卡），拖曳條與 Escape 也能收起 */
 body[data-open-sheet="mate-sheet"] #sheet-mask.show {
   opacity: 1 !important;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+/* sheet-open 會關掉 #main-section 的 pointer-events；隊友詳情時讓地球恢復互動 */
+body[data-open-sheet="mate-sheet"] #globe-svg {
+  pointer-events: auto;
 }
 
 /* sheet 開啟時：底層 HUD／登入卡不攔截點擊 */

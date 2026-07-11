@@ -108083,8 +108083,7 @@ var DIRECTION_LABEL2 = {
 function passengerLabel(name) {
   const trimmed = name.trim();
   if (!trimmed) return "\u9019\u4F4D\u4E58\u5BA2";
-  if (/先生|女士|小姐/.test(trimmed)) return trimmed;
-  return `${trimmed}\u5148\u751F\uFF0F\u5973\u58EB`;
+  return trimmed.replace(/(?:先生|女士|小姐)$/u, "").trim() || "\u9019\u4F4D\u4E58\u5BA2";
 }
 function formatDuration2(minutes) {
   if (!minutes || minutes <= 0) return "";
@@ -108150,6 +108149,7 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - \u7981\u6B62\u5BEB\u300C\u6211\u662F\u6A5F\u9577\u3007\u3007\u300D\u82E5\u3007\u3007\u662F\u4E58\u5BA2\u59D3\u540D
 - \u7981\u6B62\u5192\u5145\u4E58\u5BA2\u3001\u7981\u6B62\u7528\u7B2C\u4E00\u4EBA\u7A31\u4EE3\u66FF\u4E58\u5BA2\u8AAA\u8A71
 - \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9\uFF1B\u4E0D\u8981\u7A31\u81EA\u5DF1\u70BA\u4E58\u5BA2\u59D3\u540D
+- \u7A31\u547C\u4E58\u5BA2\u6642\u76F4\u63A5\u4F7F\u7528\u540D\u5B57\uFF0C\u7981\u6B62\u9644\u52A0\u300C\u5148\u751F\u300D\u300C\u5973\u58EB\u300D\u300C\u5C0F\u59D0\u300D\u6216\u300C\u5148\u751F\uFF0F\u5973\u58EB\u300D
 
 \u5730\u7406\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
 - \u4F7F\u7528\u3010\u5EE3\u64AD\u7528\u5730\u540D\u3011\uFF1B\u4E0D\u8981\u7167\u5FF5\u96E3\u61C2\u7684\u7F85\u99AC\u5B57\u3001\u97F3\u6A19\u3001\u6487\u865F\u5730\u540D
@@ -109096,6 +109096,43 @@ app.get("/api/scenery", async (req, res) => {
     }
     const scenery = await getLandscapeByFlightId(flightId);
     res.json({ scenery });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+});
+app.get("/api/scenery-image", async (req, res) => {
+  try {
+    const flightId = req.query.flightId;
+    if (!flightId) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B flightId\u3002" });
+      return;
+    }
+    const scenery = await getLandscapeByFlightId(flightId);
+    const imageUrl = scenery?.imageUrl;
+    if (!imageUrl) {
+      res.status(404).json({ error: "\u627E\u4E0D\u5230\u98A8\u666F\u5716\u3002" });
+      return;
+    }
+    if (imageUrl.startsWith("data:")) {
+      const match = /^data:([^;,]+)?(;base64)?,(.*)$/.exec(imageUrl);
+      if (!match) {
+        res.status(500).json({ error: "\u98A8\u666F\u5716\u683C\u5F0F\u932F\u8AA4\u3002" });
+        return;
+      }
+      const buffer = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]), "utf8");
+      res.setHeader("Content-Type", match[1] || "image/png");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.send(buffer);
+      return;
+    }
+    const upstream = await fetch(imageUrl);
+    if (!upstream.ok) {
+      res.status(502).json({ error: `\u98A8\u666F\u5716\u4E0B\u8F09\u5931\u6557\uFF08${upstream.status}\uFF09\u3002` });
+      return;
+    }
+    res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/jpeg");
+    res.setHeader("Cache-Control", "private, max-age=600");
+    res.send(Buffer.from(await upstream.arrayBuffer()));
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }

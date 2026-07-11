@@ -490,6 +490,40 @@ app.get('/api/scenery', async (req, res) => {
   }
 });
 
+// ── GET /api/scenery-image ────────────────────────────────────────────────────
+// 同源代理降落風景圖：Notion 檔案是 S3 簽名網址、沒有 CORS 標頭，
+// 前端 DOM 擷取（html2canvas）讀不到跨域 pixel，改由伺服器抓回再轉送。
+
+app.get('/api/scenery-image', async (req, res) => {
+  try {
+    const flightId = req.query.flightId as string;
+    if (!flightId) { res.status(400).json({ error: '請提供 flightId。' }); return; }
+    const scenery = await getLandscapeByFlightId(flightId);
+    const imageUrl = scenery?.imageUrl;
+    if (!imageUrl) { res.status(404).json({ error: '找不到風景圖。' }); return; }
+
+    if (imageUrl.startsWith('data:')) {
+      const match = /^data:([^;,]+)?(;base64)?,(.*)$/.exec(imageUrl);
+      if (!match) { res.status(500).json({ error: '風景圖格式錯誤。' }); return; }
+      const buffer = match[2]
+        ? Buffer.from(match[3], 'base64')
+        : Buffer.from(decodeURIComponent(match[3]), 'utf8');
+      res.setHeader('Content-Type', match[1] || 'image/png');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      res.send(buffer);
+      return;
+    }
+
+    const upstream = await fetch(imageUrl);
+    if (!upstream.ok) { res.status(502).json({ error: `風景圖下載失敗（${upstream.status}）。` }); return; }
+    res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+});
+
 // ── GET /api/workshop ─────────────────────────────────────────────────────────
 
 app.get('/api/workshop', async (_req, res) => {
