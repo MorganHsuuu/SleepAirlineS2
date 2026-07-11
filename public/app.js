@@ -4072,7 +4072,9 @@ function memoryPlaneSvg(extraClass = '') {
   const path = isRoute
     ? 'M2.8 12.9h6.8L11.9 7h1.8l-2.1 5.9H16.2l2.5-2.6h1.4l-1.6 2.6h1.7c1.3 0 1.3 1.9 0 1.9h-1.7l1.6 2.6h-1.4l-2.5-2.6h-3.6l2.1 5.9H11.9l-2.3-5.9H2.8c-1.2 0-1.2-1.9 0-1.9z'
     : 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16z';
-  return `<svg class="${cls}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="${path}"/></svg>`;
+  // 航線剪影原始座標是機頭朝左；用 SVG 內部鏡射翻成朝右（html2canvas 可正確輸出）
+  const flip = isRoute ? ' transform="translate(24 0) scale(-1 1)"' : '';
+  return `<svg class="${cls}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor"${flip} d="${path}"/></svg>`;
 }
 
 function memoryBarcodeSvg() {

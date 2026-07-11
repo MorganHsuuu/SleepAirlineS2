@@ -1993,10 +1993,14 @@ body[data-ui-phase="landed"] #sheet-mask.show {
   opacity: 0 !important;
   pointer-events: none !important;
 }
-/* 隊友詳情：飛行／抵達階段仍可按遮罩或拖曳條收起 */
+/* 隊友詳情：飛行／抵達階段仍可按遮罩或拖曳條收起。
+   遮罩保持全透明、不模糊——地球與高亮航跡維持清晰，點空白處即收起 */
 body[data-open-sheet="mate-sheet"] #sheet-mask.show {
   opacity: 1 !important;
   pointer-events: auto !important;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* sheet 開啟時：底層 HUD／登入卡不攔截點擊 */
@@ -3645,37 +3649,48 @@ body[data-theme="dusk"] .memory-ticket-share--standalone {
 .memory-share-capture .memory-window-view {
   box-shadow: none;
 }
+/* html2canvas 1.4.1 的限制：backdrop-filter 完全不支援，
+   同一元素疊多層背景漸層＋inset 陰影會整片攤開變灰白、圓角裁切失敗出現四角棋盤格。
+   仿玻璃作法：單層半透明漸層（透出底下的舷窗與背景）＋亮邊框，
+   光澤拆到 ::before 單獨一層（單層漸層各自都畫得動）。
+   加 !important 是為了壓過 body[data-theme] 主題規則的特異度。 */
 .memory-share-capture .memory-ticket--liquid,
-body[data-theme="dusk"] .memory-share-capture .memory-ticket--liquid {
+body[data-theme] .memory-share-capture .memory-ticket--liquid {
   overflow: hidden;
-  border-color: rgba(255,255,255,.42);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.26) 0%, rgba(255,255,255,.08) 28%, transparent 52%),
-    linear-gradient(145deg,
-      #7f93b2 0%,
-      #4a5d7c 46%,
-      #6a5568 100%);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow:
-    0 18px 34px rgba(2,8,20,.3),
-    inset 0 1px 0 rgba(255,255,255,.48),
-    inset 0 -1px 0 rgba(9,19,38,.28),
-    inset 1px 0 0 rgba(255,255,255,.14),
-    inset -1px 0 0 rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.5) !important;
+  background: linear-gradient(165deg,
+    rgba(255,255,255,.32) 0%,
+    rgba(255,255,255,.13) 42%,
+    rgba(150,165,200,.16) 100%) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
 }
-.memory-share-capture .memory-ticket--liquid::before {
-  display: block;
+.memory-share-capture .memory-ticket--liquid::before,
+body[data-theme] .memory-share-capture .memory-ticket--liquid::before {
+  display: block !important;
+  content: "";
+  position: absolute;
   inset: 1px 12px auto;
-  height: 46%;
-  background: linear-gradient(180deg, rgba(255,255,255,.34), transparent 78%);
+  height: 42%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 80%) !important;
+  box-shadow: none !important;
+}
+.memory-share-capture .memory-ticket--liquid::after {
+  display: none !important;
 }
 /* html2canvas 對半透明 SVG 常出現棋盤格；擷取時改成實底＋明確金色 */
-.memory-share-capture .memory-ticket-logo {
-  color: #f0d08a;
-  background: #51627f;
-  border-color: rgba(255,255,255,.38);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+.memory-share-capture .memory-ticket-logo,
+body[data-theme] .memory-share-capture .memory-ticket-logo {
+  color: #f0d08a !important;
+  background: #51627f !important;
+  border-color: rgba(255,255,255,.38) !important;
+  box-shadow: none !important;
+}
+.memory-share-capture .memory-window,
+.memory-share-capture .memory-window-rim {
+  box-shadow: none;
 }
 .memory-share-capture .memory-ticket-barcode {
   width: 58px;
