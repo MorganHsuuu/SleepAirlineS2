@@ -27,6 +27,16 @@ export function buildSceneryPrompt(city: string, country: string, displayName: s
 /** 1024x1024 生成明顯快於 1536x1024；舷窗以 object-fit: cover 裁切，方圖即可。 */
 export const SCENERY_IMAGE_SIZE = '1024x1024';
 
+/**
+ * gpt-image 系列的生圖品質，可用 OPENAI_IMAGE_QUALITY 環境變數調整（low / medium / high）。
+ * 生圖已改為降落後由伺服器背景完成，不趕過場時間，medium 的細節值得多等的十幾秒。
+ */
+type GptImageQuality = 'low' | 'medium' | 'high';
+function resolveImageQuality(): GptImageQuality {
+  const q = process.env.OPENAI_IMAGE_QUALITY?.toLowerCase();
+  return q === 'low' || q === 'medium' || q === 'high' ? q : 'medium';
+}
+
 function safeFilename(city: string, flightId: string): string {
   const slug = city.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'landing';
   return `landing-${slug}-${flightId.slice(-8)}.jpg`;
@@ -56,8 +66,8 @@ export async function generateLandingScenery(
             model,
             prompt: imagePrompt,
             size: SCENERY_IMAGE_SIZE,
-            quality: 'low',
-            // jpeg 比 png 小很多，Notion 上傳更快，也比較不容易撞 Vercel 60s 上限
+            quality: resolveImageQuality(),
+            // jpeg 比 png 小很多，Notion 上傳更快
             output_format: 'jpeg',
             n: 1,
           }

@@ -108548,6 +108548,10 @@ function buildSceneryPrompt(city, country, displayName) {
   ].join(" ");
 }
 var SCENERY_IMAGE_SIZE = "1024x1024";
+function resolveImageQuality() {
+  const q = process.env.OPENAI_IMAGE_QUALITY?.toLowerCase();
+  return q === "low" || q === "medium" || q === "high" ? q : "medium";
+}
 function safeFilename(city, flightId) {
   const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
   return `landing-${slug2}-${flightId.slice(-8)}.jpg`;
@@ -108567,8 +108571,8 @@ async function generateLandingScenery(city, country, displayName, flightId) {
         model,
         prompt: imagePrompt,
         size: SCENERY_IMAGE_SIZE,
-        quality: "low",
-        // jpeg 比 png 小很多，Notion 上傳更快，也比較不容易撞 Vercel 60s 上限
+        quality: resolveImageQuality(),
+        // jpeg 比 png 小很多，Notion 上傳更快
         output_format: "jpeg",
         n: 1
       } : {
@@ -108620,43 +108624,64 @@ function parseCityCountry(arrivalLocation) {
   return { city: arrivalLocation, country: arrivalLocation };
 }
 var inflightJobs = /* @__PURE__ */ new Map();
-function backfillSceneryForFlight(flightId, options) {
+function dedupe(flightId, force, run) {
   const running = inflightJobs.get(flightId);
-  if (running && !options?.force) return running;
-  const job = runSceneryBackfill(flightId, options).finally(() => {
+  if (running && !force) return running;
+  const job = run().finally(() => {
     if (inflightJobs.get(flightId) === job) inflightJobs.delete(flightId);
   });
   inflightJobs.set(flightId, job);
   return job;
 }
+function generateSceneryForLanding(info) {
+  return dedupe(info.flightId, false, () => generateAndSaveScenery(info, { force: false }));
+}
+function backfillSceneryForFlight(flightId, options) {
+  return dedupe(flightId, !!options?.force, () => runSceneryBackfill(flightId, options));
+}
 async function runSceneryBackfill(flightId, options) {
-  const existing = await getLandscapeByFlightId(flightId);
-  if (!options?.force && existing?.imageUrl) {
-    return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
-  }
   const flight = await getFlightByFlightId(flightId);
   if (!flight) return { flightId, error: "\u627E\u4E0D\u5230\u822A\u73ED" };
   if (!flight.arrivalLocation) return { flightId, error: "\u6C92\u6709\u62B5\u9054\u5730\u9EDE" };
-  const { city, country } = parseCityCountry(flight.arrivalLocation);
+  return generateAndSaveScenery(
+    {
+      flightId: flight.flightId,
+      passengerId: flight.passengerId,
+      passengerName: flight.passengerName,
+      groupId: flight.groupId,
+      arrivalLocation: flight.arrivalLocation,
+      landingTime: flight.landingTime
+    },
+    { force: !!options?.force }
+  );
+}
+async function generateAndSaveScenery(info, options) {
+  const { flightId } = info;
+  const existing = await getLandscapeByFlightId(flightId);
+  if (!options.force && existing?.imageUrl) {
+    return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
+  }
+  if (!info.arrivalLocation) return { flightId, error: "\u6C92\u6709\u62B5\u9054\u5730\u9EDE" };
+  const { city, country } = parseCityCountry(info.arrivalLocation);
   const startedAt = Date.now();
-  const sceneryGen = await generateLandingScenery(city, country, flight.arrivalLocation, flight.flightId);
+  const sceneryGen = await generateLandingScenery(city, country, info.arrivalLocation, flightId);
   if (!sceneryGen) {
     console.error(`[scenery] ${flightId} \u751F\u5716\u5931\u6557\uFF08${Date.now() - startedAt}ms\uFF09\u2014 \u6AA2\u67E5 OPENAI_API_KEY / OPENAI_IMAGE_MODEL`);
     return { flightId, error: "\u751F\u5716\u5931\u6557\uFF08OPENAI_API_KEY\uFF09" };
   }
   console.log(`[scenery] ${flightId} \u751F\u5716\u5B8C\u6210 ${Date.now() - startedAt}ms \u2192 \u5B58\u5165 Notion`);
   const saved = await saveLandingScenery({
-    flightId: flight.flightId,
-    passengerId: flight.passengerId,
-    passengerName: flight.passengerName,
-    groupId: flight.groupId,
-    arrivalLocation: flight.arrivalLocation,
+    flightId,
+    passengerId: info.passengerId,
+    passengerName: info.passengerName,
+    groupId: info.groupId,
+    arrivalLocation: info.arrivalLocation,
     country,
     imageBuffer: sceneryGen.imageBuffer,
     filename: sceneryGen.filename,
     contentType: sceneryGen.contentType,
     imagePrompt: sceneryGen.imagePrompt,
-    landingTime: flight.landingTime ?? (/* @__PURE__ */ new Date()).toISOString()
+    landingTime: info.landingTime ?? (/* @__PURE__ */ new Date()).toISOString()
   });
   if (!saved?.imageUrl) {
     console.error(`[scenery] ${flightId} \u5B58\u5165 Notion \u5931\u6557`);
@@ -109036,10 +109061,19 @@ app.post("/api/flight/land", async (req, res) => {
       }),
       generateSpeechWithBudget(captainBroadcast, broadcastStyle)
     ]);
-    runInBackground(
-      `scenery ${activeFlight.flightId}`,
-      () => backfillSceneryForFlight(activeFlight.flightId)
-    );
+    runInBackground(`scenery ${activeFlight.flightId}`, async () => {
+      const result = await generateSceneryForLanding({
+        flightId: activeFlight.flightId,
+        passengerId: activeFlight.passengerId,
+        passengerName: activeFlight.passengerName,
+        groupId: passenger.groupId,
+        arrivalLocation: arrival.displayName,
+        landingTime
+      });
+      if (result.error) {
+        console.error(`[scenery] ${activeFlight.flightId} \u964D\u843D\u80CC\u666F\u751F\u5716\u5931\u6557\uFF1A${result.error}`);
+      }
+    });
     res.json({
       flight: {
         ...activeFlight,
