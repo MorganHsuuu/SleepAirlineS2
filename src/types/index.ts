@@ -112,6 +112,8 @@ export interface SocialCue {
   cueType: SocialCueType;
   relatedPassenger: string | null;
   cueText: string;
+  /** 人數多時的一句小隊氛圍；廣播仍只用 cueText（primary） */
+  groupSummary?: string | null;
 }
 
 export interface WorkshopSummary {

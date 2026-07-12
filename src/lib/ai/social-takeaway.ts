@@ -2,9 +2,9 @@ import OpenAI from 'openai';
 import type { SocialCue } from '../../types';
 
 /**
- * Social Takeaway：一句可以拿去跟隊友接話的社交短句。
- * 不是完整機長廣播——是「昨晚我和隊友之間發生了什麼」的一句話版本，
- * 顯示在起飛／降落畫面（小隊回聲），之後也可用於 TTS 或 Reply Card。
+ * Social Takeaway：可以拿去跟隊友接話的社交短句。
+ * primary cue 一句；人數多時可再加一句 group summary，最多兩句。
+ * 不是完整機長廣播——顯示在起飛／降落畫面（小隊回聲）。
  */
 export interface SocialTakeawayInput {
   phase: 'takeoff' | 'landing';
@@ -15,6 +15,7 @@ export interface SocialTakeawayInput {
   arrivalLocation?: string | null;
   flightDurationMinutes?: number | null;
   estimatedDistanceKm?: number | null;
+  groupSummary?: string | null;
 }
 
 const DIRECTION_LABEL: Record<string, string> = {
@@ -31,100 +32,125 @@ const DIRECTION_LABEL: Record<string, string> = {
   unknown: '未定',
 };
 
+function endSentence(text: string): string {
+  const trimmed = text.trim().replace(/[。．.！!？?]+$/u, '');
+  return trimmed ? `${trimmed}。` : '';
+}
+
+/** primary + optional group summary，最多兩句 */
+export function composeSocialTakeaway(primary: string, groupSummary?: string | null): string {
+  const first = endSentence(primary);
+  const second = endSentence(groupSummary ?? '');
+  if (!first) return second;
+  if (!second) return first;
+  return `${first}${second}`;
+}
+
 /** AI 不可用時的規則式短句：依 cueType 給一句可接話的話 */
 export function fallbackSocialTakeaway(input: SocialTakeawayInput): string {
   const name = input.socialCue.relatedPassenger?.trim() || '一位隊友';
+  let primary = '';
   switch (input.socialCue.cueType) {
     case 'solo':
-      return input.phase === 'takeoff'
+      primary = input.phase === 'takeoff'
         ? '今晚小隊雷達很安靜，你先起飛。'
         : '今晚你完成了一趟安靜的個人航班。';
+      break;
     case 'teammate_departure':
-      return `${name} 已經起飛，小隊夜航開始了。`;
+      primary = `${name} 已經起飛，小隊夜航開始了。`;
+      break;
     case 'teammate_in_sky':
-      return `${name} 還在飛，你不是唯一醒著的人。`;
+      primary = `${name} 還在飛，你不是唯一醒著的人。`;
+      break;
     case 'teammate_arrival':
-      return `${name} 已經降落，先替小隊探了路。`;
+      primary = `${name} 已經降落，先替小隊探了路。`;
+      break;
     case 'fresh_arrival':
-      return `${name} 剛剛降落，小隊雷達亮了一下。`;
+      primary = `${name} 剛剛降落，小隊雷達亮了一下。`;
+      break;
     case 'parallel_heading':
-      return `你和 ${name} 昨晚真的往同個方向飛了。`;
+      primary = `你和 ${name} 昨晚真的往同個方向飛了。`;
+      break;
     case 'same_departure':
-      return `你和 ${name} 從同一座城市起飛。`;
+      primary = `你和 ${name} 從同一座城市起飛。`;
+      break;
     case 'heading_contrast':
-      return `你和 ${name} 分頭飛，夜空剛好被拉開。`;
+      primary = `你和 ${name} 分頭飛，夜空剛好被拉開。`;
+      break;
     case 'squad_in_sky':
-      return '今晚小隊雷達很熱鬧。';
+      primary = '今晚小隊雷達很熱鬧。';
+      break;
     case 'first_of_night':
-      return '你是今晚小隊第一班起飛的航班。';
+      primary = '你是今晚小隊第一班起飛的航班。';
+      break;
     case 'relay_flight':
-      return `你降落後，${name} 繼續替小隊夜航。`;
+      primary = `你降落後，${name} 繼續替小隊夜航。`;
+      break;
     case 'early_landing':
-      return `${name} 比你早降落，先抵達清晨。`;
+      primary = `${name} 比你早降落，先抵達清晨。`;
+      break;
     case 'late_landing':
-      return `${name} 在你之後也完成降落。`;
+      primary = `${name} 在你之後也完成降落。`;
+      break;
     case 'route_convergence':
-      return `你和 ${name} 的航線比想像中更靠近。`;
+      primary = `你和 ${name} 的航線比想像中更靠近。`;
+      break;
     default:
-      return '小隊雷達記下了今晚的一段航程。';
+      primary = '小隊雷達記下了今晚的一段航程。';
   }
+
+  const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
+  return composeSocialTakeaway(primary, groupSummary);
 }
 
-/** 去掉模型偶爾加上的引號、標題、換行，只留一句 */
+/** 去掉模型偶爾加上的引號、標題；保留最多兩句 */
 function cleanTakeaway(raw: string): string {
-  return raw
+  const cleaned = raw
     .replace(/^["'「『”]+|["'」『』”]+$/g, '')
     .replace(/^(小隊回聲|Social Takeaway)[：:]\s*/i, '')
-    .split('\n')[0]
     .trim();
+  const parts = cleaned
+    .split(/(?<=[。！？])/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  return parts.join('');
 }
 
 const SYSTEM_PROMPT = `你是「甦醒航班 Sleep Airline」的社交語音短句撰寫者。
-你的任務不是寫完整機長廣播，而是根據航班資料生成一句可以讓使用者拿去跟同組朋友接話的短句。
+你的任務不是寫完整機長廣播，而是根據「一則主要雷達訊號」生成可拿去跟同組朋友接話的短句。
 
 設計目標：
-- 把睡眠提醒轉化為飛行語言
-- 把監督感轉化為玩笑式陪伴
-- 把小隊狀態轉化為一句可以被分享、回應、截圖或傳給朋友的話
-- 讓句子聽起來像 Sleep Airline 世界裡自然會出現的話，而不是健康 App 通知
+- 像「小隊雷達掃到一則訊號」，不是完整監控報告
+- 每次只講一則主要個人／事件訊號
+- 若有小隊氛圍句，最多再補一句整體感，不要列出所有人
 
 語氣：
 - 繁體中文
 - 口語、短、清楚、有一點可愛或玩笑
 - 不要過度詩意
 - 不要像客服、不要像健康建議、不要像任務系統
-- 可以輕微撒嬌、玩笑、邀請，但不能責備
-- 像朋友之間可以講的航班語言
 
 長度：
-- 12–32 字
-- 最多一句
-- 不要列點
-- 不要加標題、引號或說明
+- 主要訊號 12–32 字
+- 若提供【小隊氛圍】，輸出最多兩句：第一句改寫主要訊號，第二句改寫小隊氛圍
+- 若沒有【小隊氛圍】，只輸出一句
+- 不要列點、不要加標題、引號或說明
 
 禁止：
 - 禁止說「你應該早睡」「請改善睡眠」「睡眠品質」
-- 禁止評分、排名、達標、失敗
+- 禁止評分、排名、達標、失敗、比較誰睡比較久
+- 禁止列出所有隊友的睡眠或飛行狀態
 - 禁止責備沒起飛或晚睡的人
 - 禁止編造未提供的人名、地名、時間
 - 禁止把飛行中的隊友說成已降落
 - 禁止把已降落的隊友說成還在飛
-- 禁止說所有隊友都如何，除非資料明確提供多人狀態
-- 禁止過度感性或太文青
-- 禁止使用「夢想」「宇宙」「靈魂」這類太抽象的字眼
-
-社交語言方向：
-- 如果是 solo，不要強調孤單，可以說「今晚小隊雷達很安靜」
-- 如果有人還在飛，要呈現陪伴感，例如「A 還在飛，你不是唯一醒著的人」
-- 如果有人已降落，可以說「A 先替小隊探了路」
-- 如果同向飛行，可以說「你們昨晚真的一起往東飛了」
-- 如果航線接近，可以說「你和 A 的航線比想像中更靠近」
-- 如果接力，可以說「你降落後，A 繼續替小隊夜航」
-- 如果沒有人或資訊不足，就生成一句溫和的個人航班句`;
+- 禁止把單一訊號擴寫成全員監控報告`;
 
 export async function generateSocialTakeaway(input: SocialTakeawayInput): Promise<string> {
+  const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   if (!process.env.OPENAI_API_KEY) {
-    return fallbackSocialTakeaway(input);
+    return fallbackSocialTakeaway({ ...input, groupSummary });
   }
 
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -144,12 +170,12 @@ ${input.passengerName}
 飛行時長：${input.flightDurationMinutes ?? '未知'}
 航程公里：${input.estimatedDistanceKm ? Math.round(input.estimatedDistanceKm) : '未知'}
 
-【同組社交】
+【主要雷達訊號】
 類型：${input.socialCue.cueType}
 提示：${input.socialCue.cueText}
 相關乘客：${input.socialCue.relatedPassenger ?? '無'}
-
-請生成一句 Social Takeaway。`;
+${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}
+請生成 Social Takeaway（${groupSummary ? '最多兩句' : '一句'}）。`;
 
   try {
     const completion = await client.chat.completions.create({
@@ -158,13 +184,19 @@ ${input.passengerName}
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 80,
+      max_tokens: groupSummary ? 120 : 80,
       temperature: 0.9,
     });
 
     const text = cleanTakeaway(completion.choices[0]?.message?.content ?? '');
-    return text.length >= 6 ? text : fallbackSocialTakeaway(input);
+    if (text.length < 6) {
+      return fallbackSocialTakeaway({ ...input, groupSummary });
+    }
+    if (!groupSummary) return endSentence(text);
+
+    const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
+    return composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
   } catch {
-    return fallbackSocialTakeaway(input);
+    return fallbackSocialTakeaway({ ...input, groupSummary });
   }
 }

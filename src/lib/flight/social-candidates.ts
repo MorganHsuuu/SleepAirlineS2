@@ -30,17 +30,41 @@ export interface SocialCueCandidate {
   facts: Record<string, string | number | null>;
 }
 
-/** 起飛階段允許的 cue（排除空域／距離／進度類，避免機長誤寫降落倒數） */
+/** 起飛階段允許的 cue（對齊 takeoff 優先序；避免 heading_contrast 等易寫歪的類型） */
 const TAKEOFF_SOCIAL_CUE_TYPES = new Set<SocialCueType>([
-  'teammate_arrival',
+  'teammate_in_sky',
   'teammate_departure',
-  'parallel_heading',
-  'same_departure',
-  'heading_contrast',
   'squad_in_sky',
-  'fresh_arrival',
+  'same_departure',
+  'parallel_heading',
   'first_of_night',
 ]);
+
+/** 降落：高優先類型由上到下；同一階（如 early/late）內再 random */
+export const LANDING_SOCIAL_CUE_PRIORITY: Array<SocialCueType | SocialCueType[]> = [
+  'route_convergence',
+  'relay_flight',
+  'parallel_heading',
+  'fresh_arrival',
+  'teammate_arrival',
+  ['early_landing', 'late_landing'],
+  'squad_in_sky',
+  'solo',
+];
+
+/** 起飛：高優先類型由上到下 */
+export const TAKEOFF_SOCIAL_CUE_PRIORITY: Array<SocialCueType | SocialCueType[]> = [
+  'teammate_in_sky',
+  'teammate_departure',
+  'squad_in_sky',
+  'same_departure',
+  'parallel_heading',
+  'first_of_night',
+  'solo',
+];
+
+/** 其他活躍隊友達此人數才附加 group summary（人數少只講 primary cue） */
+export const GROUP_SUMMARY_MIN_OTHERS = 3;
 
 const OPPOSITE_ROUTE_DIRECTIONS: Partial<Record<RouteDirection, RouteDirection[]>> = {
   eastbound: ['westbound'],
@@ -443,16 +467,66 @@ export function collectSocialCueCandidates(
   return candidates;
 }
 
-export function pickRandomSocialCueCandidate(
-  candidates: SocialCueCandidate[]
+export function pickPrioritySocialCueCandidate(
+  candidates: SocialCueCandidate[],
+  phase: 'takeoff' | 'landing',
+  random: () => number = Math.random
 ): SocialCueCandidate | null {
   if (candidates.length === 0) return null;
-  const latest = [...candidates]
-    .filter((candidate) => typeof candidate.facts.eventTimeMs === 'number')
-    .sort((a, b) => Number(b.facts.eventTimeMs) - Number(a.facts.eventTimeMs))[0];
-  if (latest) return latest;
-  const index = Math.floor(Math.random() * candidates.length);
+
+  const priority = phase === 'landing' ? LANDING_SOCIAL_CUE_PRIORITY : TAKEOFF_SOCIAL_CUE_PRIORITY;
+  for (const tier of priority) {
+    const types = (Array.isArray(tier) ? tier : [tier]).filter((type) => type !== 'solo');
+    if (types.length === 0) continue;
+    const pool = candidates.filter((candidate) => types.includes(candidate.cueType));
+    if (pool.length === 0) continue;
+    const index = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+    return pool[index] ?? null;
+  }
+
+  const index = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
   return candidates[index] ?? null;
+}
+
+/** @deprecated 改用 pickPrioritySocialCueCandidate；保留別名避免舊呼叫炸掉 */
+export function pickRandomSocialCueCandidate(
+  candidates: SocialCueCandidate[],
+  phase: 'takeoff' | 'landing' = 'landing',
+  random: () => number = Math.random
+): SocialCueCandidate | null {
+  return pickPrioritySocialCueCandidate(candidates, phase, random);
+}
+
+/** 人數多時一句小隊氛圍；不列名單、不排行、不比較睡眠。 */
+export function buildGroupSocialSummary(
+  current: CurrentFlightContext,
+  groupFlights: Flight[]
+): string | null {
+  const others = groupFlights.filter((f) => f.passengerId !== current.passengerId);
+  const inFlight = others.filter((f) => f.status === 'in_flight');
+  const landed = others.filter((f) => f.status === 'landed' && f.landingTime != null);
+  const activeOthers = inFlight.length + landed.length;
+  if (activeOthers < GROUP_SUMMARY_MIN_OTHERS) return null;
+
+  if (inFlight.length >= 2 && landed.length >= 1) {
+    return `小隊雷達上還有 ${inFlight.length} 班在飛，夜航仍未散場。`;
+  }
+  if (inFlight.length >= 3) {
+    return `今晚小隊有 ${inFlight.length} 班還在雲上。`;
+  }
+  if (inFlight.length >= 2) {
+    return '小隊雷達掃到多班並行夜航。';
+  }
+  if (landed.length >= 3 && inFlight.length === 1) {
+    return '多班已著陸，仍有一班替小隊守著夜空。';
+  }
+  if (landed.length >= 3) {
+    return '小隊今晚已有多班平安著陸。';
+  }
+  if (landed.length >= 2 && inFlight.length >= 1) {
+    return '小隊雷達上有人已落地，也有人還在飛。';
+  }
+  return '小隊雷達今晚比平常熱鬧一些。';
 }
 
 export function soloSocialCueCandidate(): SocialCueCandidate {

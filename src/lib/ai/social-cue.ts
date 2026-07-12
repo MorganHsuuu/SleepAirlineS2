@@ -34,7 +34,7 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
     case 'route_convergence':
       return `若想靠近 ${name}（目前在 ${candidate.facts.teammatePlace}），可試著${candidate.facts.suggestDirection}飛行，約 ${candidate.facts.distanceKm} 公里。`;
     case 'teammate_in_sky':
-      return `${name} 已夜航 ${candidate.facts.elapsedLabel}，估計在 ${candidate.facts.skyRegion} 上空（進度 ${candidate.facts.flightProgress}%）。`;
+      return `${name} 已夜航 ${candidate.facts.elapsedLabel}，估計還在 ${candidate.facts.skyRegion} 上空。`;
     case 'parallel_heading': {
       const dir = DIRECTION_LABEL[String(candidate.facts.routeDirection)] ?? String(candidate.facts.routeDirection);
       return `你和 ${name} 都選了${dir}——從 ${candidate.facts.selfDeparture} 與 ${candidate.facts.teammateDeparture} 出發的平行夜航。`;
@@ -47,13 +47,15 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
       return `你航向${selfDir}，${name} 航向${otherDir}——小隊在夜空中走相反方向。`;
     }
     case 'squad_in_sky':
-      return `小隊雷達上現有 ${candidate.facts.inFlightCount} 人夜航、${candidate.facts.landedCount} 人已降落。`;
+      return Number(candidate.facts.inFlightCount) > 0
+        ? `小隊雷達掃到 ${candidate.facts.inFlightCount} 班還在夜航。`
+        : `小隊雷達記下今晚已有 ${candidate.facts.landedCount} 班著陸。`;
     case 'fresh_arrival':
-      return `${name} 剛在 ${candidate.facts.arrivalLocation} 降落（飛行 ${candidate.facts.flightDuration}）。`;
+      return `${name} 剛在 ${candidate.facts.arrivalLocation} 降落。`;
     case 'first_of_night':
       return `${String(candidate.facts.passengerName ?? '你')} 是小隊今晚第一班起飛的航班。`;
     case 'relay_flight':
-      return `你已降落，${name} 仍在夜航中（${candidate.facts.teammateDeparture} 出發，進度 ${candidate.facts.teammateProgress}%）。`;
+      return `你已降落，${name} 仍在夜航中，從 ${candidate.facts.teammateDeparture} 繼續替小隊飛。`;
     case 'early_landing':
       return `${name} 比你更早降落在 ${candidate.facts.arrivalLocation}。`;
     case 'late_landing':

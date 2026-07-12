@@ -107641,7 +107641,7 @@ function fallbackSocialCueText(candidate) {
     case "route_convergence":
       return `\u82E5\u60F3\u9760\u8FD1 ${name}\uFF08\u76EE\u524D\u5728 ${candidate.facts.teammatePlace}\uFF09\uFF0C\u53EF\u8A66\u8457${candidate.facts.suggestDirection}\u98DB\u884C\uFF0C\u7D04 ${candidate.facts.distanceKm} \u516C\u91CC\u3002`;
     case "teammate_in_sky":
-      return `${name} \u5DF2\u591C\u822A ${candidate.facts.elapsedLabel}\uFF0C\u4F30\u8A08\u5728 ${candidate.facts.skyRegion} \u4E0A\u7A7A\uFF08\u9032\u5EA6 ${candidate.facts.flightProgress}%\uFF09\u3002`;
+      return `${name} \u5DF2\u591C\u822A ${candidate.facts.elapsedLabel}\uFF0C\u4F30\u8A08\u9084\u5728 ${candidate.facts.skyRegion} \u4E0A\u7A7A\u3002`;
     case "parallel_heading": {
       const dir = DIRECTION_LABEL[String(candidate.facts.routeDirection)] ?? String(candidate.facts.routeDirection);
       return `\u4F60\u548C ${name} \u90FD\u9078\u4E86${dir}\u2014\u2014\u5F9E ${candidate.facts.selfDeparture} \u8207 ${candidate.facts.teammateDeparture} \u51FA\u767C\u7684\u5E73\u884C\u591C\u822A\u3002`;
@@ -107654,13 +107654,13 @@ function fallbackSocialCueText(candidate) {
       return `\u4F60\u822A\u5411${selfDir}\uFF0C${name} \u822A\u5411${otherDir}\u2014\u2014\u5C0F\u968A\u5728\u591C\u7A7A\u4E2D\u8D70\u76F8\u53CD\u65B9\u5411\u3002`;
     }
     case "squad_in_sky":
-      return `\u5C0F\u968A\u96F7\u9054\u4E0A\u73FE\u6709 ${candidate.facts.inFlightCount} \u4EBA\u591C\u822A\u3001${candidate.facts.landedCount} \u4EBA\u5DF2\u964D\u843D\u3002`;
+      return Number(candidate.facts.inFlightCount) > 0 ? `\u5C0F\u968A\u96F7\u9054\u6383\u5230 ${candidate.facts.inFlightCount} \u73ED\u9084\u5728\u591C\u822A\u3002` : `\u5C0F\u968A\u96F7\u9054\u8A18\u4E0B\u4ECA\u665A\u5DF2\u6709 ${candidate.facts.landedCount} \u73ED\u8457\u9678\u3002`;
     case "fresh_arrival":
-      return `${name} \u525B\u5728 ${candidate.facts.arrivalLocation} \u964D\u843D\uFF08\u98DB\u884C ${candidate.facts.flightDuration}\uFF09\u3002`;
+      return `${name} \u525B\u5728 ${candidate.facts.arrivalLocation} \u964D\u843D\u3002`;
     case "first_of_night":
       return `${String(candidate.facts.passengerName ?? "\u4F60")} \u662F\u5C0F\u968A\u4ECA\u665A\u7B2C\u4E00\u73ED\u8D77\u98DB\u7684\u822A\u73ED\u3002`;
     case "relay_flight":
-      return `\u4F60\u5DF2\u964D\u843D\uFF0C${name} \u4ECD\u5728\u591C\u822A\u4E2D\uFF08${candidate.facts.teammateDeparture} \u51FA\u767C\uFF0C\u9032\u5EA6 ${candidate.facts.teammateProgress}%\uFF09\u3002`;
+      return `\u4F60\u5DF2\u964D\u843D\uFF0C${name} \u4ECD\u5728\u591C\u822A\u4E2D\uFF0C\u5F9E ${candidate.facts.teammateDeparture} \u7E7C\u7E8C\u66FF\u5C0F\u968A\u98DB\u3002`;
     case "early_landing":
       return `${name} \u6BD4\u4F60\u66F4\u65E9\u964D\u843D\u5728 ${candidate.facts.arrivalLocation}\u3002`;
     case "late_landing":
@@ -107719,15 +107719,33 @@ ${factsToLines(candidate.facts)}
 
 // src/lib/flight/social-candidates.ts
 var TAKEOFF_SOCIAL_CUE_TYPES = /* @__PURE__ */ new Set([
-  "teammate_arrival",
+  "teammate_in_sky",
   "teammate_departure",
-  "parallel_heading",
-  "same_departure",
-  "heading_contrast",
   "squad_in_sky",
-  "fresh_arrival",
+  "same_departure",
+  "parallel_heading",
   "first_of_night"
 ]);
+var LANDING_SOCIAL_CUE_PRIORITY = [
+  "route_convergence",
+  "relay_flight",
+  "parallel_heading",
+  "fresh_arrival",
+  "teammate_arrival",
+  ["early_landing", "late_landing"],
+  "squad_in_sky",
+  "solo"
+];
+var TAKEOFF_SOCIAL_CUE_PRIORITY = [
+  "teammate_in_sky",
+  "teammate_departure",
+  "squad_in_sky",
+  "same_departure",
+  "parallel_heading",
+  "first_of_night",
+  "solo"
+];
+var GROUP_SUMMARY_MIN_OTHERS = 3;
 var OPPOSITE_ROUTE_DIRECTIONS = {
   eastbound: ["westbound"],
   westbound: ["eastbound"],
@@ -108031,12 +108049,45 @@ function collectSocialCueCandidates(current, groupFlights) {
   }
   return candidates;
 }
-function pickRandomSocialCueCandidate(candidates) {
+function pickPrioritySocialCueCandidate(candidates, phase, random = Math.random) {
   if (candidates.length === 0) return null;
-  const latest = [...candidates].filter((candidate) => typeof candidate.facts.eventTimeMs === "number").sort((a, b) => Number(b.facts.eventTimeMs) - Number(a.facts.eventTimeMs))[0];
-  if (latest) return latest;
-  const index = Math.floor(Math.random() * candidates.length);
+  const priority = phase === "landing" ? LANDING_SOCIAL_CUE_PRIORITY : TAKEOFF_SOCIAL_CUE_PRIORITY;
+  for (const tier of priority) {
+    const types = (Array.isArray(tier) ? tier : [tier]).filter((type) => type !== "solo");
+    if (types.length === 0) continue;
+    const pool = candidates.filter((candidate) => types.includes(candidate.cueType));
+    if (pool.length === 0) continue;
+    const index2 = Math.min(pool.length - 1, Math.floor(random() * pool.length));
+    return pool[index2] ?? null;
+  }
+  const index = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
   return candidates[index] ?? null;
+}
+function buildGroupSocialSummary(current, groupFlights) {
+  const others = groupFlights.filter((f) => f.passengerId !== current.passengerId);
+  const inFlight = others.filter((f) => f.status === "in_flight");
+  const landed = others.filter((f) => f.status === "landed" && f.landingTime != null);
+  const activeOthers = inFlight.length + landed.length;
+  if (activeOthers < GROUP_SUMMARY_MIN_OTHERS) return null;
+  if (inFlight.length >= 2 && landed.length >= 1) {
+    return `\u5C0F\u968A\u96F7\u9054\u4E0A\u9084\u6709 ${inFlight.length} \u73ED\u5728\u98DB\uFF0C\u591C\u822A\u4ECD\u672A\u6563\u5834\u3002`;
+  }
+  if (inFlight.length >= 3) {
+    return `\u4ECA\u665A\u5C0F\u968A\u6709 ${inFlight.length} \u73ED\u9084\u5728\u96F2\u4E0A\u3002`;
+  }
+  if (inFlight.length >= 2) {
+    return "\u5C0F\u968A\u96F7\u9054\u6383\u5230\u591A\u73ED\u4E26\u884C\u591C\u822A\u3002";
+  }
+  if (landed.length >= 3 && inFlight.length === 1) {
+    return "\u591A\u73ED\u5DF2\u8457\u9678\uFF0C\u4ECD\u6709\u4E00\u73ED\u66FF\u5C0F\u968A\u5B88\u8457\u591C\u7A7A\u3002";
+  }
+  if (landed.length >= 3) {
+    return "\u5C0F\u968A\u4ECA\u665A\u5DF2\u6709\u591A\u73ED\u5E73\u5B89\u8457\u9678\u3002";
+  }
+  if (landed.length >= 2 && inFlight.length >= 1) {
+    return "\u5C0F\u968A\u96F7\u9054\u4E0A\u6709\u4EBA\u5DF2\u843D\u5730\uFF0C\u4E5F\u6709\u4EBA\u9084\u5728\u98DB\u3002";
+  }
+  return "\u5C0F\u968A\u96F7\u9054\u4ECA\u665A\u6BD4\u5E73\u5E38\u71B1\u9B27\u4E00\u4E9B\u3002";
 }
 function soloSocialCueCandidate() {
   return {
@@ -108049,12 +108100,14 @@ function soloSocialCueCandidate() {
 // src/lib/flight/social.ts
 async function resolveGroupSocialCue(current, groupFlights) {
   const candidates = collectSocialCueCandidates(current, groupFlights);
-  const picked = pickRandomSocialCueCandidate(candidates) ?? soloSocialCueCandidate();
+  const picked = pickPrioritySocialCueCandidate(candidates, current.phase) ?? soloSocialCueCandidate();
   const cueText = await generateSocialCueText(picked, current.phase);
+  const groupSummary = picked.cueType === "solo" ? null : buildGroupSocialSummary(current, groupFlights);
   return {
     cueType: picked.cueType,
     relatedPassenger: picked.relatedPassenger,
-    cueText
+    cueText,
+    groupSummary
   };
 }
 
@@ -108301,89 +108354,107 @@ var DIRECTION_LABEL3 = {
   circular: "\u74B0\u5F62",
   unknown: "\u672A\u5B9A"
 };
+function endSentence(text) {
+  const trimmed = text.trim().replace(/[。．.！!？?]+$/u, "");
+  return trimmed ? `${trimmed}\u3002` : "";
+}
+function composeSocialTakeaway(primary, groupSummary) {
+  const first = endSentence(primary);
+  const second = endSentence(groupSummary ?? "");
+  if (!first) return second;
+  if (!second) return first;
+  return `${first}${second}`;
+}
 function fallbackSocialTakeaway(input) {
   const name = input.socialCue.relatedPassenger?.trim() || "\u4E00\u4F4D\u968A\u53CB";
+  let primary = "";
   switch (input.socialCue.cueType) {
     case "solo":
-      return input.phase === "takeoff" ? "\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u5B89\u975C\uFF0C\u4F60\u5148\u8D77\u98DB\u3002" : "\u4ECA\u665A\u4F60\u5B8C\u6210\u4E86\u4E00\u8D9F\u5B89\u975C\u7684\u500B\u4EBA\u822A\u73ED\u3002";
+      primary = input.phase === "takeoff" ? "\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u5B89\u975C\uFF0C\u4F60\u5148\u8D77\u98DB\u3002" : "\u4ECA\u665A\u4F60\u5B8C\u6210\u4E86\u4E00\u8D9F\u5B89\u975C\u7684\u500B\u4EBA\u822A\u73ED\u3002";
+      break;
     case "teammate_departure":
-      return `${name} \u5DF2\u7D93\u8D77\u98DB\uFF0C\u5C0F\u968A\u591C\u822A\u958B\u59CB\u4E86\u3002`;
+      primary = `${name} \u5DF2\u7D93\u8D77\u98DB\uFF0C\u5C0F\u968A\u591C\u822A\u958B\u59CB\u4E86\u3002`;
+      break;
     case "teammate_in_sky":
-      return `${name} \u9084\u5728\u98DB\uFF0C\u4F60\u4E0D\u662F\u552F\u4E00\u9192\u8457\u7684\u4EBA\u3002`;
+      primary = `${name} \u9084\u5728\u98DB\uFF0C\u4F60\u4E0D\u662F\u552F\u4E00\u9192\u8457\u7684\u4EBA\u3002`;
+      break;
     case "teammate_arrival":
-      return `${name} \u5DF2\u7D93\u964D\u843D\uFF0C\u5148\u66FF\u5C0F\u968A\u63A2\u4E86\u8DEF\u3002`;
+      primary = `${name} \u5DF2\u7D93\u964D\u843D\uFF0C\u5148\u66FF\u5C0F\u968A\u63A2\u4E86\u8DEF\u3002`;
+      break;
     case "fresh_arrival":
-      return `${name} \u525B\u525B\u964D\u843D\uFF0C\u5C0F\u968A\u96F7\u9054\u4EAE\u4E86\u4E00\u4E0B\u3002`;
+      primary = `${name} \u525B\u525B\u964D\u843D\uFF0C\u5C0F\u968A\u96F7\u9054\u4EAE\u4E86\u4E00\u4E0B\u3002`;
+      break;
     case "parallel_heading":
-      return `\u4F60\u548C ${name} \u6628\u665A\u771F\u7684\u5F80\u540C\u500B\u65B9\u5411\u98DB\u4E86\u3002`;
+      primary = `\u4F60\u548C ${name} \u6628\u665A\u771F\u7684\u5F80\u540C\u500B\u65B9\u5411\u98DB\u4E86\u3002`;
+      break;
     case "same_departure":
-      return `\u4F60\u548C ${name} \u5F9E\u540C\u4E00\u5EA7\u57CE\u5E02\u8D77\u98DB\u3002`;
+      primary = `\u4F60\u548C ${name} \u5F9E\u540C\u4E00\u5EA7\u57CE\u5E02\u8D77\u98DB\u3002`;
+      break;
     case "heading_contrast":
-      return `\u4F60\u548C ${name} \u5206\u982D\u98DB\uFF0C\u591C\u7A7A\u525B\u597D\u88AB\u62C9\u958B\u3002`;
+      primary = `\u4F60\u548C ${name} \u5206\u982D\u98DB\uFF0C\u591C\u7A7A\u525B\u597D\u88AB\u62C9\u958B\u3002`;
+      break;
     case "squad_in_sky":
-      return "\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u71B1\u9B27\u3002";
+      primary = "\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u71B1\u9B27\u3002";
+      break;
     case "first_of_night":
-      return "\u4F60\u662F\u4ECA\u665A\u5C0F\u968A\u7B2C\u4E00\u73ED\u8D77\u98DB\u7684\u822A\u73ED\u3002";
+      primary = "\u4F60\u662F\u4ECA\u665A\u5C0F\u968A\u7B2C\u4E00\u73ED\u8D77\u98DB\u7684\u822A\u73ED\u3002";
+      break;
     case "relay_flight":
-      return `\u4F60\u964D\u843D\u5F8C\uFF0C${name} \u7E7C\u7E8C\u66FF\u5C0F\u968A\u591C\u822A\u3002`;
+      primary = `\u4F60\u964D\u843D\u5F8C\uFF0C${name} \u7E7C\u7E8C\u66FF\u5C0F\u968A\u591C\u822A\u3002`;
+      break;
     case "early_landing":
-      return `${name} \u6BD4\u4F60\u65E9\u964D\u843D\uFF0C\u5148\u62B5\u9054\u6E05\u6668\u3002`;
+      primary = `${name} \u6BD4\u4F60\u65E9\u964D\u843D\uFF0C\u5148\u62B5\u9054\u6E05\u6668\u3002`;
+      break;
     case "late_landing":
-      return `${name} \u5728\u4F60\u4E4B\u5F8C\u4E5F\u5B8C\u6210\u964D\u843D\u3002`;
+      primary = `${name} \u5728\u4F60\u4E4B\u5F8C\u4E5F\u5B8C\u6210\u964D\u843D\u3002`;
+      break;
     case "route_convergence":
-      return `\u4F60\u548C ${name} \u7684\u822A\u7DDA\u6BD4\u60F3\u50CF\u4E2D\u66F4\u9760\u8FD1\u3002`;
+      primary = `\u4F60\u548C ${name} \u7684\u822A\u7DDA\u6BD4\u60F3\u50CF\u4E2D\u66F4\u9760\u8FD1\u3002`;
+      break;
     default:
-      return "\u5C0F\u968A\u96F7\u9054\u8A18\u4E0B\u4E86\u4ECA\u665A\u7684\u4E00\u6BB5\u822A\u7A0B\u3002";
+      primary = "\u5C0F\u968A\u96F7\u9054\u8A18\u4E0B\u4E86\u4ECA\u665A\u7684\u4E00\u6BB5\u822A\u7A0B\u3002";
   }
+  const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
+  return composeSocialTakeaway(primary, groupSummary);
 }
 function cleanTakeaway(raw) {
-  return raw.replace(/^["'「『”]+|["'」『』”]+$/g, "").replace(/^(小隊回聲|Social Takeaway)[：:]\s*/i, "").split("\n")[0].trim();
+  const cleaned = raw.replace(/^["'「『”]+|["'」『』”]+$/g, "").replace(/^(小隊回聲|Social Takeaway)[：:]\s*/i, "").trim();
+  const parts = cleaned.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean).slice(0, 2);
+  return parts.join("");
 }
 var SYSTEM_PROMPT = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u793E\u4EA4\u8A9E\u97F3\u77ED\u53E5\u64B0\u5BEB\u8005\u3002
-\u4F60\u7684\u4EFB\u52D9\u4E0D\u662F\u5BEB\u5B8C\u6574\u6A5F\u9577\u5EE3\u64AD\uFF0C\u800C\u662F\u6839\u64DA\u822A\u73ED\u8CC7\u6599\u751F\u6210\u4E00\u53E5\u53EF\u4EE5\u8B93\u4F7F\u7528\u8005\u62FF\u53BB\u8DDF\u540C\u7D44\u670B\u53CB\u63A5\u8A71\u7684\u77ED\u53E5\u3002
+\u4F60\u7684\u4EFB\u52D9\u4E0D\u662F\u5BEB\u5B8C\u6574\u6A5F\u9577\u5EE3\u64AD\uFF0C\u800C\u662F\u6839\u64DA\u300C\u4E00\u5247\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u300D\u751F\u6210\u53EF\u62FF\u53BB\u8DDF\u540C\u7D44\u670B\u53CB\u63A5\u8A71\u7684\u77ED\u53E5\u3002
 
 \u8A2D\u8A08\u76EE\u6A19\uFF1A
-- \u628A\u7761\u7720\u63D0\u9192\u8F49\u5316\u70BA\u98DB\u884C\u8A9E\u8A00
-- \u628A\u76E3\u7763\u611F\u8F49\u5316\u70BA\u73A9\u7B11\u5F0F\u966A\u4F34
-- \u628A\u5C0F\u968A\u72C0\u614B\u8F49\u5316\u70BA\u4E00\u53E5\u53EF\u4EE5\u88AB\u5206\u4EAB\u3001\u56DE\u61C9\u3001\u622A\u5716\u6216\u50B3\u7D66\u670B\u53CB\u7684\u8A71
-- \u8B93\u53E5\u5B50\u807D\u8D77\u4F86\u50CF Sleep Airline \u4E16\u754C\u88E1\u81EA\u7136\u6703\u51FA\u73FE\u7684\u8A71\uFF0C\u800C\u4E0D\u662F\u5065\u5EB7 App \u901A\u77E5
+- \u50CF\u300C\u5C0F\u968A\u96F7\u9054\u6383\u5230\u4E00\u5247\u8A0A\u865F\u300D\uFF0C\u4E0D\u662F\u5B8C\u6574\u76E3\u63A7\u5831\u544A
+- \u6BCF\u6B21\u53EA\u8B1B\u4E00\u5247\u4E3B\u8981\u500B\u4EBA\uFF0F\u4E8B\u4EF6\u8A0A\u865F
+- \u82E5\u6709\u5C0F\u968A\u6C1B\u570D\u53E5\uFF0C\u6700\u591A\u518D\u88DC\u4E00\u53E5\u6574\u9AD4\u611F\uFF0C\u4E0D\u8981\u5217\u51FA\u6240\u6709\u4EBA
 
 \u8A9E\u6C23\uFF1A
 - \u7E41\u9AD4\u4E2D\u6587
 - \u53E3\u8A9E\u3001\u77ED\u3001\u6E05\u695A\u3001\u6709\u4E00\u9EDE\u53EF\u611B\u6216\u73A9\u7B11
 - \u4E0D\u8981\u904E\u5EA6\u8A69\u610F
 - \u4E0D\u8981\u50CF\u5BA2\u670D\u3001\u4E0D\u8981\u50CF\u5065\u5EB7\u5EFA\u8B70\u3001\u4E0D\u8981\u50CF\u4EFB\u52D9\u7CFB\u7D71
-- \u53EF\u4EE5\u8F15\u5FAE\u6492\u5B0C\u3001\u73A9\u7B11\u3001\u9080\u8ACB\uFF0C\u4F46\u4E0D\u80FD\u8CAC\u5099
-- \u50CF\u670B\u53CB\u4E4B\u9593\u53EF\u4EE5\u8B1B\u7684\u822A\u73ED\u8A9E\u8A00
 
 \u9577\u5EA6\uFF1A
-- 12\u201332 \u5B57
-- \u6700\u591A\u4E00\u53E5
-- \u4E0D\u8981\u5217\u9EDE
-- \u4E0D\u8981\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E
+- \u4E3B\u8981\u8A0A\u865F 12\u201332 \u5B57
+- \u82E5\u63D0\u4F9B\u3010\u5C0F\u968A\u6C1B\u570D\u3011\uFF0C\u8F38\u51FA\u6700\u591A\u5169\u53E5\uFF1A\u7B2C\u4E00\u53E5\u6539\u5BEB\u4E3B\u8981\u8A0A\u865F\uFF0C\u7B2C\u4E8C\u53E5\u6539\u5BEB\u5C0F\u968A\u6C1B\u570D
+- \u82E5\u6C92\u6709\u3010\u5C0F\u968A\u6C1B\u570D\u3011\uFF0C\u53EA\u8F38\u51FA\u4E00\u53E5
+- \u4E0D\u8981\u5217\u9EDE\u3001\u4E0D\u8981\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E
 
 \u7981\u6B62\uFF1A
 - \u7981\u6B62\u8AAA\u300C\u4F60\u61C9\u8A72\u65E9\u7761\u300D\u300C\u8ACB\u6539\u5584\u7761\u7720\u300D\u300C\u7761\u7720\u54C1\u8CEA\u300D
-- \u7981\u6B62\u8A55\u5206\u3001\u6392\u540D\u3001\u9054\u6A19\u3001\u5931\u6557
+- \u7981\u6B62\u8A55\u5206\u3001\u6392\u540D\u3001\u9054\u6A19\u3001\u5931\u6557\u3001\u6BD4\u8F03\u8AB0\u7761\u6BD4\u8F03\u4E45
+- \u7981\u6B62\u5217\u51FA\u6240\u6709\u968A\u53CB\u7684\u7761\u7720\u6216\u98DB\u884C\u72C0\u614B
 - \u7981\u6B62\u8CAC\u5099\u6C92\u8D77\u98DB\u6216\u665A\u7761\u7684\u4EBA
 - \u7981\u6B62\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u4EBA\u540D\u3001\u5730\u540D\u3001\u6642\u9593
 - \u7981\u6B62\u628A\u98DB\u884C\u4E2D\u7684\u968A\u53CB\u8AAA\u6210\u5DF2\u964D\u843D
 - \u7981\u6B62\u628A\u5DF2\u964D\u843D\u7684\u968A\u53CB\u8AAA\u6210\u9084\u5728\u98DB
-- \u7981\u6B62\u8AAA\u6240\u6709\u968A\u53CB\u90FD\u5982\u4F55\uFF0C\u9664\u975E\u8CC7\u6599\u660E\u78BA\u63D0\u4F9B\u591A\u4EBA\u72C0\u614B
-- \u7981\u6B62\u904E\u5EA6\u611F\u6027\u6216\u592A\u6587\u9752
-- \u7981\u6B62\u4F7F\u7528\u300C\u5922\u60F3\u300D\u300C\u5B87\u5B99\u300D\u300C\u9748\u9B42\u300D\u9019\u985E\u592A\u62BD\u8C61\u7684\u5B57\u773C
-
-\u793E\u4EA4\u8A9E\u8A00\u65B9\u5411\uFF1A
-- \u5982\u679C\u662F solo\uFF0C\u4E0D\u8981\u5F37\u8ABF\u5B64\u55AE\uFF0C\u53EF\u4EE5\u8AAA\u300C\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u5B89\u975C\u300D
-- \u5982\u679C\u6709\u4EBA\u9084\u5728\u98DB\uFF0C\u8981\u5448\u73FE\u966A\u4F34\u611F\uFF0C\u4F8B\u5982\u300CA \u9084\u5728\u98DB\uFF0C\u4F60\u4E0D\u662F\u552F\u4E00\u9192\u8457\u7684\u4EBA\u300D
-- \u5982\u679C\u6709\u4EBA\u5DF2\u964D\u843D\uFF0C\u53EF\u4EE5\u8AAA\u300CA \u5148\u66FF\u5C0F\u968A\u63A2\u4E86\u8DEF\u300D
-- \u5982\u679C\u540C\u5411\u98DB\u884C\uFF0C\u53EF\u4EE5\u8AAA\u300C\u4F60\u5011\u6628\u665A\u771F\u7684\u4E00\u8D77\u5F80\u6771\u98DB\u4E86\u300D
-- \u5982\u679C\u822A\u7DDA\u63A5\u8FD1\uFF0C\u53EF\u4EE5\u8AAA\u300C\u4F60\u548C A \u7684\u822A\u7DDA\u6BD4\u60F3\u50CF\u4E2D\u66F4\u9760\u8FD1\u300D
-- \u5982\u679C\u63A5\u529B\uFF0C\u53EF\u4EE5\u8AAA\u300C\u4F60\u964D\u843D\u5F8C\uFF0CA \u7E7C\u7E8C\u66FF\u5C0F\u968A\u591C\u822A\u300D
-- \u5982\u679C\u6C92\u6709\u4EBA\u6216\u8CC7\u8A0A\u4E0D\u8DB3\uFF0C\u5C31\u751F\u6210\u4E00\u53E5\u6EAB\u548C\u7684\u500B\u4EBA\u822A\u73ED\u53E5`;
+- \u7981\u6B62\u628A\u55AE\u4E00\u8A0A\u865F\u64F4\u5BEB\u6210\u5168\u54E1\u76E3\u63A7\u5831\u544A`;
 async function generateSocialTakeaway(input) {
+  const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   if (!process.env.OPENAI_API_KEY) {
-    return fallbackSocialTakeaway(input);
+    return fallbackSocialTakeaway({ ...input, groupSummary });
   }
   const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -108401,12 +108472,15 @@ ${input.passengerName}
 \u98DB\u884C\u6642\u9577\uFF1A${input.flightDurationMinutes ?? "\u672A\u77E5"}
 \u822A\u7A0B\u516C\u91CC\uFF1A${input.estimatedDistanceKm ? Math.round(input.estimatedDistanceKm) : "\u672A\u77E5"}
 
-\u3010\u540C\u7D44\u793E\u4EA4\u3011
+\u3010\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u3011
 \u985E\u578B\uFF1A${input.socialCue.cueType}
 \u63D0\u793A\uFF1A${input.socialCue.cueText}
 \u76F8\u95DC\u4E58\u5BA2\uFF1A${input.socialCue.relatedPassenger ?? "\u7121"}
-
-\u8ACB\u751F\u6210\u4E00\u53E5 Social Takeaway\u3002`;
+${groupSummary ? `
+\u3010\u5C0F\u968A\u6C1B\u570D\u3011
+${groupSummary}
+` : ""}
+\u8ACB\u751F\u6210 Social Takeaway\uFF08${groupSummary ? "\u6700\u591A\u5169\u53E5" : "\u4E00\u53E5"}\uFF09\u3002`;
   try {
     const completion = await client.chat.completions.create({
       model,
@@ -108414,13 +108488,18 @@ ${input.passengerName}
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt }
       ],
-      max_tokens: 80,
+      max_tokens: groupSummary ? 120 : 80,
       temperature: 0.9
     });
     const text = cleanTakeaway(completion.choices[0]?.message?.content ?? "");
-    return text.length >= 6 ? text : fallbackSocialTakeaway(input);
+    if (text.length < 6) {
+      return fallbackSocialTakeaway({ ...input, groupSummary });
+    }
+    if (!groupSummary) return endSentence(text);
+    const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
+    return composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
   } catch {
-    return fallbackSocialTakeaway(input);
+    return fallbackSocialTakeaway({ ...input, groupSummary });
   }
 }
 
