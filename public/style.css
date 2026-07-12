@@ -2642,9 +2642,12 @@ body.sheet-open #main-section {
     display: flex;
     align-items: center;
   }
+  /* 航跡切換浮在面板左上方（與右上的「望向窗外」對稱），不壓到面板內容 */
   .dock .globe-trails {
-    top: 22px;
-    right: 228px;
+    top: -34px;
+    left: 14px;
+    right: auto;
+    justify-content: flex-start;
   }
   .dock-panel--cta .dock-action {
     flex: 0 0 200px;
@@ -3708,4 +3711,56 @@ body[data-theme] .memory-share-capture .memory-ticket-logo {
 .memory-share-capture .memory-plane-svg path,
 .memory-share-capture .memory-ticket-barcode rect {
   fill: #f0d08a;
+}
+
+/* ═══ 響應式：寬版桌面（≥1440px）— 頂部 HUD 限寬置中，避免整條拉滿 ═══ */
+
+@media (min-width: 1440px) {
+  .hud-top {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(1240px, calc(100vw - 48px));
+  }
+}
+
+/* ═══ 分享圖：白天主題（跟著 body[data-theme="day"] 用晨光亮色）═══ */
+
+body[data-theme="day"] .memory-share-capture {
+  background:
+    radial-gradient(circle at 72% 13%, rgba(244, 196, 110, .4), transparent 32%),
+    linear-gradient(155deg, #cfe2f6 0%, #e9f1fa 52%, #f6e3c4 100%);
+}
+body[data-theme="day"] .memory-share-capture .memory-ticket--liquid {
+  border-color: rgba(180, 140, 60, .38) !important;
+  background: linear-gradient(165deg,
+    rgba(255, 255, 255, .78) 0%,
+    rgba(255, 255, 255, .5) 42%,
+    rgba(240, 222, 185, .55) 100%) !important;
+}
+body[data-theme="day"] .memory-share-capture .memory-ticket-logo {
+  color: #a9781f !important;
+  background: #fdf3e0 !important;
+  border-color: rgba(180, 140, 60, .4) !important;
+}
+body[data-theme="day"] .memory-share-capture .memory-ticket-barcode,
+body[data-theme="day"] .memory-share-capture .memory-ticket-flight {
+  color: #a9781f;
+}
+body[data-theme="day"] .memory-share-capture .memory-plane-svg path,
+body[data-theme="day"] .memory-share-capture .memory-ticket-barcode rect {
+  fill: #a9781f;
+}
+body[data-theme="day"] .memory-share-capture .memory-window {
+  border-color: rgba(120, 140, 170, .4);
+  background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(203,216,235,.9) 52%, rgba(150,168,196,.92));
+  box-shadow:
+    0 18px 34px rgba(90, 120, 170, .25),
+    inset 0 1px 0 rgba(255, 255, 255, .9),
+    inset 0 -2px 5px rgba(120, 140, 170, .25);
+}
+body[data-theme="day"] .memory-share-capture .memory-window-rim {
+  border-color: rgba(120, 140, 170, .3);
+  background: linear-gradient(145deg, #dbe4f0, #b7c4d8);
+  box-shadow: inset 0 0 14px rgba(120, 140, 170, .3);
 }
