@@ -1538,6 +1538,39 @@ body[data-theme="dusk"] .pw-shade-rod {
   font-size: 11px; font-weight: 600; letter-spacing: .06em;
   color: var(--ink-faint);
 }
+/* ═══ 小隊回聲：可拿去跟隊友接話的社交短句 ═══ */
+
+.squad-echo {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--gold) 26%, var(--glass-line));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--gold) 10%, transparent) 0%,
+      transparent 55%),
+    var(--glass-bg);
+}
+.squad-echo-kicker {
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: .22em;
+  color: var(--gold-deep);
+}
+.squad-echo-text {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--ink);
+}
+#fl-echo { margin-top: 8px; max-width: 340px; }
+#fl-echo .squad-echo-text { font-size: 11px; }
+
 .landed-stats {
   position: relative;
   z-index: 1;
@@ -2680,7 +2713,8 @@ body.sheet-open #main-section {
   }
   #landed-panel .landed-hero,
   #landed-panel .route-arc,
-  #landed-panel .landed-summary {
+  #landed-panel .landed-summary,
+  #landed-panel .squad-echo {
     grid-column: 1;
   }
   #landed-panel .landed-window-zone {

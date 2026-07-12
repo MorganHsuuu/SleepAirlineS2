@@ -3634,6 +3634,7 @@ function updateUI() {
 
   if (isFlying && activeFlight && !fxDockLock) {
     updateFlightMood();
+    renderSquadEcho('fl-echo', 'fl-echo-text', activeFlight.socialTakeaway);
     Globe.setIdle(false);
     startFlightTicker();
   } else {
@@ -3670,6 +3671,7 @@ function updateUI() {
     $('bc-origin').textContent = `${dur} · ${dist}`;
     $('bc-duration').textContent = dur;
     $('bc-distance').textContent = dist;
+    renderSquadEcho('landed-echo', 'landed-echo-text', lastLandedFlight.socialTakeaway);
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
@@ -3677,6 +3679,16 @@ function updateUI() {
 
   renderBoard();
   syncTrailControls();
+}
+
+/** 小隊回聲：一句可以拿去跟隊友接話的社交短句；沒有內容就整塊隱藏 */
+function renderSquadEcho(boxId, textId, text) {
+  const box = $(boxId);
+  if (!box) return;
+  const val = (text || '').trim();
+  box.classList.toggle('hidden', !val);
+  const t = $(textId);
+  if (t) t.textContent = val;
 }
 
 function dismissLandedPanel() {
@@ -4519,6 +4531,7 @@ async function doTakeoff() {
     BroadcastAudio?.stopTowerSignalLoop?.();
 
     activeFlight = data.flight;
+    activeFlight.socialTakeaway = data.socialTakeaway || '';
     passenger.status = 'in_flight';
     takeoffArmed = false;
     lastLandedFlight = null;
@@ -4605,6 +4618,7 @@ async function doLand() {
     statusCycle = null;
 
     const landed = data.flight;
+    landed.socialTakeaway = data.socialTakeaway || '';
     lastLandedFlight = landed;
     landingScenery = data.landingScenery || null;
     const sceneryPreload = landingScenery?.imageUrl

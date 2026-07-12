@@ -18,6 +18,8 @@ import { fetchLocalContext, resolveCountryIso } from './src/lib/flight/local-con
 import { resolveGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
+import { generateSocialTakeaway, fallbackSocialTakeaway } from './src/lib/ai/social-takeaway';
+import type { SocialTakeawayInput } from './src/lib/ai/social-takeaway';
 import { getLandscapeByFlightId } from './src/lib/notion/landscape-images';
 import { backfillSceneryForFlights, generateSceneryForLanding } from './src/lib/notion/scenery-backfill';
 import { runInBackground } from './src/lib/run-in-background';
@@ -47,6 +49,14 @@ async function generateBroadcastWithBudget(
     return await withTimeout(generateCaptainBroadcast(input), 12_000, fallback);
   } catch {
     return fallback();
+  }
+}
+
+async function generateTakeawayWithBudget(input: SocialTakeawayInput): Promise<string> {
+  try {
+    return await withTimeout(generateSocialTakeaway(input), 8_000, () => fallbackSocialTakeaway(input));
+  } catch {
+    return fallbackSocialTakeaway(input);
   }
 }
 
@@ -226,6 +236,15 @@ app.post('/api/flight/takeoff', async (req, res) => {
       }).catch(() => null),
     ]);
 
+    // 社交短句與完整廣播並行生成：只依賴 socialCue，不互相等待
+    const takeawayPromise = generateTakeawayWithBudget({
+      phase: 'takeoff',
+      passengerName: passenger.name,
+      socialCue,
+      routeDirection: flight.routeDirection,
+      departureLocation: flight.departureLocation,
+    });
+
     const takeoffBroadcast = await generateBroadcastWithBudget(
       {
         phase: 'takeoff',
@@ -253,7 +272,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       )
     );
 
-    const [_, speechAudioBase64] = await Promise.all([
+    const [_, speechAudioBase64, socialTakeaway] = await Promise.all([
       updateFlight(flight.notionId, {
         takeoffBroadcastStyle: broadcastStyle as BroadcastStyle,
         takeoffBroadcast,
@@ -262,6 +281,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
         relatedPassenger: socialCue.relatedPassenger ?? '',
       }),
       generateSpeechWithBudget(takeoffBroadcast, broadcastStyle as BroadcastStyle),
+      takeawayPromise,
     ]);
 
     res.json({
@@ -274,6 +294,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
         relatedPassenger: socialCue.relatedPassenger,
       },
       speechAudioBase64,
+      socialTakeaway,
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
@@ -357,6 +378,18 @@ app.post('/api/flight/land', async (req, res) => {
       groupFlights
     );
 
+    // 社交短句與完整廣播並行生成：只依賴 socialCue，不互相等待
+    const takeawayPromise = generateTakeawayWithBudget({
+      phase: 'landing',
+      passengerName: passenger.name,
+      socialCue,
+      routeDirection: activeFlight.routeDirection,
+      departureLocation: activeFlight.departureLocation,
+      arrivalLocation: arrival.displayName,
+      flightDurationMinutes: durationMinutes,
+      estimatedDistanceKm: Math.round(distanceKm),
+    });
+
     const broadcastFallback = () => fallbackCaptainBroadcast(
       'landing',
       passenger.name,
@@ -386,7 +419,7 @@ app.post('/api/flight/land', async (req, res) => {
       broadcastFallback
     );
 
-    const [_, speechAudioBase64] = await Promise.all([
+    const [_, speechAudioBase64, socialTakeaway] = await Promise.all([
       updateFlight(activeFlight.notionId, {
         status: 'landed',
         landingTime,
@@ -401,6 +434,7 @@ app.post('/api/flight/land', async (req, res) => {
         relatedPassenger: socialCue.relatedPassenger ?? '',
       }),
       generateSpeechWithBudget(captainBroadcast, broadcastStyle as BroadcastStyle),
+      takeawayPromise,
     ]);
 
     // 降落確認後即在伺服器生圖並寫入 Notion：乘客關掉頁面也會完成（前端只輪詢結果）
@@ -437,6 +471,7 @@ app.post('/api/flight/land', async (req, res) => {
       },
       landingScenery: null,
       speechAudioBase64,
+      socialTakeaway,
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });

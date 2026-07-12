@@ -92,6 +92,7 @@ export async function generateSocialCueText(
           content: `你是「甦醒航班 Sleep Airline」的社交提示撰寫者。
 - 繁體中文，1 句為主，最多 2 句，30–55 字
 - 夜航、溫柔、像機長低聲補一句同組動態
+- 句子要像使用者可以拿去跟朋友接話，不要只像系統描述
 - 只能使用提供的事實，不得編造地名、時間、人名
 - 嚴格保留 teammateStatus：飛行中就只能說仍在飛／已飛多久；已降落才可說降落
 - 嚴格保留數量：inFlightCount / landedCount 是 0 時，不得改寫成有人飛行或有人降落

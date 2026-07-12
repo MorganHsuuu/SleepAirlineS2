@@ -183,7 +183,9 @@ ${input.localContext ? `\n【當地資訊 · 抵達地】\n${buildLocalBlock(inp
 ${buildSocialBlock(input.socialCue)}
 
 請宣布：醒來抵達、飛了多久、從哪到哪；第一句以當地語言早安開頭，第二句必須以「歡迎搭乘 Sleep Airline，這裡是機長」完整開頭（「歡迎」不可省略、禁止只寫「搭乘 Sleep Airline」），
-必須融入一筆當地文化或天氣（改寫）；用一句話點出社交情境，合併成一段流暢廣播，勿列點、勿照搬。`;
+必須融入一筆當地文化或天氣（改寫）；用一句話點出社交情境，合併成一段流暢廣播，勿列點、勿照搬。
+若【同組社交】不是 solo：必須在開場問候後的前兩句內明確說出「你與哪位隊友或小隊發生了什麼關係」
+（例如共享夜空、接力、靠近、同向、分頭飛、先後降落），不要只把社交資訊放在結尾。`;
 
   const completion = await client.chat.completions.create({
     model,
