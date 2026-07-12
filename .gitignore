@@ -5,3 +5,5 @@ node_modules/
 public/cities_data.json
 public/country-iso.json
 *.tsbuildinfo
+.vercel
+.env*
