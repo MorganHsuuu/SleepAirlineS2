@@ -231,45 +231,47 @@
       <div id="landed-panel" class="glass dock-panel landed-panel hidden">
         <div class="arrival-burst" id="arrival-burst" aria-hidden="true"></div>
 
-        <header class="landed-hero">
-          <div class="landed-place">
-            <p class="landed-kicker"><span class="stamp" id="bc-stamp">已抵達</span></p>
-            <h2 class="landed-city"><span class="landed-flag" id="bc-flag">🌍</span><span id="bc-route">—</span></h2>
-            <p class="landed-country" id="bc-country">—</p>
-          </div>
-        </header>
+        <div class="landed-copy">
+          <header class="landed-hero">
+            <div class="landed-place">
+              <p class="landed-kicker"><span class="stamp" id="bc-stamp">已抵達</span></p>
+              <h2 class="landed-city"><span class="landed-flag" id="bc-flag">🌍</span><span id="bc-route">—</span></h2>
+              <p class="landed-country" id="bc-country">—</p>
+            </div>
+          </header>
 
-        <div class="route-arc route-arc--compact" id="bc-arc">
-          <div class="ra-end">
-            <span class="ra-dot"></span>
-            <div class="ra-place">
-              <span class="sr-only" id="bc-dep-flag">🌍</span>
-              <span class="ra-city" id="bc-dep-city">—</span>
-              <span class="sr-only" id="bc-dep-country">—</span>
+          <div class="route-arc route-arc--compact" id="bc-arc">
+            <div class="ra-end">
+              <span class="ra-dot"></span>
+              <div class="ra-place">
+                <span class="sr-only" id="bc-dep-flag">🌍</span>
+                <span class="ra-city" id="bc-dep-city">—</span>
+                <span class="sr-only" id="bc-dep-country">—</span>
+              </div>
+            </div>
+            <div class="ra-track"><span class="ra-plane">✈</span></div>
+            <div class="ra-end ra-end-r">
+              <div class="ra-place ra-place-r">
+                <span class="sr-only" id="bc-arr-flag">🌍</span>
+                <span class="ra-city" id="bc-arr-city">—</span>
+                <span class="sr-only" id="bc-arr-country">—</span>
+              </div>
+              <span class="ra-dot ra-dot-arr"></span>
             </div>
           </div>
-          <div class="ra-track"><span class="ra-plane">✈</span></div>
-          <div class="ra-end ra-end-r">
-            <div class="ra-place ra-place-r">
-              <span class="sr-only" id="bc-arr-flag">🌍</span>
-              <span class="ra-city" id="bc-arr-city">—</span>
-              <span class="sr-only" id="bc-arr-country">—</span>
-            </div>
-            <span class="ra-dot ra-dot-arr"></span>
+
+          <div class="landed-stats" aria-label="本趟航程摘要">
+            <span><b id="bc-duration">—</b><small>飛行時間</small></span>
+            <i aria-hidden="true"></i>
+            <span><b id="bc-distance">—</b><small>航程</small></span>
           </div>
-        </div>
 
-        <div class="landed-stats" aria-label="本趟航程摘要">
-          <span><b id="bc-duration">—</b><small>飛行時間</small></span>
-          <i aria-hidden="true"></i>
-          <span><b id="bc-distance">—</b><small>航程</small></span>
+          <div class="squad-echo hidden" id="landed-echo">
+            <span class="squad-echo-kicker">小隊回聲</span>
+            <p class="squad-echo-text" id="landed-echo-text"></p>
+          </div>
+          <span class="sr-only" id="bc-origin">—</span>
         </div>
-
-        <div class="squad-echo hidden" id="landed-echo">
-          <span class="squad-echo-kicker">小隊回聲</span>
-          <p class="squad-echo-text" id="landed-echo-text"></p>
-        </div>
-        <span class="sr-only" id="bc-origin">—</span>
 
         <div class="landed-window-zone">
           <div class="plane-window plane-window--porthole" id="plane-window" hidden>

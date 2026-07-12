@@ -1038,7 +1038,7 @@ body[data-theme="dusk"] .dock-action--green {
 }
 .fly-meta-sep { opacity: 0.55; }
 .fly-whisper {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   font-size: 11px;
   font-weight: 500;
   line-height: 1.35;
@@ -1695,17 +1695,30 @@ body[data-theme="dusk"] .landed-more {
   font-size: 11.5px; line-height: 1.72; color: var(--ink-soft);
 }
 
+.landed-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.landed-copy .landed-stats,
+.landed-copy .squad-echo,
+.landed-copy .route-arc {
+  margin-top: 0;
+  width: 100%;
+}
 .landed-window-zone {
   position: relative; z-index: 1;
   margin-top: 8px;
-  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
 }
 .landed-window-zone .plane-window--porthole { margin-top: 0; }
-.landed-window-zone:has(.plane-window:not([hidden])) .fly-portal--landed .fly-portal-lane {
-  height: 32px; opacity: .85;
-}
 .fly-portal--landed {
   align-items: center;
+  justify-content: center;
   gap: 8px;
   width: 100%;
   min-height: 38px;
@@ -1716,9 +1729,20 @@ body[data-theme="dusk"] .landed-more {
   color: var(--ink-soft);
 }
 .fly-portal--landed .fly-portal-lane {
-  width: 78px;
-  height: 30px;
+  width: 64px;
+  height: 18px;
   margin: 0;
+  flex: 0 0 auto;
+}
+/* 窗外已開：收掉虛線跑道，只留一句收起 */
+.fly-portal--landed[aria-expanded="true"] {
+  min-height: 34px;
+  border-style: dashed;
+  background: transparent;
+}
+.fly-portal--landed[aria-expanded="true"] .fly-portal-lane,
+.fly-portal--landed[aria-expanded="true"] .fly-portal-aura {
+  display: none;
 }
 .fly-portal-label {
   font-size: 10px;
@@ -2118,7 +2142,7 @@ body.sheet-open #main-section {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
   animation: none;
 }
-#landed-panel .route-arc { margin: 8px 0 2px; }
+#landed-panel .route-arc { margin: 0; }
 #landed-panel .route-arc .ra-plane {
   left: 86%;
   opacity: 1;
@@ -2668,7 +2692,7 @@ body.sheet-open #main-section {
   }
   .dock-panel--cta {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     gap: 14px;
     padding: 14px;
   }
@@ -2680,12 +2704,23 @@ body.sheet-open #main-section {
     display: flex;
     align-items: center;
   }
+  #flight-panel .dock-panel--cta {
+    padding: 12px 14px;
+    gap: 12px;
+  }
   #flight-panel .dock-panel-main {
     flex-direction: column;
+    justify-content: center;
     align-items: stretch;
+    gap: 6px;
+    padding: 2px 4px;
   }
   #flight-panel .dock-panel-main #fl-echo {
     width: 100%;
+  }
+  #flight-panel .fly-portal--deco,
+  #flight-panel .fly-portal {
+    margin-top: 0;
   }
   /* 航跡切換浮在面板左上方（與右上的「望向窗外」對稱），不壓到面板內容 */
   .dock .globe-trails {
@@ -2695,16 +2730,25 @@ body.sheet-open #main-section {
     justify-content: flex-start;
   }
   .dock-panel--cta .dock-action {
-    flex: 0 0 200px;
-    width: auto;
-    min-height: 58px;
+    flex: 0 0 120px;
+    align-self: center;
+    width: 120px;
+    height: 48px;
+    min-height: 48px;
+    max-height: 48px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+  #flight-panel .dock-panel--cta .dock-action {
+    flex-basis: 108px;
+    width: 108px;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
   }
   #flight-panel {
     width: 100%;
     align-self: stretch;
-  }
-  #flight-panel .dock-panel-main {
-    padding: 10px 4px;
   }
   #flight-panel .fly-copy {
     padding-right: 0;
@@ -2718,24 +2762,23 @@ body.sheet-open #main-section {
     width: 100%;
     max-height: min(56vh, 440px);
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(220px, .75fr);
-    gap: 10px 18px;
-    align-items: start;
+    grid-template-columns: minmax(0, 1.15fr) minmax(200px, 240px);
+    grid-template-areas:
+      "copy window"
+      "actions actions";
+    gap: 12px 22px;
+    align-items: center;
     overflow-y: auto;
   }
-  #landed-panel .landed-hero,
-  #landed-panel .route-arc,
-  #landed-panel .landed-summary,
-  #landed-panel .squad-echo {
-    grid-column: 1;
+  #landed-panel .landed-copy {
+    grid-area: copy;
+    align-self: center;
+    gap: 10px;
   }
   #landed-panel .landed-window-zone {
-    grid-column: 2;
-    grid-row: 1 / span 5;
-    align-self: stretch;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    grid-area: window;
+    margin-top: 0;
+    align-self: center;
     min-width: 0;
   }
   #landed-panel .plane-window--porthole {
@@ -2745,8 +2788,8 @@ body.sheet-open #main-section {
     margin-top: 0;
   }
   #landed-panel .panel-actions {
-    grid-column: 2;
-    margin-top: 2px;
+    grid-area: actions;
+    margin-top: 0;
   }
 
   .board {
