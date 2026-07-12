@@ -3530,16 +3530,19 @@ async function hideLandingFx({ fast = false } = {}) {
   resetLandingFxScenery();
 }
 
-async function requestLandingScenery(flightId) {
+/**
+ * 取得降落風景圖。降落 API 已在伺服器背景生圖（關掉頁面也會完成），
+ * 所以預設先輪詢結果；輪詢逾時（後端生圖失敗）才明確補生一次。
+ * pollMs: 0 = 跳過輪詢直接補生（舊航班漏圖、或第一輪已失敗的重試）。
+ */
+async function requestLandingScenery(flightId, { pollMs = 45000 } = {}) {
   if (!flightId || previewMode || window.WorkshopLocal?.isActive()) return false;
-  try {
-    const data = await api('POST', '/api/scenery/backfill', { flightIds: [flightId] }, { timeoutMs: 110000 });
-    const row = data.results?.[0];
-    if (row?.error) console.warn('[landing scenery]', row.error);
-    if (!row?.imageUrl || lastLandedFlight?.flightId !== flightId) return false;
+
+  const applyScenery = (imageUrl, arrivalLocation) => {
+    if (!imageUrl || lastLandedFlight?.flightId !== flightId) return false;
     landingScenery = {
-      imageUrl: row.imageUrl,
-      arrivalLocation: row.arrivalLocation || lastLandedFlight.arrivalLocation,
+      imageUrl,
+      arrivalLocation: arrivalLocation || lastLandedFlight.arrivalLocation,
       country: arrivalMeta(lastLandedFlight).country,
     };
     renderSceneryCard(false);
@@ -3549,6 +3552,25 @@ async function requestLandingScenery(flightId) {
       void showLandingFxScenery(lastLandedFlight);
     }
     return true;
+  };
+
+  // ① 輪詢伺服器背景生圖的結果
+  const deadline = Date.now() + pollMs;
+  while (Date.now() < deadline) {
+    if (landingScenery?.imageUrl) return true;
+    try {
+      const data = await api('GET', '/api/scenery?flightId=' + encodeURIComponent(flightId), null, { timeoutMs: 9000 });
+      if (data.scenery?.imageUrl) return applyScenery(data.scenery.imageUrl, data.scenery.arrivalLocation);
+    } catch { /* 網路抖動：繼續輪詢 */ }
+    await waitMs(3200);
+  }
+
+  // ② 後端沒生出來（OpenAI 失敗、舊部署等）→ 補生一次；伺服器端會對同航班去重
+  try {
+    const data = await api('POST', '/api/scenery/backfill', { flightIds: [flightId] }, { timeoutMs: 110000 });
+    const row = data.results?.[0];
+    if (row?.error) console.warn('[landing scenery]', row.error);
+    return applyScenery(row?.imageUrl, row?.arrivalLocation);
   } catch (err) {
     console.warn('[landing scenery]', err);
     return false;
@@ -4451,8 +4473,8 @@ async function ensureLandingSceneryForFlight(flightId, { allowBackfill = false }
     return false;
   }
 
-  // 缺圖：觸發一次 backfill（例如降落時 Vercel 逾時沒存到）
-  const generated = await requestLandingScenery(flightId);
+  // 缺圖：觸發一次 backfill（例如降落時 Vercel 逾時沒存到）；舊航班後端沒在生圖，直接補生
+  const generated = await requestLandingScenery(flightId, { pollMs: 0 });
   if (!generated && !$('landed-panel')?.classList.contains('hidden')) {
     renderSceneryCard(false);
   }
@@ -4652,7 +4674,7 @@ async function doLand() {
     // 第一次生圖失敗（逾時／API 錯誤）→ 背景再試一次，好了會更新抵達面板的風景卡
     void sceneryJob.then((ok) => {
       if (!ok && landed.flightId && !landingScenery?.imageUrl && lastLandedFlight?.flightId === landed.flightId) {
-        return requestLandingScenery(landed.flightId);
+        return requestLandingScenery(landed.flightId, { pollMs: 0 });
       }
       return ok;
     });

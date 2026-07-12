@@ -19,7 +19,8 @@ import { resolveGroupSocialCue } from './src/lib/flight/social';
 import { generateCaptainBroadcast, fallbackCaptainBroadcast } from './src/lib/ai/broadcast';
 import { generateBroadcastSpeech } from './src/lib/ai/speech';
 import { getLandscapeByFlightId } from './src/lib/notion/landscape-images';
-import { backfillSceneryForFlights } from './src/lib/notion/scenery-backfill';
+import { backfillSceneryForFlights, generateSceneryForLanding } from './src/lib/notion/scenery-backfill';
+import { runInBackground } from './src/lib/run-in-background';
 import { withTimeout } from './src/lib/with-timeout';
 import { getDataModeStatus } from './src/lib/data-mode';
 
@@ -401,6 +402,21 @@ app.post('/api/flight/land', async (req, res) => {
       }),
       generateSpeechWithBudget(captainBroadcast, broadcastStyle as BroadcastStyle),
     ]);
+
+    // 降落確認後即在伺服器生圖並寫入 Notion：乘客關掉頁面也會完成（前端只輪詢結果）
+    runInBackground(`scenery ${activeFlight.flightId}`, async () => {
+      const result = await generateSceneryForLanding({
+        flightId: activeFlight.flightId,
+        passengerId: activeFlight.passengerId,
+        passengerName: activeFlight.passengerName,
+        groupId: passenger.groupId,
+        arrivalLocation: arrival.displayName,
+        landingTime,
+      });
+      if (result.error) {
+        console.error(`[scenery] ${activeFlight.flightId} 降落背景生圖失敗：${result.error}`);
+      }
+    });
 
     res.json({
       flight: {

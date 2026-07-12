@@ -108619,7 +108619,17 @@ function parseCityCountry(arrivalLocation) {
   }
   return { city: arrivalLocation, country: arrivalLocation };
 }
-async function backfillSceneryForFlight(flightId, options) {
+var inflightJobs = /* @__PURE__ */ new Map();
+function backfillSceneryForFlight(flightId, options) {
+  const running = inflightJobs.get(flightId);
+  if (running && !options?.force) return running;
+  const job = runSceneryBackfill(flightId, options).finally(() => {
+    if (inflightJobs.get(flightId) === job) inflightJobs.delete(flightId);
+  });
+  inflightJobs.set(flightId, job);
+  return job;
+}
+async function runSceneryBackfill(flightId, options) {
   const existing = await getLandscapeByFlightId(flightId);
   if (!options?.force && existing?.imageUrl) {
     return { flightId, skipped: true, imageUrl: existing.imageUrl, arrivalLocation: existing.arrivalLocation };
@@ -108665,6 +108675,18 @@ async function backfillSceneryForFlights(flightIds, options) {
     }
   }
   return results;
+}
+
+// src/lib/run-in-background.ts
+function runInBackground(label, job) {
+  const task = Promise.resolve().then(job).catch((err) => {
+    console.error(`[background] ${label} \u5931\u6557\uFF1A`, err);
+  });
+  try {
+    const holder = globalThis[Symbol.for("@vercel/request-context")];
+    holder?.get?.()?.waitUntil?.(task);
+  } catch {
+  }
 }
 
 // src/lib/with-timeout.ts
@@ -109014,6 +109036,10 @@ app.post("/api/flight/land", async (req, res) => {
       }),
       generateSpeechWithBudget(captainBroadcast, broadcastStyle)
     ]);
+    runInBackground(
+      `scenery ${activeFlight.flightId}`,
+      () => backfillSceneryForFlight(activeFlight.flightId)
+    );
     res.json({
       flight: {
         ...activeFlight,

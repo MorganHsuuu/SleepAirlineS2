@@ -38,7 +38,8 @@ async function ensureAudioCtx() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
   if (!audioCtx) audioCtx = new Ctx();
-  if (audioCtx.state === 'suspended') {
+  // iOS 鎖屏／切出去回來後可能是 'suspended' 或 'interrupted'，一律嘗試喚醒
+  if (audioCtx.state !== 'running') {
     try { await audioCtx.resume(); } catch { /* noop */ }
   }
   return audioCtx;
@@ -199,6 +200,13 @@ async function playWebAudioBuffer(buffer, {
 } = {}) {
   const ctx = await ensureAudioCtx();
   if (!ctx || !buffer) return false;
+  // context 沒在 running 時 source.start() 不會出錯但完全無聲，計時器照樣走完
+  // → 廣播會「靜音跑完」。這裡再試一次喚醒，仍失敗就回報 false，讓
+  //   HTML Audio／瀏覽器 TTS 後備接手。
+  if (ctx.state !== 'running') {
+    try { await Promise.race([ctx.resume(), delay(400)]); } catch { /* noop */ }
+    if (ctx.state !== 'running') return false;
+  }
 
   let playBuffer = buffer;
   const pad = Math.max(0, Number(padSec) || 0);
