@@ -9,7 +9,7 @@ import {
   type CurrentFlightContext,
   type SocialCueCandidate,
 } from '../src/lib/flight/social-candidates';
-import { composeSocialTakeaway, isSelfLandingTakeaway } from '../src/lib/ai/social-takeaway';
+import { composeSocialTakeaway, isSelfLandingTakeaway, isMisaddressedSelfTakeaway } from '../src/lib/ai/social-takeaway';
 import type { Flight } from '../src/types';
 
 let failed = 0;
@@ -262,6 +262,33 @@ const NOW_MS = Date.parse('2026-07-12T14:00:00.000Z');
     'composed takeaway keeps exact rule-based second sentence',
     composeSocialTakeaway('你是今晚小隊第一班起飛的航班', '小隊雷達上還有 2 班在飛，夜航仍未散場。')
       === '你是今晚小隊第一班起飛的航班。小隊雷達上還有 2 班在飛，夜航仍未散場。'
+  );
+}
+
+{
+  assert(
+    'rejects takeoff takeaway that narrates current passenger in third person',
+    isMisaddressedSelfTakeaway(
+      'Morgan 現在在夜空中翱翔，讓我們一起祝他一路平安。',
+      'Morgan',
+      'takeoff'
+    ) === true
+  );
+  assert(
+    'allows takeoff takeaway about a different teammate',
+    isMisaddressedSelfTakeaway(
+      'Bobo 還在飛，你不是唯一醒著的人。',
+      'Morgan',
+      'takeoff'
+    ) === false
+  );
+  assert(
+    'allows takeoff takeaway that addresses the passenger as 你',
+    isMisaddressedSelfTakeaway(
+      '你是今晚小隊第一班起飛的航班。',
+      'Morgan',
+      'takeoff'
+    ) === false
   );
 }
 

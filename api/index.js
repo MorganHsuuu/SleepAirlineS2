@@ -108397,8 +108397,25 @@ function isSelfLandingTakeaway(text, passengerName, phase) {
   );
   return selfLanding.test(text);
 }
+function isMisaddressedSelfTakeaway(text, passengerName, phase) {
+  if (phase !== "takeoff") return false;
+  const name = passengerName.trim();
+  const body = text.trim();
+  if (!name || !body) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nameRe = new RegExp(escaped, "iu");
+  if (!nameRe.test(body)) return false;
+  return /(翱翔|夜空|一路平安|祝他|祝她|還在飛|正在飛|已經起飛|現在在)/u.test(body);
+}
+function relatedTeammateName(input) {
+  const related = input.socialCue.relatedPassenger?.trim() || "";
+  const self = input.passengerName.trim();
+  if (!related) return "\u4E00\u4F4D\u968A\u53CB";
+  if (self && related.toLowerCase() === self.toLowerCase()) return "\u4E00\u4F4D\u968A\u53CB";
+  return related;
+}
 function fallbackSocialTakeaway(input) {
-  const name = input.socialCue.relatedPassenger?.trim() || "\u4E00\u4F4D\u968A\u53CB";
+  const name = relatedTeammateName(input);
   let primary = "";
   switch (input.socialCue.cueType) {
     case "solo":
@@ -108477,8 +108494,10 @@ var SYSTEM_PROMPT = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u3
 - \u7981\u6B62\u8AAA\u300C\u5927\u5BB6\u90FD\u5728\u7FF1\u7FD4\u300D\u300C\u5168\u54E1\u8D77\u98DB\u300D\u300C\u56DB\u4F4D\u964D\u843D\u300D\u9019\u985E\u672A\u63D0\u4F9B\u7684\u5168\u9AD4\u72C0\u614B
 - \u7981\u6B62\u628A\u98DB\u884C\u4E2D\u7684\u968A\u53CB\u8AAA\u6210\u5DF2\u964D\u843D
 - \u7981\u6B62\u628A\u5DF2\u964D\u843D\u7684\u968A\u53CB\u8AAA\u6210\u9084\u5728\u98DB
-- \u3010\u4E58\u5BA2\u3011\u662F\u672C\u73ED\u8AAA\u8A71\u5C0D\u8C61\uFF0C\u4E0D\u662F\u76F8\u95DC\u968A\u53CB\uFF1B\u8D77\u98DB\u968E\u6BB5\u7981\u6B62\u8AAA\u3010\u4E58\u5BA2\u3011\u5DF2\u964D\u843D\uFF0F\u5DF2\u8457\u9678\uFF0F\u5DF2\u62B5\u9054
-- \u82E5\u6709\u3010\u76F8\u95DC\u4E58\u5BA2\u3011\uFF0C\u53EA\u80FD\u7528\u90A3\u500B\u540D\u5B57\u8AC7\u968A\u53CB\u52D5\u614B`;
+- \u3010\u4E58\u5BA2\u3011\u662F\u672C\u73ED\u8AAA\u8A71\u5C0D\u8C61\uFF0C\u4E0D\u662F\u76F8\u95DC\u968A\u53CB\uFF1B\u5C0D\u672C\u73ED\u53EA\u7528\u300C\u4F60\u300D\uFF0C\u7981\u6B62\u5BEB\u51FA\u3010\u4E58\u5BA2\u3011\u7684\u540D\u5B57
+- \u8D77\u98DB\u968E\u6BB5\u7981\u6B62\u8AAA\u3010\u4E58\u5BA2\u3011\u5DF2\u964D\u843D\uFF0F\u5DF2\u8457\u9678\uFF0F\u5DF2\u62B5\u9054
+- \u8D77\u98DB\u968E\u6BB5\u7981\u6B62\u5BEB\u300C\u3010\u4E58\u5BA2\u3011\u5728\u7FF1\u7FD4\uFF0F\u795D\u4ED6\u4E00\u8DEF\u5E73\u5B89\u300D\u9019\u985E\u7B2C\u4E09\u4EBA\u7A31\u65C1\u89C0\u53E5
+- \u82E5\u6709\u3010\u76F8\u95DC\u4E58\u5BA2\u3011\uFF0C\u53EA\u80FD\u7528\u90A3\u500B\u540D\u5B57\u8AC7\u968A\u53CB\u52D5\u614B\uFF1B\u7981\u6B62\u628A\u3010\u4E58\u5BA2\u3011\u540D\u5B57\u5957\u5230\u968A\u53CB\u4E8B\u4EF6\u4E0A`;
 async function generateSocialTakeaway(input) {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   if (!process.env.OPENAI_API_KEY) {
@@ -108487,13 +108506,14 @@ async function generateSocialTakeaway(input) {
   const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
   const direction = DIRECTION_LABEL3[input.routeDirection] ?? input.routeDirection;
-  const related = input.socialCue.relatedPassenger?.trim() || "\u7121";
+  const related = relatedTeammateName(input);
+  const relatedLabel = related === "\u4E00\u4F4D\u968A\u53CB" && !input.socialCue.relatedPassenger?.trim() ? "\u7121" : related;
   const phaseGuard = input.phase === "takeoff" ? `
-\u6CE8\u610F\uFF1A\u73FE\u5728\u662F\u8D77\u98DB\uFF0F\u98DB\u884C\u4E2D\u3002\u7981\u6B62\u5BEB\u300C${input.passengerName} \u5DF2\u964D\u843D\uFF0F\u5B89\u5168\u964D\u843D\uFF0F\u62B5\u9054\u300D\u3002\u82E5\u8981\u63D0\u964D\u843D\uFF0C\u53EA\u80FD\u63D0\u76F8\u95DC\u4E58\u5BA2\uFF08${related}\uFF09\u3002` : "";
+\u6CE8\u610F\uFF1A\u73FE\u5728\u662F\u8D77\u98DB\uFF0F\u98DB\u884C\u4E2D\u3002\u5C0D\u672C\u73ED\u53EA\u7528\u300C\u4F60\u300D\uFF0C\u7981\u6B62\u51FA\u73FE\u540D\u5B57\u300C${input.passengerName}\u300D\u3002\u7981\u6B62\u5BEB\u300C${input.passengerName} \u5728\u7FF1\u7FD4\uFF0F\u795D\u4ED6\u4E00\u8DEF\u5E73\u5B89\uFF0F\u5DF2\u964D\u843D\u300D\u3002\u82E5\u8981\u63D0\u968A\u53CB\uFF0C\u53EA\u80FD\u7528\u76F8\u95DC\u4E58\u5BA2\uFF08${relatedLabel}\uFF09\u3002` : "";
   const userPrompt = `\u3010\u968E\u6BB5\u3011
 ${input.phase}
 
-\u3010\u4E58\u5BA2\u3011\uFF08\u672C\u73ED\u5C0D\u8C61\uFF0C\u4E0D\u662F\u968A\u53CB\uFF09
+\u3010\u4E58\u5BA2\u3011\uFF08\u672C\u73ED\u5C0D\u8C61\uFF1D\u300C\u4F60\u300D\uFF0C\u4E0D\u8981\u5BEB\u51FA\u9019\u500B\u540D\u5B57\uFF09
 ${input.passengerName}
 
 \u3010\u672C\u73ED\u8CC7\u6599\u3011
@@ -108506,7 +108526,7 @@ ${input.passengerName}
 \u3010\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u3011
 \u985E\u578B\uFF1A${input.socialCue.cueType}
 \u63D0\u793A\uFF1A${input.socialCue.cueText}
-\u76F8\u95DC\u4E58\u5BA2\uFF1A${related}
+\u76F8\u95DC\u4E58\u5BA2\uFF1A${relatedLabel}
 ${phaseGuard}
 \u8ACB\u53EA\u751F\u6210\u4E00\u53E5 Social Takeaway\uFF08\u4E0D\u8981\u5BEB\u5C0F\u968A\u7E3D\u4EBA\u6578\u6216\u7B2C\u4E8C\u53E5\u6C1B\u570D\uFF09\u3002`;
   try {
@@ -108520,7 +108540,7 @@ ${phaseGuard}
       temperature: 0.8
     });
     const primary = cleanPrimaryTakeaway(completion.choices[0]?.message?.content ?? "");
-    if (primary.length < 6 || isSelfLandingTakeaway(primary, input.passengerName, input.phase)) {
+    if (primary.length < 6 || isSelfLandingTakeaway(primary, input.passengerName, input.phase) || isMisaddressedSelfTakeaway(primary, input.passengerName, input.phase)) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
     return composeSocialTakeaway(primary, groupSummary);

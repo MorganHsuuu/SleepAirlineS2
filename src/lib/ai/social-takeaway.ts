@@ -66,9 +66,37 @@ export function isSelfLandingTakeaway(
   return selfLanding.test(text);
 }
 
+/**
+ * 起飛回聲是說給「你」聽的；若出現本班姓名＋第三人稱飛行敘事（翱翔／祝他），
+ * 代表模型把乘客誤寫成被觀察的隊友。
+ */
+export function isMisaddressedSelfTakeaway(
+  text: string,
+  passengerName: string,
+  phase: 'takeoff' | 'landing'
+): boolean {
+  if (phase !== 'takeoff') return false;
+  const name = passengerName.trim();
+  const body = text.trim();
+  if (!name || !body) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const nameRe = new RegExp(escaped, 'iu');
+  if (!nameRe.test(body)) return false;
+  // 出現自己的名字，又用第三人稱描述飛行／祝福，就是錯置
+  return /(翱翔|夜空|一路平安|祝他|祝她|還在飛|正在飛|已經起飛|現在在)/u.test(body);
+}
+
+function relatedTeammateName(input: SocialTakeawayInput): string {
+  const related = input.socialCue.relatedPassenger?.trim() || '';
+  const self = input.passengerName.trim();
+  if (!related) return '一位隊友';
+  if (self && related.toLowerCase() === self.toLowerCase()) return '一位隊友';
+  return related;
+}
+
 /** AI 不可用時的規則式短句：依 cueType 給一句可接話的話 */
 export function fallbackSocialTakeaway(input: SocialTakeawayInput): string {
-  const name = input.socialCue.relatedPassenger?.trim() || '一位隊友';
+  const name = relatedTeammateName(input);
   let primary = '';
   switch (input.socialCue.cueType) {
     case 'solo':
@@ -159,8 +187,10 @@ const SYSTEM_PROMPT = `你是「甦醒航班 Sleep Airline」的社交語音短�
 - 禁止說「大家都在翱翔」「全員起飛」「四位降落」這類未提供的全體狀態
 - 禁止把飛行中的隊友說成已降落
 - 禁止把已降落的隊友說成還在飛
-- 【乘客】是本班說話對象，不是相關隊友；起飛階段禁止說【乘客】已降落／已著陸／已抵達
-- 若有【相關乘客】，只能用那個名字談隊友動態`;
+- 【乘客】是本班說話對象，不是相關隊友；對本班只用「你」，禁止寫出【乘客】的名字
+- 起飛階段禁止說【乘客】已降落／已著陸／已抵達
+- 起飛階段禁止寫「【乘客】在翱翔／祝他一路平安」這類第三人稱旁觀句
+- 若有【相關乘客】，只能用那個名字談隊友動態；禁止把【乘客】名字套到隊友事件上`;
 
 export async function generateSocialTakeaway(input: SocialTakeawayInput): Promise<string> {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
@@ -171,15 +201,18 @@ export async function generateSocialTakeaway(input: SocialTakeawayInput): Promis
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   const direction = DIRECTION_LABEL[input.routeDirection] ?? input.routeDirection;
-  const related = input.socialCue.relatedPassenger?.trim() || '無';
+  const related = relatedTeammateName(input);
+  const relatedLabel = related === '一位隊友' && !input.socialCue.relatedPassenger?.trim()
+    ? '無'
+    : related;
   const phaseGuard = input.phase === 'takeoff'
-    ? `\n注意：現在是起飛／飛行中。禁止寫「${input.passengerName} 已降落／安全降落／抵達」。若要提降落，只能提相關乘客（${related}）。`
+    ? `\n注意：現在是起飛／飛行中。對本班只用「你」，禁止出現名字「${input.passengerName}」。禁止寫「${input.passengerName} 在翱翔／祝他一路平安／已降落」。若要提隊友，只能用相關乘客（${relatedLabel}）。`
     : '';
 
   const userPrompt = `【階段】
 ${input.phase}
 
-【乘客】（本班對象，不是隊友）
+【乘客】（本班對象＝「你」，不要寫出這個名字）
 ${input.passengerName}
 
 【本班資料】
@@ -192,7 +225,7 @@ ${input.passengerName}
 【主要雷達訊號】
 類型：${input.socialCue.cueType}
 提示：${input.socialCue.cueText}
-相關乘客：${related}
+相關乘客：${relatedLabel}
 ${phaseGuard}
 請只生成一句 Social Takeaway（不要寫小隊總人數或第二句氛圍）。`;
 
@@ -208,7 +241,11 @@ ${phaseGuard}
     });
 
     const primary = cleanPrimaryTakeaway(completion.choices[0]?.message?.content ?? '');
-    if (primary.length < 6 || isSelfLandingTakeaway(primary, input.passengerName, input.phase)) {
+    if (
+      primary.length < 6
+      || isSelfLandingTakeaway(primary, input.passengerName, input.phase)
+      || isMisaddressedSelfTakeaway(primary, input.passengerName, input.phase)
+    ) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
     // 第二句固定用規則組裝，避免 AI 把「已降落」改寫成「都在翱翔」

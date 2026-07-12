@@ -3700,8 +3700,8 @@ function renderSquadEcho(boxId, textId, text) {
   const box = $(boxId);
   if (!box) return;
   let val = (text || '').trim();
-  // 起飛回聲若誤把本班乘客寫成已降落，直接隱藏，避免飛行中顯示落地文案
-  if (boxId === 'fl-echo' && passenger?.name && isSelfLandingEcho(val, passenger.name)) {
+  // 起飛回聲若誤把本班乘客寫成第三人稱／已降落，直接隱藏
+  if (boxId === 'fl-echo' && passenger?.name && isBrokenTakeoffEcho(val, passenger.name)) {
     val = '';
   }
   box.classList.toggle('hidden', !val);
@@ -3709,11 +3709,19 @@ function renderSquadEcho(boxId, textId, text) {
   if (t) t.textContent = val;
 }
 
-function isSelfLandingEcho(text, passengerName) {
+function isBrokenTakeoffEcho(text, passengerName) {
   const name = String(passengerName || '').trim();
   if (!name || !text) return false;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`${escaped}\\s*(已經|已|剛|剛剛)?\\s*(安全)?\\s*(降落|著陸|抵達|落地)`, 'u').test(text);
+  if (new RegExp(`${escaped}\\s*(已經|已|剛|剛剛)?\\s*(安全)?\\s*(降落|著陸|抵達|落地)`, 'u').test(text)) {
+    return true;
+  }
+  // 「Morgan 現在在夜空中翱翔，祝他一路平安」＝把自己寫成被觀察的隊友
+  if (new RegExp(escaped, 'iu').test(text)
+    && /(翱翔|夜空|一路平安|祝他|祝她|還在飛|正在飛|已經起飛|現在在)/u.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 function dismissLandedPanel() {
