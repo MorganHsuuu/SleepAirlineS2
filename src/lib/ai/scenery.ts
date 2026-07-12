@@ -13,14 +13,17 @@ export function buildSceneryPrompt(city: string, country: string, displayName: s
     `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
     `Art style: stylized 3D animated film look — soft Pixar-like cartoon rendering,`,
     `NOT photorealistic, NOT live-action, NOT illustration or watercolor.`,
+    `The scene celebrates what makes ${city} unmistakable: its most iconic architecture and`,
+    `landmark silhouettes, traditional building styles and cultural motifs of ${country},`,
+    `and the surrounding natural landscape — mountains, coastline, rivers, fields or skyline seen from above.`,
     `Rounded friendly forms, smooth CGI surfaces, subtle subsurface glow,`,
-    `expressive simplified landmarks of ${city} that feel instantly recognizable yet charmingly exaggerated.`,
-    `Show iconic architecture and skyline shapes unique to ${place},`,
-    `with the warm cultural personality of ${country} in color and mood.`,
+    `charmingly exaggerated landmarks that feel instantly recognizable.`,
     `Golden sunrise light, hopeful just-woke-up arrival feeling;`,
     `bright saturated palette: warm gold, peach, fresh morning-blue sky, soft volumetric haze;`,
     `gentle window-glass reflection at the frame edges — dreamy, luminous, family-friendly.`,
-    `No close-up people, no text, no watermark, no logos.`,
+    `Absolutely no text of any kind anywhere in the image: no signs, billboards, banners,`,
+    `storefront lettering, street markings, no letters, numbers or writing in any language.`,
+    `No close-up people, no watermark, no logos.`,
   ].join(' ');
 }
 
