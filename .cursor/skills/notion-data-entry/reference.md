@@ -19,7 +19,7 @@
 ```text
 NOTION_API_KEY=ntn_...
 NOTION_DASHBOARD_DB_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-NOTION_LANDSCAPE_DB_ID=38e65082791780178da6000c4343c38b
+NOTION_LANDSCAPE_DB_ID=38ca7f1b413c815aabe1d62cdfad86ab
 ```
 
 `NOTION_LANDSCAPE_DB_ID` = **Sleep Airline Landing Scenery**（降落風景圖／檔案庫；程式上傳 Image 到此表）。

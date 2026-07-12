@@ -85,7 +85,7 @@ Redeploy 後測試：
 ```bash
 NOTION_API_KEY=ntn_...              # 主辦提供的 Integration Token
 NOTION_DASHBOARD_DB_ID=...          # Flight Log 總表 ID（32 字元）
-NOTION_LANDSCAPE_DB_ID=38e65082791780178da6000c4343c38b   # Landing Scenery 檔案庫（降落風景圖）
+NOTION_LANDSCAPE_DB_ID=38ca7f1b413c815aabe1d62cdfad86ab   # Landing Scenery 檔案庫（降落風景圖）
 ```
 
 主辦也會提供總表／說明網址供對照。**學員請勿設定** `NOTION_PARENT_PAGE_ID`、`NOTION_ALLOW_SCHEMA_WRITE`。

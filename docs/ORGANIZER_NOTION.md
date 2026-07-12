@@ -4,8 +4,8 @@
 
 | 用途 | env 變數 | Database ID |
 |---|---|---|
-| Flight Log 航班總表 | `NOTION_DASHBOARD_DB_ID` | （向主辦既有總表） |
-| **Landing Scenery 風景圖／檔案** | `NOTION_LANDSCAPE_DB_ID` | `38e65082791780178da6000c4343c38b` |
+| Flight Log 航班總表 | `NOTION_DASHBOARD_DB_ID` | `389a7f1b413c81d896e2c860e397cbc7` |
+| **Landing Scenery 風景圖／檔案** | `NOTION_LANDSCAPE_DB_ID` | `38ca7f1b413c815aabe1d62cdfad86ab` |
 
 程式會把降落生成的風景圖上傳到 **Landing Scenery** 的 `Image` 欄位（見 `src/lib/notion/landscape-images.ts`）。
 
@@ -14,7 +14,7 @@
 1. 開 [Vercel](https://vercel.com) → **Sleep Airline S2** → Settings → Environment Variables  
 2. 設定或更新：
    ```
-   NOTION_LANDSCAPE_DB_ID=38e65082791780178da6000c4343c38b
+   NOTION_LANDSCAPE_DB_ID=38ca7f1b413c815aabe1d62cdfad86ab
    ```
 3. **Redeploy**
 
@@ -43,5 +43,5 @@ npm run notion:verify
 三項 env 都要給；`NOTION_LANDSCAPE_DB_ID` 固定用：
 
 ```
-38e65082791780178da6000c4343c38b
+38ca7f1b413c815aabe1d62cdfad86ab
 ```

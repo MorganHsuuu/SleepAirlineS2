@@ -17,7 +17,7 @@ if (existsSync(envPath)) {
 }
 
 const key = process.env.NOTION_API_KEY;
-const dbId = (process.env.NOTION_LANDSCAPE_DB_ID || '38e65082791780178da6000c4343c38b').replace(/-/g, '');
+const dbId = (process.env.NOTION_LANDSCAPE_DB_ID || '38ca7f1b413c815aabe1d62cdfad86ab').replace(/-/g, '');
 
 if (!key) {
   console.error('❌ 請在 .env.local 設定 NOTION_API_KEY');
