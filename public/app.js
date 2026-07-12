@@ -2376,9 +2376,16 @@ async function playBroadcastWithWave(text, style, {
     } else {
       await playPromise;
     }
+    // 雙重守門：即使 playCaptainBroadcast 提前 resolve，也不准在語音未靜音時往下走
+    if (BroadcastAudio.waitForSpeechComplete) {
+      await BroadcastAudio.waitForSpeechComplete({ maxMs: Math.min(120000, maxMs || 120000), quietMs: 450 });
+    }
   } finally {
     BroadcastAudio?.stopCaptainIntro?.();
     await Promise.race([playPromise.catch(() => {}), waitMs(400)]);
+    if (BroadcastAudio?.isSpeechActive?.()) {
+      await BroadcastAudio.waitForSpeechComplete?.({ maxMs: 30000, quietMs: 300 });
+    }
     wave?.classList.remove('speaking');
   }
 }
@@ -3459,11 +3466,18 @@ function setLandingFxPhase(phase) {
   }
 }
 
-/** 機長廣播結束 → 著陸段：清 TTS、解鎖媒體；takeoff2 持續播，不中斷成黑屏 */
+/** 機長廣播結束 → 著陸段：等 TTS 真正播完，再解鎖媒體切 landing.mp4 */
 async function bridgeAfterCaptainBroadcast() {
-  if (window.speechSynthesis) speechSynthesis.cancel();
+  // 先等語音靜下來；禁止一進來就 stopPlayback，否則會砍到後半段 TTS
+  if (BroadcastAudio?.waitForSpeechComplete) {
+    await BroadcastAudio.waitForSpeechComplete({ maxMs: 180000, quietMs: 500 });
+  }
   BroadcastAudio?.stopCaptainIntro?.();
-  BroadcastAudio?.stopPlayback?.();
+  // 語音已結束才清殘留；仍在說就不 cancel
+  if (!BroadcastAudio?.isSpeechActive?.()) {
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    BroadcastAudio?.stopPlayback?.();
+  }
   await BroadcastAudio?.unlockMedia?.();
   await BroadcastAudio?.startMediaKeepAlive?.();
   // 保持 takeoff2 loop，等 landing.mp4 備好再交叉淡入
@@ -3685,10 +3699,21 @@ function updateUI() {
 function renderSquadEcho(boxId, textId, text) {
   const box = $(boxId);
   if (!box) return;
-  const val = (text || '').trim();
+  let val = (text || '').trim();
+  // 起飛回聲若誤把本班乘客寫成已降落，直接隱藏，避免飛行中顯示落地文案
+  if (boxId === 'fl-echo' && passenger?.name && isSelfLandingEcho(val, passenger.name)) {
+    val = '';
+  }
   box.classList.toggle('hidden', !val);
   const t = $(textId);
   if (t) t.textContent = val;
+}
+
+function isSelfLandingEcho(text, passengerName) {
+  const name = String(passengerName || '').trim();
+  if (!name || !text) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`${escaped}\\s*(已經|已|剛|剛剛)?\\s*(安全)?\\s*(降落|著陸|抵達|落地)`, 'u').test(text);
 }
 
 function dismissLandedPanel() {

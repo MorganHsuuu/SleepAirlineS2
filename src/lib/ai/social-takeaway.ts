@@ -46,6 +46,26 @@ export function composeSocialTakeaway(primary: string, groupSummary?: string | n
   return `${first}${second}`;
 }
 
+/**
+ * 起飛階段若把「本班乘客」寫成已降落，屬於身分錯置（常把【乘客】誤當隊友）。
+ * 落地階段不擋，因為本班本來就在講自己抵達。
+ */
+export function isSelfLandingTakeaway(
+  text: string,
+  passengerName: string,
+  phase: 'takeoff' | 'landing'
+): boolean {
+  if (phase !== 'takeoff') return false;
+  const name = passengerName.trim();
+  if (!name || !text.trim()) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const selfLanding = new RegExp(
+    `${escaped}\\s*(已經|已|剛|剛剛)?\\s*(安全)?\\s*(降落|著陸|抵達|落地)`,
+    'u'
+  );
+  return selfLanding.test(text);
+}
+
 /** AI 不可用時的規則式短句：依 cueType 給一句可接話的話 */
 export function fallbackSocialTakeaway(input: SocialTakeawayInput): string {
   const name = input.socialCue.relatedPassenger?.trim() || '一位隊友';
@@ -145,7 +165,9 @@ const SYSTEM_PROMPT = `你是「甦醒航班 Sleep Airline」的社交語音短�
 - 禁止編造未提供的人名、地名、時間
 - 禁止把飛行中的隊友說成已降落
 - 禁止把已降落的隊友說成還在飛
-- 禁止把單一訊號擴寫成全員監控報告`;
+- 禁止把單一訊號擴寫成全員監控報告
+- 【乘客】是本班說話對象，不是相關隊友；起飛階段禁止說【乘客】已降落／已著陸／已抵達
+- 若有【相關乘客】，只能用那個名字談隊友動態；禁止把【乘客】名字套到隊友事件上`;
 
 export async function generateSocialTakeaway(input: SocialTakeawayInput): Promise<string> {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
@@ -156,11 +178,15 @@ export async function generateSocialTakeaway(input: SocialTakeawayInput): Promis
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
   const direction = DIRECTION_LABEL[input.routeDirection] ?? input.routeDirection;
+  const related = input.socialCue.relatedPassenger?.trim() || '無';
+  const phaseGuard = input.phase === 'takeoff'
+    ? `\n注意：現在是起飛／飛行中。禁止寫「${input.passengerName} 已降落／安全降落／抵達」。若要提降落，只能提相關乘客（${related}）。`
+    : '';
 
   const userPrompt = `【階段】
 ${input.phase}
 
-【乘客】
+【乘客】（本班對象，不是隊友）
 ${input.passengerName}
 
 【本班資料】
@@ -173,8 +199,8 @@ ${input.passengerName}
 【主要雷達訊號】
 類型：${input.socialCue.cueType}
 提示：${input.socialCue.cueText}
-相關乘客：${input.socialCue.relatedPassenger ?? '無'}
-${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}
+相關乘客：${related}
+${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}${phaseGuard}
 請生成 Social Takeaway（${groupSummary ? '最多兩句' : '一句'}）。`;
 
   try {
@@ -189,13 +215,17 @@ ${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}
     });
 
     const text = cleanTakeaway(completion.choices[0]?.message?.content ?? '');
-    if (text.length < 6) {
+    if (text.length < 6 || isSelfLandingTakeaway(text, input.passengerName, input.phase)) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
     if (!groupSummary) return endSentence(text);
 
     const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
-    return composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
+    const composed = composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
+    if (isSelfLandingTakeaway(composed, input.passengerName, input.phase)) {
+      return fallbackSocialTakeaway({ ...input, groupSummary });
+    }
+    return composed;
   } catch {
     return fallbackSocialTakeaway({ ...input, groupSummary });
   }

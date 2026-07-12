@@ -248,6 +248,9 @@ async function playWebAudioBuffer(buffer, {
   return new Promise((resolve) => {
     let done = false;
     let timer = null;
+    const startedAt = ctx.currentTime;
+    const naturalDur = clipSec > 0 ? clipSec : (loop ? 0 : Math.max(0, playBuffer.duration || 0));
+    const endAt = naturalDur > 0 ? startedAt + naturalDur + 0.18 : 0;
     const finish = (ok) => {
       if (done) return;
       done = true;
@@ -259,10 +262,16 @@ async function playWebAudioBuffer(buffer, {
     };
     activePlaybacks.set(node, finish);
     source.onended = () => { if (!source.loop) finish(true); };
-    const timerMs = clipSec > 0
-      ? clipSec * 1000 + 250
-      : loop ? 0 : Math.min(120000, playBuffer.duration * 1000 + 800);
-    if (timerMs > 0) timer = setTimeout(() => finish(true), timerMs);
+    // 用 AudioContext 時鐘輪詢結束點，避免 wall-clock setTimeout 在 ctx 暫停／追趕時提早砍語音
+    const pollEnd = () => {
+      if (done || loop || endAt <= 0) return;
+      if (ctx.currentTime >= endAt) {
+        finish(true);
+        return;
+      }
+      timer = setTimeout(pollEnd, 120);
+    };
+    if (endAt > 0) timer = setTimeout(pollEnd, 120);
     try {
       if (clipSec > 0) source.start(0, 0, clipSec);
       else source.start(0);
@@ -1003,7 +1012,11 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     // 短間隔，讓裝置緩衝就緒，減少首字「歡迎」被吃
     await delay(280);
     if (!prepared) return await speakText(text);
-    return await playPreparedSpeech(prepared);
+    const ok = await playPreparedSpeech(prepared);
+    // 再等語音真正靜下來，避免 Promise 提前 resolve 就切 landing.mp4
+    await waitForSpeechComplete({ maxMs: 120000, quietMs: 420 });
+    await delay(280);
+    return ok;
   } catch {
     stopCaptainIntro();
     await muteCeremonyBedForSpeech();
@@ -1013,6 +1026,32 @@ async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = tr
     stopCaptainIntro();
     if (restoreBed) await restoreCeremonyBed({ ms: CEREMONY_RESTORE_MS });
   }
+}
+
+function isSpeechActive() {
+  if (speechNode) return true;
+  if (currentAudio && !currentAudio.paused && !currentAudio.ended) return true;
+  try {
+    if (window.speechSynthesis?.speaking || window.speechSynthesis?.pending) return true;
+  } catch { /* noop */ }
+  return false;
+}
+
+/** 等到機長語音真正播完（含瀏覽器 TTS），才允許切 landing.mp4 / takeoff.mp3 */
+async function waitForSpeechComplete({ maxMs = 120000, quietMs = 400 } = {}) {
+  const start = Date.now();
+  let quietSince = isSpeechActive() ? null : Date.now();
+  while (Date.now() - start < maxMs) {
+    if (isSpeechActive()) {
+      quietSince = null;
+    } else if (quietSince == null) {
+      quietSince = Date.now();
+    } else if (Date.now() - quietSince >= quietMs) {
+      return true;
+    }
+    await delay(90);
+  }
+  return !isSpeechActive();
 }
 
 /** 羅盤拖曳：清脆指針滴答聲（跨刻度 / 對準方位） */
@@ -1095,6 +1134,8 @@ window.BroadcastAudio = {
   playCompassTick,
   speakText,
   stopPlayback,
+  isSpeechActive,
+  waitForSpeechComplete,
   primeFromUserGesture,
   unlockMedia,
   startMediaKeepAlive,

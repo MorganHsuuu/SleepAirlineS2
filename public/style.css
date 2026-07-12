@@ -1568,7 +1568,12 @@ body[data-theme="dusk"] .pw-shade-rod {
   line-height: 1.55;
   color: var(--ink);
 }
-#fl-echo { margin-top: 8px; max-width: 340px; }
+#fl-echo {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  margin-top: 10px;
+}
 #fl-echo .squad-echo-text { font-size: 11px; }
 
 .landed-stats {
@@ -2674,6 +2679,13 @@ body.sheet-open #main-section {
     padding-right: 12px;
     display: flex;
     align-items: center;
+  }
+  #flight-panel .dock-panel-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #flight-panel .dock-panel-main #fl-echo {
+    width: 100%;
   }
   /* 航跡切換浮在面板左上方（與右上的「望向窗外」對稱），不壓到面板內容 */
   .dock .globe-trails {

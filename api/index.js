@@ -108099,7 +108099,11 @@ function soloSocialCueCandidate() {
 
 // src/lib/flight/social.ts
 async function resolveGroupSocialCue(current, groupFlights) {
-  const candidates = collectSocialCueCandidates(current, groupFlights);
+  const candidates = collectSocialCueCandidates(current, groupFlights).filter((candidate) => {
+    const related = candidate.relatedPassenger?.trim();
+    if (!related) return true;
+    return related.toLowerCase() !== current.passengerName.trim().toLowerCase();
+  });
   const picked = pickPrioritySocialCueCandidate(candidates, current.phase) ?? soloSocialCueCandidate();
   const cueText = await generateSocialCueText(picked, current.phase);
   const groupSummary = picked.cueType === "solo" ? null : buildGroupSocialSummary(current, groupFlights);
@@ -108365,6 +108369,17 @@ function composeSocialTakeaway(primary, groupSummary) {
   if (!second) return first;
   return `${first}${second}`;
 }
+function isSelfLandingTakeaway(text, passengerName, phase) {
+  if (phase !== "takeoff") return false;
+  const name = passengerName.trim();
+  if (!name || !text.trim()) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const selfLanding = new RegExp(
+    `${escaped}\\s*(\u5DF2\u7D93|\u5DF2|\u525B|\u525B\u525B)?\\s*(\u5B89\u5168)?\\s*(\u964D\u843D|\u8457\u9678|\u62B5\u9054|\u843D\u5730)`,
+    "u"
+  );
+  return selfLanding.test(text);
+}
 function fallbackSocialTakeaway(input) {
   const name = input.socialCue.relatedPassenger?.trim() || "\u4E00\u4F4D\u968A\u53CB";
   let primary = "";
@@ -108450,7 +108465,9 @@ var SYSTEM_PROMPT = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u3
 - \u7981\u6B62\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u4EBA\u540D\u3001\u5730\u540D\u3001\u6642\u9593
 - \u7981\u6B62\u628A\u98DB\u884C\u4E2D\u7684\u968A\u53CB\u8AAA\u6210\u5DF2\u964D\u843D
 - \u7981\u6B62\u628A\u5DF2\u964D\u843D\u7684\u968A\u53CB\u8AAA\u6210\u9084\u5728\u98DB
-- \u7981\u6B62\u628A\u55AE\u4E00\u8A0A\u865F\u64F4\u5BEB\u6210\u5168\u54E1\u76E3\u63A7\u5831\u544A`;
+- \u7981\u6B62\u628A\u55AE\u4E00\u8A0A\u865F\u64F4\u5BEB\u6210\u5168\u54E1\u76E3\u63A7\u5831\u544A
+- \u3010\u4E58\u5BA2\u3011\u662F\u672C\u73ED\u8AAA\u8A71\u5C0D\u8C61\uFF0C\u4E0D\u662F\u76F8\u95DC\u968A\u53CB\uFF1B\u8D77\u98DB\u968E\u6BB5\u7981\u6B62\u8AAA\u3010\u4E58\u5BA2\u3011\u5DF2\u964D\u843D\uFF0F\u5DF2\u8457\u9678\uFF0F\u5DF2\u62B5\u9054
+- \u82E5\u6709\u3010\u76F8\u95DC\u4E58\u5BA2\u3011\uFF0C\u53EA\u80FD\u7528\u90A3\u500B\u540D\u5B57\u8AC7\u968A\u53CB\u52D5\u614B\uFF1B\u7981\u6B62\u628A\u3010\u4E58\u5BA2\u3011\u540D\u5B57\u5957\u5230\u968A\u53CB\u4E8B\u4EF6\u4E0A`;
 async function generateSocialTakeaway(input) {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   if (!process.env.OPENAI_API_KEY) {
@@ -108459,10 +108476,13 @@ async function generateSocialTakeaway(input) {
   const client = new import_openai4.default({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
   const direction = DIRECTION_LABEL3[input.routeDirection] ?? input.routeDirection;
+  const related = input.socialCue.relatedPassenger?.trim() || "\u7121";
+  const phaseGuard = input.phase === "takeoff" ? `
+\u6CE8\u610F\uFF1A\u73FE\u5728\u662F\u8D77\u98DB\uFF0F\u98DB\u884C\u4E2D\u3002\u7981\u6B62\u5BEB\u300C${input.passengerName} \u5DF2\u964D\u843D\uFF0F\u5B89\u5168\u964D\u843D\uFF0F\u62B5\u9054\u300D\u3002\u82E5\u8981\u63D0\u964D\u843D\uFF0C\u53EA\u80FD\u63D0\u76F8\u95DC\u4E58\u5BA2\uFF08${related}\uFF09\u3002` : "";
   const userPrompt = `\u3010\u968E\u6BB5\u3011
 ${input.phase}
 
-\u3010\u4E58\u5BA2\u3011
+\u3010\u4E58\u5BA2\u3011\uFF08\u672C\u73ED\u5C0D\u8C61\uFF0C\u4E0D\u662F\u968A\u53CB\uFF09
 ${input.passengerName}
 
 \u3010\u672C\u73ED\u8CC7\u6599\u3011
@@ -108475,11 +108495,11 @@ ${input.passengerName}
 \u3010\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u3011
 \u985E\u578B\uFF1A${input.socialCue.cueType}
 \u63D0\u793A\uFF1A${input.socialCue.cueText}
-\u76F8\u95DC\u4E58\u5BA2\uFF1A${input.socialCue.relatedPassenger ?? "\u7121"}
+\u76F8\u95DC\u4E58\u5BA2\uFF1A${related}
 ${groupSummary ? `
 \u3010\u5C0F\u968A\u6C1B\u570D\u3011
 ${groupSummary}
-` : ""}
+` : ""}${phaseGuard}
 \u8ACB\u751F\u6210 Social Takeaway\uFF08${groupSummary ? "\u6700\u591A\u5169\u53E5" : "\u4E00\u53E5"}\uFF09\u3002`;
   try {
     const completion = await client.chat.completions.create({
@@ -108492,12 +108512,16 @@ ${groupSummary}
       temperature: 0.9
     });
     const text = cleanTakeaway(completion.choices[0]?.message?.content ?? "");
-    if (text.length < 6) {
+    if (text.length < 6 || isSelfLandingTakeaway(text, input.passengerName, input.phase)) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
     if (!groupSummary) return endSentence(text);
     const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
-    return composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
+    const composed = composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
+    if (isSelfLandingTakeaway(composed, input.passengerName, input.phase)) {
+      return fallbackSocialTakeaway({ ...input, groupSummary });
+    }
+    return composed;
   } catch {
     return fallbackSocialTakeaway({ ...input, groupSummary });
   }

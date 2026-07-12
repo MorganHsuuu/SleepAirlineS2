@@ -14,7 +14,8 @@
     "notion:verify": "node scripts/verify-notion-landscape.mjs",
     "check:contract": "node scripts/check-workshop-contract.mjs",
     "check:share-card": "node scripts/check-share-card-dom.mjs",
-    "check:social-cue": "tsx scripts/check-social-cue-priority.ts"
+    "check:social-cue": "tsx scripts/check-social-cue-priority.ts",
+    "check:landing-speech": "node scripts/check-landing-speech-gate.mjs"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",

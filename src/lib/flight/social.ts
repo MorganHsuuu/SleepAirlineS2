@@ -18,7 +18,12 @@ export async function resolveGroupSocialCue(
   current: CurrentFlightContext,
   groupFlights: Flight[]
 ): Promise<SocialCue> {
-  const candidates = collectSocialCueCandidates(current, groupFlights);
+  const candidates = collectSocialCueCandidates(current, groupFlights)
+    .filter((candidate) => {
+      const related = candidate.relatedPassenger?.trim();
+      if (!related) return true;
+      return related.toLowerCase() !== current.passengerName.trim().toLowerCase();
+    });
   const picked = pickPrioritySocialCueCandidate(candidates, current.phase) ?? soloSocialCueCandidate();
   const cueText = await generateSocialCueText(picked, current.phase);
   const groupSummary =

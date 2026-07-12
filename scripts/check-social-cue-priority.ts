@@ -8,7 +8,7 @@ import {
   type CurrentFlightContext,
   type SocialCueCandidate,
 } from '../src/lib/flight/social-candidates';
-import { composeSocialTakeaway } from '../src/lib/ai/social-takeaway';
+import { composeSocialTakeaway, isSelfLandingTakeaway } from '../src/lib/ai/social-takeaway';
 import type { Flight } from '../src/types';
 
 let failed = 0;
@@ -162,6 +162,21 @@ const mixed: SocialCueCandidate[] = [
   const sentences = two.split(/[。！？]/).filter(Boolean);
   assert('takeaway with group summary is at most two sentences', sentences.length === 2, two);
   assert('composed takeaway keeps primary then group summary', two.startsWith('Amy') && /雲上/.test(two), two);
+}
+
+{
+  assert(
+    'rejects takeoff takeaway that says current passenger already landed',
+    isSelfLandingTakeaway('Momo 已經安全降落，辛苦啦。', 'Momo', 'takeoff') === true
+  );
+  assert(
+    'allows takeoff takeaway about a teammate landing',
+    isSelfLandingTakeaway('Bobo 已經降落，先替小隊探了路。', 'Momo', 'takeoff') === false
+  );
+  assert(
+    'allows landing takeaway for self',
+    isSelfLandingTakeaway('你完成了一趟安靜的個人航班。', 'Momo', 'landing') === false
+  );
 }
 
 if (failed) {
