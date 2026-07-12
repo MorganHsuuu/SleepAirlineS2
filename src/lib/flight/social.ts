@@ -4,6 +4,7 @@ import {
   buildGroupSocialSummary,
   collectSocialCueCandidates,
   pickPrioritySocialCueCandidate,
+  shouldAttachGroupSummary,
   soloSocialCueCandidate,
   type CurrentFlightContext,
 } from './social-candidates';
@@ -26,8 +27,9 @@ export async function resolveGroupSocialCue(
     });
   const picked = pickPrioritySocialCueCandidate(candidates, current.phase) ?? soloSocialCueCandidate();
   const cueText = await generateSocialCueText(picked, current.phase);
-  const groupSummary =
-    picked.cueType === 'solo' ? null : buildGroupSocialSummary(current, groupFlights);
+  const groupSummary = shouldAttachGroupSummary(picked.cueType)
+    ? buildGroupSocialSummary(current, groupFlights)
+    : null;
 
   return {
     cueType: picked.cueType,

@@ -66,6 +66,20 @@ export const TAKEOFF_SOCIAL_CUE_PRIORITY: Array<SocialCueType | SocialCueType[]>
 /** 其他活躍隊友達此人數才附加 group summary（人數少只講 primary cue） */
 export const GROUP_SUMMARY_MIN_OTHERS = 3;
 
+/** 只看「今晚／這一輪」隊友動態，避免把前天已降落的舊航班寫進氛圍句 */
+export const GROUP_SUMMARY_NIGHT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 這些 primary cue 本身已是整體敘事，不再疊第二句，以免自相矛盾 */
+const GROUP_SUMMARY_SKIP_CUE_TYPES = new Set<SocialCueType>([
+  'solo',
+  'first_of_night',
+  'squad_in_sky',
+]);
+
+export function shouldAttachGroupSummary(cueType: SocialCueType): boolean {
+  return !GROUP_SUMMARY_SKIP_CUE_TYPES.has(cueType);
+}
+
 const OPPOSITE_ROUTE_DIRECTIONS: Partial<Record<RouteDirection, RouteDirection[]>> = {
   eastbound: ['westbound'],
   westbound: ['eastbound'],
@@ -497,36 +511,46 @@ export function pickRandomSocialCueCandidate(
   return pickPrioritySocialCueCandidate(candidates, phase, random);
 }
 
-/** 人數多時一句小隊氛圍；不列名單、不排行、不比較睡眠。 */
+/** 人數多時一句小隊氛圍；只統計今晚視窗內狀態，不列名單、不排行。 */
 export function buildGroupSocialSummary(
   current: CurrentFlightContext,
-  groupFlights: Flight[]
+  groupFlights: Flight[],
+  nowMs: number = Date.now()
 ): string | null {
+  const since = nowMs - GROUP_SUMMARY_NIGHT_WINDOW_MS;
   const others = groupFlights.filter((f) => f.passengerId !== current.passengerId);
-  const inFlight = others.filter((f) => f.status === 'in_flight');
-  const landed = others.filter((f) => f.status === 'landed' && f.landingTime != null);
+  const recentOthers = others.filter((f) => eventTimeMs(f) >= since);
+  const inFlight = recentOthers.filter((f) => f.status === 'in_flight');
+  const landed = recentOthers.filter((f) => f.status === 'landed' && f.landingTime != null);
   const activeOthers = inFlight.length + landed.length;
   if (activeOthers < GROUP_SUMMARY_MIN_OTHERS) return null;
 
-  if (inFlight.length >= 2 && landed.length >= 1) {
+  // 敘事必須跟實際狀態一致：有人在飛就不要說「大家都著陸」，有人著陸就不要說「大家都在翱翔」
+  if (inFlight.length >= 2 && landed.length >= 2) {
+    return `今晚小隊雷達上 ${inFlight.length} 班仍在飛，另有 ${landed.length} 班已著陸。`;
+  }
+  if (inFlight.length >= 2 && landed.length === 1) {
     return `小隊雷達上還有 ${inFlight.length} 班在飛，夜航仍未散場。`;
   }
-  if (inFlight.length >= 3) {
+  if (inFlight.length >= 3 && landed.length === 0) {
     return `今晚小隊有 ${inFlight.length} 班還在雲上。`;
   }
-  if (inFlight.length >= 2) {
-    return '小隊雷達掃到多班並行夜航。';
+  if (inFlight.length === 2 && landed.length === 0) {
+    return '小隊雷達掃到兩班並行夜航。';
+  }
+  if (landed.length >= 3 && inFlight.length === 0) {
+    return `今晚已有 ${landed.length} 班平安著陸。`;
   }
   if (landed.length >= 3 && inFlight.length === 1) {
-    return '多班已著陸，仍有一班替小隊守著夜空。';
+    return `多班已著陸，雷達上仍留一班夜航。`;
   }
-  if (landed.length >= 3) {
-    return '小隊今晚已有多班平安著陸。';
-  }
-  if (landed.length >= 2 && inFlight.length >= 1) {
+  if (landed.length >= 2 && inFlight.length === 1) {
     return '小隊雷達上有人已落地，也有人還在飛。';
   }
-  return '小隊雷達今晚比平常熱鬧一些。';
+  if (landed.length >= 2 && inFlight.length === 0) {
+    return `今晚已有 ${landed.length} 班著陸，小隊節奏慢慢收斂。`;
+  }
+  return null;
 }
 
 export function soloSocialCueCandidate(): SocialCueCandidate {

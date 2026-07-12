@@ -3,8 +3,8 @@ import type { SocialCue } from '../../types';
 
 /**
  * Social Takeaway：可以拿去跟隊友接話的社交短句。
- * primary cue 一句；人數多時可再加一句 group summary，最多兩句。
- * 不是完整機長廣播——顯示在起飛／降落畫面（小隊回聲）。
+ * primary cue 一句；人數多時可再加一句 rule-based group summary，最多兩句。
+ * 第二句固定用規則文案，不交給 AI 改寫，避免「已降落」又說「都在翱翔」。
  */
 export interface SocialTakeawayInput {
   phase: 'takeoff' | 'landing';
@@ -123,51 +123,44 @@ export function fallbackSocialTakeaway(input: SocialTakeawayInput): string {
   return composeSocialTakeaway(primary, groupSummary);
 }
 
-/** 去掉模型偶爾加上的引號、標題；保留最多兩句 */
-function cleanTakeaway(raw: string): string {
+/** 去掉模型偶爾加上的引號、標題；只留第一句（第二句改由規則組裝） */
+function cleanPrimaryTakeaway(raw: string): string {
   const cleaned = raw
     .replace(/^["'「『”]+|["'」『』”]+$/g, '')
     .replace(/^(小隊回聲|Social Takeaway)[：:]\s*/i, '')
     .trim();
-  const parts = cleaned
+  const first = cleaned
     .split(/(?<=[。！？])/)
     .map((part) => part.trim())
-    .filter(Boolean)
-    .slice(0, 2);
-  return parts.join('');
+    .find(Boolean);
+  return first || cleaned;
 }
 
 const SYSTEM_PROMPT = `你是「甦醒航班 Sleep Airline」的社交語音短句撰寫者。
-你的任務不是寫完整機長廣播，而是根據「一則主要雷達訊號」生成可拿去跟同組朋友接話的短句。
+你的任務不是寫完整機長廣播，而是根據「一則主要雷達訊號」生成一句可拿去跟同組朋友接話的短句。
 
 設計目標：
 - 像「小隊雷達掃到一則訊號」，不是完整監控報告
-- 每次只講一則主要個人／事件訊號
-- 若有小隊氛圍句，最多再補一句整體感，不要列出所有人
+- 只改寫這一則主要個人／事件訊號
+- 不要自行補小隊人數、不要自行發明「大家都在飛／都已降落」
 
 語氣：
 - 繁體中文
 - 口語、短、清楚、有一點可愛或玩笑
 - 不要過度詩意
-- 不要像客服、不要像健康建議、不要像任務系統
 
 長度：
-- 主要訊號 12–32 字
-- 若提供【小隊氛圍】，輸出最多兩句：第一句改寫主要訊號，第二句改寫小隊氛圍
-- 若沒有【小隊氛圍】，只輸出一句
+- 12–32 字
+- 只輸出一句
 - 不要列點、不要加標題、引號或說明
 
 禁止：
-- 禁止說「你應該早睡」「請改善睡眠」「睡眠品質」
-- 禁止評分、排名、達標、失敗、比較誰睡比較久
-- 禁止列出所有隊友的睡眠或飛行狀態
-- 禁止責備沒起飛或晚睡的人
-- 禁止編造未提供的人名、地名、時間
+- 禁止編造未提供的人名、地名、時間、人數
+- 禁止說「大家都在翱翔」「全員起飛」「四位降落」這類未提供的全體狀態
 - 禁止把飛行中的隊友說成已降落
 - 禁止把已降落的隊友說成還在飛
-- 禁止把單一訊號擴寫成全員監控報告
 - 【乘客】是本班說話對象，不是相關隊友；起飛階段禁止說【乘客】已降落／已著陸／已抵達
-- 若有【相關乘客】，只能用那個名字談隊友動態；禁止把【乘客】名字套到隊友事件上`;
+- 若有【相關乘客】，只能用那個名字談隊友動態`;
 
 export async function generateSocialTakeaway(input: SocialTakeawayInput): Promise<string> {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
@@ -200,8 +193,8 @@ ${input.passengerName}
 類型：${input.socialCue.cueType}
 提示：${input.socialCue.cueText}
 相關乘客：${related}
-${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}${phaseGuard}
-請生成 Social Takeaway（${groupSummary ? '最多兩句' : '一句'}）。`;
+${phaseGuard}
+請只生成一句 Social Takeaway（不要寫小隊總人數或第二句氛圍）。`;
 
   try {
     const completion = await client.chat.completions.create({
@@ -210,22 +203,16 @@ ${groupSummary ? `\n【小隊氛圍】\n${groupSummary}\n` : ''}${phaseGuard}
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: groupSummary ? 120 : 80,
-      temperature: 0.9,
+      max_tokens: 80,
+      temperature: 0.8,
     });
 
-    const text = cleanTakeaway(completion.choices[0]?.message?.content ?? '');
-    if (text.length < 6 || isSelfLandingTakeaway(text, input.passengerName, input.phase)) {
+    const primary = cleanPrimaryTakeaway(completion.choices[0]?.message?.content ?? '');
+    if (primary.length < 6 || isSelfLandingTakeaway(primary, input.passengerName, input.phase)) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
-    if (!groupSummary) return endSentence(text);
-
-    const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
-    const composed = composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
-    if (isSelfLandingTakeaway(composed, input.passengerName, input.phase)) {
-      return fallbackSocialTakeaway({ ...input, groupSummary });
-    }
-    return composed;
+    // 第二句固定用規則組裝，避免 AI 把「已降落」改寫成「都在翱翔」
+    return composeSocialTakeaway(primary, groupSummary);
   } catch {
     return fallbackSocialTakeaway({ ...input, groupSummary });
   }

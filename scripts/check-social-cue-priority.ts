@@ -5,6 +5,7 @@
 import {
   buildGroupSocialSummary,
   pickPrioritySocialCueCandidate,
+  shouldAttachGroupSummary,
   type CurrentFlightContext,
   type SocialCueCandidate,
 } from '../src/lib/flight/social-candidates';
@@ -119,25 +120,27 @@ const mixed: SocialCueCandidate[] = [
   );
 }
 
+const NOW_MS = Date.parse('2026-07-12T14:00:00.000Z');
+
 {
   const few = [
     flight({ passengerId: 'p_self', passengerName: 'Self', status: 'in_flight' }),
     flight({ passengerId: 'p1', passengerName: 'A', status: 'in_flight' }),
-    flight({ passengerId: 'p2', passengerName: 'B', status: 'landed', landingTime: '2026-07-11T18:00:00.000Z', arrivalLocation: 'Kyoto, Japan' }),
+    flight({ passengerId: 'p2', passengerName: 'B', status: 'landed', landingTime: '2026-07-12T12:00:00.000Z', arrivalLocation: 'Kyoto, Japan' }),
   ];
-  const summary = buildGroupSocialSummary(baseCtx('takeoff'), few);
+  const summary = buildGroupSocialSummary(baseCtx('takeoff'), few, NOW_MS);
   assert('small group skips group summary', summary == null, String(summary));
 }
 
 {
   const many = [
     flight({ passengerId: 'p_self', passengerName: 'Self', status: 'in_flight' }),
-    flight({ passengerId: 'p1', passengerName: 'A', status: 'in_flight', flightProgress: 30 }),
-    flight({ passengerId: 'p2', passengerName: 'B', status: 'in_flight', flightProgress: 55 }),
-    flight({ passengerId: 'p3', passengerName: 'C', status: 'landed', landingTime: '2026-07-11T18:00:00.000Z', arrivalLocation: 'Osaka, Japan' }),
-    flight({ passengerId: 'p4', passengerName: 'D', status: 'landed', landingTime: '2026-07-11T19:00:00.000Z', arrivalLocation: 'Tokyo, Japan' }),
+    flight({ passengerId: 'p1', passengerName: 'A', status: 'in_flight', flightProgress: 30, takeoffTime: '2026-07-12T10:00:00.000Z' }),
+    flight({ passengerId: 'p2', passengerName: 'B', status: 'in_flight', flightProgress: 55, takeoffTime: '2026-07-12T11:00:00.000Z' }),
+    flight({ passengerId: 'p3', passengerName: 'C', status: 'landed', takeoffTime: '2026-07-12T08:00:00.000Z', landingTime: '2026-07-12T12:00:00.000Z', arrivalLocation: 'Osaka, Japan' }),
+    flight({ passengerId: 'p4', passengerName: 'D', status: 'landed', takeoffTime: '2026-07-12T09:00:00.000Z', landingTime: '2026-07-12T13:00:00.000Z', arrivalLocation: 'Tokyo, Japan' }),
   ];
-  const summary = buildGroupSocialSummary(baseCtx('landing'), many);
+  const summary = buildGroupSocialSummary(baseCtx('landing'), many, NOW_MS);
   assert('large group adds group summary', !!summary && summary.length > 0, String(summary));
   assert(
     'group summary does not list every teammate by name',
@@ -176,6 +179,89 @@ const mixed: SocialCueCandidate[] = [
   assert(
     'allows landing takeaway for self',
     isSelfLandingTakeaway('你完成了一趟安靜的個人航班。', 'Momo', 'landing') === false
+  );
+}
+
+{
+  const firstNightOnly = [
+    flight({ passengerId: 'p_self', passengerName: 'Self', status: 'in_flight', takeoffTime: '2026-07-12T14:00:00.000Z' }),
+    // 舊航班：不應算進「今晚」氛圍
+    flight({
+      passengerId: 'p_old1',
+      passengerName: 'Old1',
+      status: 'landed',
+      takeoffTime: '2026-07-10T10:00:00.000Z',
+      landingTime: '2026-07-10T18:00:00.000Z',
+      arrivalLocation: 'Osaka, Japan',
+    }),
+    flight({
+      passengerId: 'p_old2',
+      passengerName: 'Old2',
+      status: 'landed',
+      takeoffTime: '2026-07-10T11:00:00.000Z',
+      landingTime: '2026-07-10T19:00:00.000Z',
+      arrivalLocation: 'Tokyo, Japan',
+    }),
+    flight({
+      passengerId: 'p_old3',
+      passengerName: 'Old3',
+      status: 'landed',
+      takeoffTime: '2026-07-09T11:00:00.000Z',
+      landingTime: '2026-07-09T19:00:00.000Z',
+      arrivalLocation: 'Seoul, Korea',
+    }),
+    flight({
+      passengerId: 'p_old4',
+      passengerName: 'Old4',
+      status: 'landed',
+      takeoffTime: '2026-07-08T11:00:00.000Z',
+      landingTime: '2026-07-08T19:00:00.000Z',
+      arrivalLocation: 'Bangkok, Thailand',
+    }),
+  ];
+  const summary = buildGroupSocialSummary(baseCtx('takeoff'), firstNightOnly, NOW_MS);
+  assert(
+    'ignores stale landed flights outside tonight window',
+    summary == null,
+    String(summary)
+  );
+}
+
+{
+  const mostlyLandedTonight = [
+    flight({ passengerId: 'p_self', passengerName: 'Self', status: 'landed', landingTime: '2026-07-12T14:30:00.000Z', arrivalLocation: 'Kyoto, Japan' }),
+    flight({ passengerId: 'p1', passengerName: 'A', status: 'landed', takeoffTime: '2026-07-12T10:00:00.000Z', landingTime: '2026-07-12T12:00:00.000Z', arrivalLocation: 'Osaka, Japan' }),
+    flight({ passengerId: 'p2', passengerName: 'B', status: 'landed', takeoffTime: '2026-07-12T10:30:00.000Z', landingTime: '2026-07-12T12:30:00.000Z', arrivalLocation: 'Tokyo, Japan' }),
+    flight({ passengerId: 'p3', passengerName: 'C', status: 'landed', takeoffTime: '2026-07-12T11:00:00.000Z', landingTime: '2026-07-12T13:00:00.000Z', arrivalLocation: 'Seoul, Korea' }),
+  ];
+  const summary = buildGroupSocialSummary(
+    { ...baseCtx('landing'), landingTime: '2026-07-12T14:30:00.000Z', flightProgress: 100 },
+    mostlyLandedTonight,
+    NOW_MS
+  );
+  assert('landed-heavy night mentions landing, not soaring', !!summary && /著陸|降落/.test(summary) && !/翱翔|都在飛|雲上/.test(summary), String(summary));
+}
+
+{
+  assert(
+    'first_of_night does not attach group summary',
+    shouldAttachGroupSummary('first_of_night') === false
+  );
+  assert(
+    'solo does not attach group summary',
+    shouldAttachGroupSummary('solo') === false
+  );
+  assert(
+    'teammate_in_sky may attach group summary',
+    shouldAttachGroupSummary('teammate_in_sky') === true
+  );
+}
+
+{
+  assert(
+    'composed takeaway keeps exact rule-based second sentence',
+    composeSocialTakeaway('你是今晚小隊第一班起飛的航班', '小隊雷達上還有 2 班在飛，夜航仍未散場。')
+      === '你是今晚小隊第一班起飛的航班。小隊雷達上還有 2 班在飛，夜航仍未散場。'
   );
 }
 

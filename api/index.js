@@ -107746,6 +107746,15 @@ var TAKEOFF_SOCIAL_CUE_PRIORITY = [
   "solo"
 ];
 var GROUP_SUMMARY_MIN_OTHERS = 3;
+var GROUP_SUMMARY_NIGHT_WINDOW_MS = 24 * 60 * 60 * 1e3;
+var GROUP_SUMMARY_SKIP_CUE_TYPES = /* @__PURE__ */ new Set([
+  "solo",
+  "first_of_night",
+  "squad_in_sky"
+]);
+function shouldAttachGroupSummary(cueType) {
+  return !GROUP_SUMMARY_SKIP_CUE_TYPES.has(cueType);
+}
 var OPPOSITE_ROUTE_DIRECTIONS = {
   eastbound: ["westbound"],
   westbound: ["eastbound"],
@@ -108063,31 +108072,39 @@ function pickPrioritySocialCueCandidate(candidates, phase, random = Math.random)
   const index = Math.min(candidates.length - 1, Math.floor(random() * candidates.length));
   return candidates[index] ?? null;
 }
-function buildGroupSocialSummary(current, groupFlights) {
+function buildGroupSocialSummary(current, groupFlights, nowMs = Date.now()) {
+  const since = nowMs - GROUP_SUMMARY_NIGHT_WINDOW_MS;
   const others = groupFlights.filter((f) => f.passengerId !== current.passengerId);
-  const inFlight = others.filter((f) => f.status === "in_flight");
-  const landed = others.filter((f) => f.status === "landed" && f.landingTime != null);
+  const recentOthers = others.filter((f) => eventTimeMs(f) >= since);
+  const inFlight = recentOthers.filter((f) => f.status === "in_flight");
+  const landed = recentOthers.filter((f) => f.status === "landed" && f.landingTime != null);
   const activeOthers = inFlight.length + landed.length;
   if (activeOthers < GROUP_SUMMARY_MIN_OTHERS) return null;
-  if (inFlight.length >= 2 && landed.length >= 1) {
+  if (inFlight.length >= 2 && landed.length >= 2) {
+    return `\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u4E0A ${inFlight.length} \u73ED\u4ECD\u5728\u98DB\uFF0C\u53E6\u6709 ${landed.length} \u73ED\u5DF2\u8457\u9678\u3002`;
+  }
+  if (inFlight.length >= 2 && landed.length === 1) {
     return `\u5C0F\u968A\u96F7\u9054\u4E0A\u9084\u6709 ${inFlight.length} \u73ED\u5728\u98DB\uFF0C\u591C\u822A\u4ECD\u672A\u6563\u5834\u3002`;
   }
-  if (inFlight.length >= 3) {
+  if (inFlight.length >= 3 && landed.length === 0) {
     return `\u4ECA\u665A\u5C0F\u968A\u6709 ${inFlight.length} \u73ED\u9084\u5728\u96F2\u4E0A\u3002`;
   }
-  if (inFlight.length >= 2) {
-    return "\u5C0F\u968A\u96F7\u9054\u6383\u5230\u591A\u73ED\u4E26\u884C\u591C\u822A\u3002";
+  if (inFlight.length === 2 && landed.length === 0) {
+    return "\u5C0F\u968A\u96F7\u9054\u6383\u5230\u5169\u73ED\u4E26\u884C\u591C\u822A\u3002";
+  }
+  if (landed.length >= 3 && inFlight.length === 0) {
+    return `\u4ECA\u665A\u5DF2\u6709 ${landed.length} \u73ED\u5E73\u5B89\u8457\u9678\u3002`;
   }
   if (landed.length >= 3 && inFlight.length === 1) {
-    return "\u591A\u73ED\u5DF2\u8457\u9678\uFF0C\u4ECD\u6709\u4E00\u73ED\u66FF\u5C0F\u968A\u5B88\u8457\u591C\u7A7A\u3002";
+    return `\u591A\u73ED\u5DF2\u8457\u9678\uFF0C\u96F7\u9054\u4E0A\u4ECD\u7559\u4E00\u73ED\u591C\u822A\u3002`;
   }
-  if (landed.length >= 3) {
-    return "\u5C0F\u968A\u4ECA\u665A\u5DF2\u6709\u591A\u73ED\u5E73\u5B89\u8457\u9678\u3002";
-  }
-  if (landed.length >= 2 && inFlight.length >= 1) {
+  if (landed.length >= 2 && inFlight.length === 1) {
     return "\u5C0F\u968A\u96F7\u9054\u4E0A\u6709\u4EBA\u5DF2\u843D\u5730\uFF0C\u4E5F\u6709\u4EBA\u9084\u5728\u98DB\u3002";
   }
-  return "\u5C0F\u968A\u96F7\u9054\u4ECA\u665A\u6BD4\u5E73\u5E38\u71B1\u9B27\u4E00\u4E9B\u3002";
+  if (landed.length >= 2 && inFlight.length === 0) {
+    return `\u4ECA\u665A\u5DF2\u6709 ${landed.length} \u73ED\u8457\u9678\uFF0C\u5C0F\u968A\u7BC0\u594F\u6162\u6162\u6536\u6582\u3002`;
+  }
+  return null;
 }
 function soloSocialCueCandidate() {
   return {
@@ -108106,7 +108123,7 @@ async function resolveGroupSocialCue(current, groupFlights) {
   });
   const picked = pickPrioritySocialCueCandidate(candidates, current.phase) ?? soloSocialCueCandidate();
   const cueText = await generateSocialCueText(picked, current.phase);
-  const groupSummary = picked.cueType === "solo" ? null : buildGroupSocialSummary(current, groupFlights);
+  const groupSummary = shouldAttachGroupSummary(picked.cueType) ? buildGroupSocialSummary(current, groupFlights) : null;
   return {
     cueType: picked.cueType,
     relatedPassenger: picked.relatedPassenger,
@@ -108432,42 +108449,36 @@ function fallbackSocialTakeaway(input) {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   return composeSocialTakeaway(primary, groupSummary);
 }
-function cleanTakeaway(raw) {
+function cleanPrimaryTakeaway(raw) {
   const cleaned = raw.replace(/^["'「『”]+|["'」『』”]+$/g, "").replace(/^(小隊回聲|Social Takeaway)[：:]\s*/i, "").trim();
-  const parts = cleaned.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean).slice(0, 2);
-  return parts.join("");
+  const first = cleaned.split(/(?<=[。！？])/).map((part) => part.trim()).find(Boolean);
+  return first || cleaned;
 }
 var SYSTEM_PROMPT = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u793E\u4EA4\u8A9E\u97F3\u77ED\u53E5\u64B0\u5BEB\u8005\u3002
-\u4F60\u7684\u4EFB\u52D9\u4E0D\u662F\u5BEB\u5B8C\u6574\u6A5F\u9577\u5EE3\u64AD\uFF0C\u800C\u662F\u6839\u64DA\u300C\u4E00\u5247\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u300D\u751F\u6210\u53EF\u62FF\u53BB\u8DDF\u540C\u7D44\u670B\u53CB\u63A5\u8A71\u7684\u77ED\u53E5\u3002
+\u4F60\u7684\u4EFB\u52D9\u4E0D\u662F\u5BEB\u5B8C\u6574\u6A5F\u9577\u5EE3\u64AD\uFF0C\u800C\u662F\u6839\u64DA\u300C\u4E00\u5247\u4E3B\u8981\u96F7\u9054\u8A0A\u865F\u300D\u751F\u6210\u4E00\u53E5\u53EF\u62FF\u53BB\u8DDF\u540C\u7D44\u670B\u53CB\u63A5\u8A71\u7684\u77ED\u53E5\u3002
 
 \u8A2D\u8A08\u76EE\u6A19\uFF1A
 - \u50CF\u300C\u5C0F\u968A\u96F7\u9054\u6383\u5230\u4E00\u5247\u8A0A\u865F\u300D\uFF0C\u4E0D\u662F\u5B8C\u6574\u76E3\u63A7\u5831\u544A
-- \u6BCF\u6B21\u53EA\u8B1B\u4E00\u5247\u4E3B\u8981\u500B\u4EBA\uFF0F\u4E8B\u4EF6\u8A0A\u865F
-- \u82E5\u6709\u5C0F\u968A\u6C1B\u570D\u53E5\uFF0C\u6700\u591A\u518D\u88DC\u4E00\u53E5\u6574\u9AD4\u611F\uFF0C\u4E0D\u8981\u5217\u51FA\u6240\u6709\u4EBA
+- \u53EA\u6539\u5BEB\u9019\u4E00\u5247\u4E3B\u8981\u500B\u4EBA\uFF0F\u4E8B\u4EF6\u8A0A\u865F
+- \u4E0D\u8981\u81EA\u884C\u88DC\u5C0F\u968A\u4EBA\u6578\u3001\u4E0D\u8981\u81EA\u884C\u767C\u660E\u300C\u5927\u5BB6\u90FD\u5728\u98DB\uFF0F\u90FD\u5DF2\u964D\u843D\u300D
 
 \u8A9E\u6C23\uFF1A
 - \u7E41\u9AD4\u4E2D\u6587
 - \u53E3\u8A9E\u3001\u77ED\u3001\u6E05\u695A\u3001\u6709\u4E00\u9EDE\u53EF\u611B\u6216\u73A9\u7B11
 - \u4E0D\u8981\u904E\u5EA6\u8A69\u610F
-- \u4E0D\u8981\u50CF\u5BA2\u670D\u3001\u4E0D\u8981\u50CF\u5065\u5EB7\u5EFA\u8B70\u3001\u4E0D\u8981\u50CF\u4EFB\u52D9\u7CFB\u7D71
 
 \u9577\u5EA6\uFF1A
-- \u4E3B\u8981\u8A0A\u865F 12\u201332 \u5B57
-- \u82E5\u63D0\u4F9B\u3010\u5C0F\u968A\u6C1B\u570D\u3011\uFF0C\u8F38\u51FA\u6700\u591A\u5169\u53E5\uFF1A\u7B2C\u4E00\u53E5\u6539\u5BEB\u4E3B\u8981\u8A0A\u865F\uFF0C\u7B2C\u4E8C\u53E5\u6539\u5BEB\u5C0F\u968A\u6C1B\u570D
-- \u82E5\u6C92\u6709\u3010\u5C0F\u968A\u6C1B\u570D\u3011\uFF0C\u53EA\u8F38\u51FA\u4E00\u53E5
+- 12\u201332 \u5B57
+- \u53EA\u8F38\u51FA\u4E00\u53E5
 - \u4E0D\u8981\u5217\u9EDE\u3001\u4E0D\u8981\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E
 
 \u7981\u6B62\uFF1A
-- \u7981\u6B62\u8AAA\u300C\u4F60\u61C9\u8A72\u65E9\u7761\u300D\u300C\u8ACB\u6539\u5584\u7761\u7720\u300D\u300C\u7761\u7720\u54C1\u8CEA\u300D
-- \u7981\u6B62\u8A55\u5206\u3001\u6392\u540D\u3001\u9054\u6A19\u3001\u5931\u6557\u3001\u6BD4\u8F03\u8AB0\u7761\u6BD4\u8F03\u4E45
-- \u7981\u6B62\u5217\u51FA\u6240\u6709\u968A\u53CB\u7684\u7761\u7720\u6216\u98DB\u884C\u72C0\u614B
-- \u7981\u6B62\u8CAC\u5099\u6C92\u8D77\u98DB\u6216\u665A\u7761\u7684\u4EBA
-- \u7981\u6B62\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u4EBA\u540D\u3001\u5730\u540D\u3001\u6642\u9593
+- \u7981\u6B62\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u4EBA\u540D\u3001\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u6578
+- \u7981\u6B62\u8AAA\u300C\u5927\u5BB6\u90FD\u5728\u7FF1\u7FD4\u300D\u300C\u5168\u54E1\u8D77\u98DB\u300D\u300C\u56DB\u4F4D\u964D\u843D\u300D\u9019\u985E\u672A\u63D0\u4F9B\u7684\u5168\u9AD4\u72C0\u614B
 - \u7981\u6B62\u628A\u98DB\u884C\u4E2D\u7684\u968A\u53CB\u8AAA\u6210\u5DF2\u964D\u843D
 - \u7981\u6B62\u628A\u5DF2\u964D\u843D\u7684\u968A\u53CB\u8AAA\u6210\u9084\u5728\u98DB
-- \u7981\u6B62\u628A\u55AE\u4E00\u8A0A\u865F\u64F4\u5BEB\u6210\u5168\u54E1\u76E3\u63A7\u5831\u544A
 - \u3010\u4E58\u5BA2\u3011\u662F\u672C\u73ED\u8AAA\u8A71\u5C0D\u8C61\uFF0C\u4E0D\u662F\u76F8\u95DC\u968A\u53CB\uFF1B\u8D77\u98DB\u968E\u6BB5\u7981\u6B62\u8AAA\u3010\u4E58\u5BA2\u3011\u5DF2\u964D\u843D\uFF0F\u5DF2\u8457\u9678\uFF0F\u5DF2\u62B5\u9054
-- \u82E5\u6709\u3010\u76F8\u95DC\u4E58\u5BA2\u3011\uFF0C\u53EA\u80FD\u7528\u90A3\u500B\u540D\u5B57\u8AC7\u968A\u53CB\u52D5\u614B\uFF1B\u7981\u6B62\u628A\u3010\u4E58\u5BA2\u3011\u540D\u5B57\u5957\u5230\u968A\u53CB\u4E8B\u4EF6\u4E0A`;
+- \u82E5\u6709\u3010\u76F8\u95DC\u4E58\u5BA2\u3011\uFF0C\u53EA\u80FD\u7528\u90A3\u500B\u540D\u5B57\u8AC7\u968A\u53CB\u52D5\u614B`;
 async function generateSocialTakeaway(input) {
   const groupSummary = input.groupSummary ?? input.socialCue.groupSummary ?? null;
   if (!process.env.OPENAI_API_KEY) {
@@ -108496,11 +108507,8 @@ ${input.passengerName}
 \u985E\u578B\uFF1A${input.socialCue.cueType}
 \u63D0\u793A\uFF1A${input.socialCue.cueText}
 \u76F8\u95DC\u4E58\u5BA2\uFF1A${related}
-${groupSummary ? `
-\u3010\u5C0F\u968A\u6C1B\u570D\u3011
-${groupSummary}
-` : ""}${phaseGuard}
-\u8ACB\u751F\u6210 Social Takeaway\uFF08${groupSummary ? "\u6700\u591A\u5169\u53E5" : "\u4E00\u53E5"}\uFF09\u3002`;
+${phaseGuard}
+\u8ACB\u53EA\u751F\u6210\u4E00\u53E5 Social Takeaway\uFF08\u4E0D\u8981\u5BEB\u5C0F\u968A\u7E3D\u4EBA\u6578\u6216\u7B2C\u4E8C\u53E5\u6C1B\u570D\uFF09\u3002`;
   try {
     const completion = await client.chat.completions.create({
       model,
@@ -108508,20 +108516,14 @@ ${groupSummary}
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt }
       ],
-      max_tokens: groupSummary ? 120 : 80,
-      temperature: 0.9
+      max_tokens: 80,
+      temperature: 0.8
     });
-    const text = cleanTakeaway(completion.choices[0]?.message?.content ?? "");
-    if (text.length < 6 || isSelfLandingTakeaway(text, input.passengerName, input.phase)) {
+    const primary = cleanPrimaryTakeaway(completion.choices[0]?.message?.content ?? "");
+    if (primary.length < 6 || isSelfLandingTakeaway(primary, input.passengerName, input.phase)) {
       return fallbackSocialTakeaway({ ...input, groupSummary });
     }
-    if (!groupSummary) return endSentence(text);
-    const parts = text.split(/(?<=[。！？])/).map((part) => part.trim()).filter(Boolean);
-    const composed = composeSocialTakeaway(parts[0] ?? text, parts[1] ?? groupSummary);
-    if (isSelfLandingTakeaway(composed, input.passengerName, input.phase)) {
-      return fallbackSocialTakeaway({ ...input, groupSummary });
-    }
-    return composed;
+    return composeSocialTakeaway(primary, groupSummary);
   } catch {
     return fallbackSocialTakeaway({ ...input, groupSummary });
   }
