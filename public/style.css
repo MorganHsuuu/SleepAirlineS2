@@ -131,7 +131,8 @@ body {
   pointer-events: auto;
   max-width: min(340px, calc(100% - 24px));
 }
-.dock:has(#landed-panel:not(.hidden)) .globe-trails {
+.dock:has(#landed-panel:not(.hidden)) .globe-trails,
+.dock:has(#landed-panel:not(.hidden)) .trail-segment-card {
   display: none;
 }
 .trail-chip-row {
@@ -162,27 +163,32 @@ body[data-theme="dusk"] .trail-chip { background: rgba(20, 28, 48, .55); }
 }
 body[data-theme="dusk"] .trail-chip#trail-friends.is-on { color: #93c5fd; }
 
+/* 航段資訊：與下方 dock 面板同寬，留一點間距，不蓋住按鈕 */
 .trail-segment-card {
   position: relative;
-  width: min(300px, 100%);
-  padding: 10px 28px 10px 12px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--gold) 28%, var(--glass-line));
-  background: var(--glass-bg-strong);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 8px 22px rgba(40, 60, 100, .16);
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 32px 8px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--gold) 26%, var(--glass-line));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   text-align: left;
 }
-body[data-theme="dusk"] .trail-segment-card {
-  background: rgba(16, 24, 42, .78);
+.trail-segment-card.hidden,
+.trail-segment-card[hidden] {
+  display: none !important;
 }
-.trail-segment-card.hidden { display: none; }
 .trail-segment-close {
   position: absolute;
-  top: 6px;
+  top: 50%;
   right: 8px;
-  width: 22px;
-  height: 22px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -193,25 +199,53 @@ body[data-theme="dusk"] .trail-segment-card {
 }
 .trail-segment-close:hover { color: var(--ink); }
 .trail-segment-who {
-  margin: 0 0 2px;
+  margin: 0;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: .14em;
   color: var(--gold-deep);
 }
-.trail-segment-route {
-  margin: 0;
+.trail-segment-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.trail-segment-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   font-size: 13px;
   font-weight: 800;
-  line-height: 1.35;
   color: var(--ink);
+  white-space: nowrap;
+}
+.trail-segment-flag {
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.trail-segment-arrow {
+  color: var(--ink-faint);
+  font-weight: 700;
+  flex-shrink: 0;
 }
 .trail-segment-meta {
-  margin: 4px 0 0;
+  margin: 0;
+  margin-left: auto;
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--ink-soft);
+  white-space: nowrap;
+}
+@media (max-width: 520px) {
+  .trail-segment-meta {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
 }
 
 /* ═══ 玻璃基底 ═══ */

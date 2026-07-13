@@ -1931,6 +1931,7 @@ function trailRecordFromFlight(f) {
   const to = coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
   if (!from || !to) return null;
   const meta = arrivalMeta(f);
+  const depMeta = departureMeta(f);
   return {
     id: String(f.flightId || f.notionId || `${f.passengerId}-${f.landingTime || f.takeoffTime}`),
     passengerId: f.passengerId,
@@ -1941,6 +1942,7 @@ function trailRecordFromFlight(f) {
     departureLocation: f.departureLocation || '',
     departureIso: f.departureIso || '',
     departureCountry: f.departureCountry || '',
+    depFlag: depMeta.flag || '',
     arrCountry: meta.countryZh || '',
     arrFlag: meta.flag || '',
     arrivalLocation: f.arrivalLocation || '',
@@ -2119,13 +2121,23 @@ function makeTrailKey(pid, trailId) {
 }
 
 function trailSegmentPayload(t, { pid, name, isMe }) {
+  const depMeta = locationMeta(t.departureLocation || t.depLabel, {
+    iso: t.departureIso,
+    country: t.departureCountry,
+  });
+  const arrMeta = locationMeta(t.arrivalLocation || t.arrLabel, {
+    iso: t.arrivalIso,
+    country: t.arrCountry || t.arrivalCountry,
+  });
   return {
     trailKey: makeTrailKey(pid, t.id),
     passengerId: pid,
     passengerName: name || t.passengerName || '',
     mine: !!isMe,
-    depLabel: t.depLabel || cityOnly(t.departureLocation) || '—',
-    arrLabel: t.arrLabel || cityOnly(t.arrivalLocation) || '—',
+    depLabel: t.depLabel || depMeta.city || '—',
+    arrLabel: t.arrLabel || arrMeta.city || '—',
+    depFlag: t.depFlag || depMeta.flag || '🌍',
+    arrFlag: t.arrFlag || arrMeta.flag || '🌍',
     landingTime: t.landingTime || t.takeoffTime || '',
     flightDurationMinutes: t.flightDurationMinutes ?? null,
     estimatedFlightDistanceKm: t.estimatedFlightDistanceKm ?? null,
@@ -2141,10 +2153,16 @@ function renderTrailSegmentCard(seg) {
     return;
   }
   const who = $('trail-segment-who');
-  const route = $('trail-segment-route');
+  const dep = $('trail-segment-dep');
+  const arr = $('trail-segment-arr');
+  const depFlag = $('trail-segment-dep-flag');
+  const arrFlag = $('trail-segment-arr-flag');
   const meta = $('trail-segment-meta');
   if (who) who.textContent = seg.mine ? '我的航段' : `${seg.passengerName || '隊友'}的航段`;
-  if (route) route.textContent = `${seg.depLabel} → ${seg.arrLabel}`;
+  if (dep) dep.textContent = seg.depLabel || '—';
+  if (arr) arr.textContent = seg.arrLabel || '—';
+  if (depFlag) depFlag.textContent = seg.depFlag || '🌍';
+  if (arrFlag) arrFlag.textContent = seg.arrFlag || '🌍';
   const bits = [];
   if (seg.landingTime) bits.push(formatMemoryDate(seg.landingTime));
   if (seg.flightDurationMinutes != null) bits.push(fmtDuration(seg.flightDurationMinutes));
