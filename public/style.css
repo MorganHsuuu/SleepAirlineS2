@@ -119,14 +119,22 @@ body {
 #globe-svg:active { cursor: grabbing; }
 #stage.no-globe #globe-svg { display: none; }
 
+.dock-stage {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 .globe-trails {
   position: absolute;
-  top: 10px;
-  right: 12px;
+  top: -34px;
+  left: 14px;
+  right: auto;
   z-index: 3;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 8px;
   pointer-events: auto;
   max-width: min(340px, calc(100% - 24px));
@@ -138,7 +146,7 @@ body {
 .trail-chip-row {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
 }
 .trail-chip {
@@ -163,24 +171,59 @@ body[data-theme="dusk"] .trail-chip { background: rgba(20, 28, 48, .55); }
 }
 body[data-theme="dusk"] .trail-chip#trail-friends.is-on { color: #93c5fd; }
 
-/* 航段資訊：與下方 dock 面板同寬，留一點間距，不蓋住按鈕 */
+/* 航段資訊：與下方 dock 同寬，浮出質感 */
 .trail-segment-card {
   position: relative;
-  z-index: 1;
+  z-index: 4;
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 8px 32px 8px 14px;
+  padding: 9px 32px 9px 14px;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--gold) 26%, var(--glass-line));
+  border: 1px solid color-mix(in srgb, var(--gold) 32%, var(--glass-line));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .18) 100%),
+    var(--glass-bg-strong);
+  backdrop-filter: blur(22px) saturate(1.35);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow:
+    0 18px 40px rgba(40, 60, 110, .22),
+    0 6px 14px rgba(40, 60, 110, .12),
+    0 0 0 1px rgba(255, 255, 255, .28),
+    inset 0 1px 0 rgba(255, 255, 255, .72);
   display: flex;
   flex-direction: column;
   gap: 4px;
   text-align: left;
+  animation: trail-segment-rise .42s cubic-bezier(.22, 1, .36, 1) both;
+}
+body[data-theme="dusk"] .trail-segment-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .12) 0%, rgba(255, 255, 255, .03) 100%),
+    rgba(16, 24, 42, .82);
+  border-color: color-mix(in srgb, var(--gold) 28%, var(--glass-line));
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, .45),
+    0 6px 16px rgba(0, 0, 0, .28),
+    0 0 0 1px rgba(255, 255, 255, .1),
+    inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+@keyframes trail-segment-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
 }
 .trail-segment-card.hidden,
 .trail-segment-card[hidden] {
   display: none !important;
+  animation: none;
 }
 .trail-segment-close {
   position: absolute;
@@ -866,6 +909,10 @@ body[data-theme="dusk"] .pill-green {
   display: flex; flex-direction: column; gap: 10px;
   /* 供懸浮羅盤／航跡定位 */
   isolation: isolate;
+}
+/* 航段卡開啟時留空給航跡切換，避免疊在卡上 */
+.dock:has(#trail-segment-card:not([hidden])) {
+  gap: 52px;
 }
 
 /* 懸浮羅盤：浮在出發面板右上方 */
@@ -2818,7 +2865,7 @@ body.sheet-open #main-section {
   #flight-panel .fly-portal {
     margin-top: 0;
   }
-  /* 航跡切換浮在面板左上方（與右上的「望向窗外」對稱），不壓到面板內容 */
+  /* 航跡切換錨在主面板左上方，不隨航段卡位移 */
   .dock .globe-trails {
     top: -34px;
     left: 14px;
