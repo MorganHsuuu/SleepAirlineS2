@@ -382,6 +382,12 @@ let memoryActiveIndex = 0;
 let memoryScrollTimer = null;
 const memorySceneryCache = new Map();
 const memorySceneryJobs = new Map();
+const LANDING_REMINDER_KEY = 'sleepAirline_landingReminder_v1';
+const LANDING_REMINDER_FLIGHT_MINUTES = 480;
+const LANDING_REMINDER_REPEAT_MINUTES = 60;
+let landingReminderTimer = null;
+let landingReminderRegistration = null;
+let landingReminderConfigPromise = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -3820,9 +3826,12 @@ function updateUI() {
   if (isFlying && activeFlight && !fxDockLock) {
     updateFlightMood();
     renderSquadEcho('fl-echo', 'fl-echo-text', activeFlight.socialTakeaway);
+    renderLandingReminder();
+    syncLandingReminderSchedule();
     Globe.setIdle(false);
     startFlightTicker();
   } else {
+    renderLandingReminder();
     stopFlightTicker();
     setFlightWindowOpen(false);
     Globe.setIdle(!showLanded);
@@ -4766,6 +4775,8 @@ async function doTakeoff() {
 
     await fetchBoard();
     startAutoRefresh();
+    renderLandingReminder();
+    syncLandingReminderSchedule();
   } catch (err) {
     if (statusCycle) stopFxStatusCycle(statusCycle);
     BroadcastAudio?.stopTowerSignalLoop?.();
@@ -4829,6 +4840,7 @@ async function doLand() {
       ? preloadImageUrl(landingScenery.imageUrl)
       : null;
     passenger.status = 'landed';
+    clearLandingReminder();
     passenger.currentLocation = landed.arrivalLocation || passenger.currentLocation;
     if (typeof landed.arrivalLatitude === 'number') {
       passenger.currentLatitude = landed.arrivalLatitude;
@@ -4956,8 +4968,14 @@ async function refreshProgress() {
   try {
     const data = await api('GET', '/api/flight/progress?passengerId=' + encodeURIComponent(passenger.passengerId));
     activeFlight = data.activeFlight || null;
-    if (!activeFlight && passenger.status === 'in_flight') passenger.status = 'landed';
-    if (activeFlight) passenger.status = 'in_flight';
+    if (!activeFlight && passenger.status === 'in_flight') {
+      passenger.status = 'landed';
+      clearLandingReminder();
+    }
+    if (activeFlight) {
+      passenger.status = 'in_flight';
+      syncLandingReminderSchedule();
+    }
     if (!fxDockLock) updateUI();
   } catch { /* silent */ }
 }
@@ -4993,10 +5011,276 @@ async function tryRecoverLandedState() {
     if (arr) Globe.update({ you: { c: arr, label: `你 · ${cityOnly(landed.arrivalLocation)}` }, arrival: null });
     Globe.flyTo(youCoord(), 1200);
     updateUI();
+    clearLandingReminder();
     return true;
   } catch {
     return false;
   }
+}
+
+// ── 手機降落提醒（PWA / Web Notification）───────────────────────────────────
+
+function canUseLandingReminder() {
+  return 'Notification' in window && 'serviceWorker' in navigator && window.isSecureContext;
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+async function getLandingReminderConfig() {
+  if (landingReminderConfigPromise) return landingReminderConfigPromise;
+  landingReminderConfigPromise = fetch('/api/reminders/config')
+    .then((res) => res.ok ? res.json() : null)
+    .catch(() => null);
+  return landingReminderConfigPromise;
+}
+
+function landingReminderFlightKey(f = activeFlight) {
+  return String(f?.flightId || f?.notionId || f?.takeoffTime || '');
+}
+
+function readLandingReminderSetting() {
+  try { return JSON.parse(localStorage.getItem(LANDING_REMINDER_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function writeLandingReminderSetting(setting) {
+  try { localStorage.setItem(LANDING_REMINDER_KEY, JSON.stringify(setting)); }
+  catch { /* noop */ }
+}
+
+function landingReminderMatches(setting = readLandingReminderSetting()) {
+  if (!setting || !passenger || !activeFlight) return false;
+  return setting.enabled
+    && setting.passengerId === passenger.passengerId
+    && setting.flightId === landingReminderFlightKey();
+}
+
+function stopLandingReminderTimer() {
+  if (landingReminderTimer) {
+    clearTimeout(landingReminderTimer);
+    landingReminderTimer = null;
+  }
+}
+
+function clearLandingReminder() {
+  stopLandingReminderTimer();
+  try { localStorage.removeItem(LANDING_REMINDER_KEY); } catch { /* noop */ }
+  renderLandingReminder();
+}
+
+async function disableLandingReminder() {
+  const setting = readLandingReminderSetting();
+  clearLandingReminder();
+  if (!setting?.backendSynced || !setting?.endpoint || !setting?.passengerId) return;
+  try {
+    await api('POST', '/api/reminders/unsubscribe', {
+      passengerId: setting.passengerId,
+      endpoint: setting.endpoint,
+    });
+  } catch {
+    /* server cron will prune stale reminders once the flight lands */
+  }
+}
+
+async function ensureLandingReminderRegistration() {
+  if (!canUseLandingReminder()) return null;
+  if (landingReminderRegistration) return landingReminderRegistration;
+  try {
+    await navigator.serviceWorker.register('/service-worker.js');
+    landingReminderRegistration = await navigator.serviceWorker.ready;
+    return landingReminderRegistration;
+  } catch {
+    return null;
+  }
+}
+
+function landingReminderTimeText(takeoffTime) {
+  const takeoffMs = new Date(takeoffTime).getTime();
+  if (!Number.isFinite(takeoffMs)) return '預計 8 小時後提醒你降落。';
+  const due = new Date(takeoffMs + LANDING_REMINDER_FLIGHT_MINUTES * 60000);
+  return `預計 ${due.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })} 提醒你降落。`;
+}
+
+async function showLandingReminderNotification(kind = 'landing') {
+  if (Notification.permission !== 'granted') return false;
+  const registration = await ensureLandingReminderRegistration();
+  if (!registration?.showNotification) return false;
+  const title = kind === 'enabled' ? '降落提醒已啟用' : '甦醒航班提醒';
+  const body = kind === 'enabled'
+    ? landingReminderTimeText(activeFlight?.takeoffTime)
+    : '你的航班仍在飛行中。醒來後記得回到 Sleep Airline 按下「降落」。';
+  await registration.showNotification(title, {
+    body,
+    tag: 'sleep-airline-landing-reminder',
+    renotify: true,
+    icon: '/media/icon-192.png',
+    badge: '/media/icon-192.png',
+    data: { url: '/' },
+  });
+  return true;
+}
+
+async function subscribeBackendLandingReminder(registration) {
+  const config = await getLandingReminderConfig();
+  if (!config?.webPushReady || !config?.vapidPublicKey) {
+    return { backendSynced: false, persistentStoreReady: false };
+  }
+
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing || await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+  });
+  const subscriptionJson = subscription.toJSON ? subscription.toJSON() : subscription;
+
+  await api('POST', '/api/reminders/subscribe', {
+    passengerId: passenger.passengerId,
+    passengerName: passenger.name,
+    groupId: passenger.groupId,
+    flightId: activeFlight.flightId,
+    takeoffTime: activeFlight.takeoffTime,
+    subscription: subscriptionJson,
+  });
+
+  return {
+    backendSynced: true,
+    persistentStoreReady: !!config.persistentStoreReady,
+    endpoint: subscription.endpoint,
+  };
+}
+
+function nextLandingReminderAt(setting) {
+  const takeoffMs = new Date(setting.takeoffTime).getTime();
+  const now = Date.now();
+  const firstDue = Number.isFinite(takeoffMs)
+    ? takeoffMs + LANDING_REMINDER_FLIGHT_MINUTES * 60000
+    : now + LANDING_REMINDER_FLIGHT_MINUTES * 60000;
+  if (now < firstDue) return firstDue;
+  const last = Number(setting.lastReminderAt || 0);
+  const repeatAt = last + LANDING_REMINDER_REPEAT_MINUTES * 60000;
+  return Math.max(now + 10000, repeatAt);
+}
+
+function syncLandingReminderSchedule() {
+  stopLandingReminderTimer();
+  const setting = readLandingReminderSetting();
+  if (!canUseLandingReminder() || !landingReminderMatches(setting) || Notification.permission !== 'granted') return;
+  const delay = Math.max(1000, Math.min(nextLandingReminderAt(setting) - Date.now(), 2147483647));
+  landingReminderTimer = setTimeout(async () => {
+    const latest = readLandingReminderSetting();
+    if (!landingReminderMatches(latest) || passenger?.status !== 'in_flight') return;
+    const sent = await showLandingReminderNotification('landing');
+    if (sent) {
+      latest.lastReminderAt = Date.now();
+      writeLandingReminderSetting(latest);
+    }
+    syncLandingReminderSchedule();
+    renderLandingReminder();
+  }, delay);
+}
+
+function renderLandingReminder() {
+  const box = $('landing-reminder');
+  const btn = $('btn-landing-reminder');
+  const text = $('landing-reminder-text');
+  if (!box || !btn || !text) return;
+  const show = !!passenger && passenger.status === 'in_flight' && !!activeFlight && !previewMode;
+  box.classList.toggle('hidden', !show);
+  if (!show) return;
+
+  const supported = canUseLandingReminder();
+  const permission = supported ? Notification.permission : 'unsupported';
+  const enabled = landingReminderMatches();
+  box.classList.toggle('is-on', enabled);
+  btn.disabled = false;
+
+  if (!supported) {
+    text.textContent = '此瀏覽器暫不支援手機通知；請用 HTTPS 網址或加入主畫面後再試。';
+    btn.textContent = '不可用';
+    btn.disabled = true;
+  } else if (permission === 'denied') {
+    text.textContent = '通知已被封鎖，請到系統通知設定重新允許 Sleep Airline。';
+    btn.textContent = '已封鎖';
+    btn.disabled = true;
+  } else if (enabled) {
+    const setting = readLandingReminderSetting();
+    const reliability = setting?.backendSynced && setting?.persistentStoreReady
+      ? '後端推播已同步，關掉網頁也會提醒。'
+      : setting?.backendSynced
+        ? '後端已同步，但尚未設定持久化儲存。'
+      : '目前是本機提醒，網頁關閉後可能暫停。';
+    text.textContent = `${landingReminderTimeText(activeFlight.takeoffTime)}${reliability}`;
+    btn.textContent = '關閉';
+  } else {
+    text.textContent = '點一下允許通知，醒來後提醒你回來降落。';
+    btn.textContent = '啟用提醒';
+  }
+}
+
+async function enableLandingReminder() {
+  if (!canUseLandingReminder()) {
+    renderLandingReminder();
+    showMsg('main', 'error', '此瀏覽器暫不支援手機通知。iPhone 請先用 HTTPS 網址加入主畫面。');
+    return;
+  }
+  if (!passenger || !activeFlight || passenger.status !== 'in_flight') return;
+  let permission = Notification.permission;
+  if (permission === 'default') permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    renderLandingReminder();
+    showMsg('main', 'error', '尚未允許通知，因此無法啟用降落提醒。');
+    return;
+  }
+  const registration = await ensureLandingReminderRegistration();
+  if (!registration) {
+    renderLandingReminder();
+    showMsg('main', 'error', '目前無法啟用通知。請確認網站是 HTTPS，或從手機主畫面開啟。');
+    return;
+  }
+  let backendState = { backendSynced: false, persistentStoreReady: false, endpoint: '' };
+  try {
+    backendState = await subscribeBackendLandingReminder(registration);
+  } catch (err) {
+    console.warn('[landing-reminder] backend subscribe failed', err);
+  }
+  writeLandingReminderSetting({
+    enabled: true,
+    passengerId: passenger.passengerId,
+    flightId: landingReminderFlightKey(),
+    takeoffTime: activeFlight.takeoffTime,
+    endpoint: backendState.endpoint || '',
+    backendSynced: backendState.backendSynced,
+    persistentStoreReady: backendState.persistentStoreReady,
+    lastReminderAt: 0,
+  });
+  renderLandingReminder();
+  syncLandingReminderSchedule();
+  await showLandingReminderNotification('enabled');
+  showMsg(
+    'main',
+    backendState.backendSynced && backendState.persistentStoreReady ? 'success' : 'error',
+    backendState.backendSynced && backendState.persistentStoreReady
+      ? '降落推播已啟用。關掉網頁後，後端仍會提醒你回來降落。'
+      : backendState.backendSynced
+        ? '推播已同步到後端；請設定 KV/Upstash，避免部署重啟後遺失。'
+      : '已啟用本機提醒；若要關掉網頁也提醒，請先設定 VAPID 與 KV/Upstash。'
+  );
+}
+
+function toggleLandingReminder() {
+  if (landingReminderMatches()) {
+    void disableLandingReminder();
+    showMsg('main', 'success', '已關閉這趟航班的降落提醒。');
+    return;
+  }
+  void enableLandingReminder();
 }
 
 // ── 登入資料記憶 ─────────────────────────────────────────────────────────────
@@ -5134,6 +5418,7 @@ function doLogout() {
   closeSheets();
   stopAutoRefresh();
   stopFlightTicker();
+  stopLandingReminderTimer();
   stopLandingMusic();
   BroadcastAudio?.stopFlightSfx?.();
   Globe.clearRoute();
@@ -5164,6 +5449,7 @@ $('btn-share-terminal')?.addEventListener('click', () => { void shareTerminalLin
 $('btn-share-terminal-board')?.addEventListener('click', () => { void shareTerminalLink('board'); });
 $('btn-takeoff').addEventListener('click', onTakeoffClick);
 $('btn-land').addEventListener('click', onLandClick);
+$('btn-landing-reminder')?.addEventListener('click', toggleLandingReminder);
 $('btn-logout').addEventListener('click', onLogoutClick);
 $('btn-theme').addEventListener('click', toggleTheme);
 $('btn-memories')?.addEventListener('click', openMemoryGallery);
@@ -5293,6 +5579,7 @@ $('globe-svg')?.addEventListener('click', (e) => {
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
   preloadLandingVideos();
+  void ensureLandingReminderRegistration();
   bindFlightShadeDrag();
   bindFlightWindowDismiss();
   positionFlightWindow(flightWindowCenter());

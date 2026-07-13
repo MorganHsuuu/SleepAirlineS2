@@ -1719,6 +1719,60 @@ body[data-theme="dusk"] .pw-shade-rod {
 }
 #fl-echo .squad-echo-text { font-size: 11px; }
 
+.landing-reminder {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--green) 26%, var(--glass-line));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--green) 12%, transparent) 0%,
+      transparent 58%),
+    var(--glass-bg);
+}
+.landing-reminder-copy { min-width: 0; }
+.landing-reminder-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--green-deep);
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: .2em;
+}
+.landing-reminder p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.landing-reminder-btn {
+  flex: 0 0 auto;
+  min-width: 82px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #fff;
+  background: var(--green);
+  font-size: 11px;
+  font-weight: 850;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--green) 26%, transparent);
+}
+.landing-reminder-btn:disabled {
+  opacity: .55;
+  box-shadow: none;
+}
+.landing-reminder.is-on .landing-reminder-btn {
+  color: var(--green-deep);
+  background: color-mix(in srgb, var(--green) 14%, #fff);
+}
+
 .landed-stats {
   position: relative;
   z-index: 1;

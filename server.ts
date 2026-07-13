@@ -25,6 +25,15 @@ import { backfillSceneryForFlights, generateSceneryForLanding } from './src/lib/
 import { runInBackground } from './src/lib/run-in-background';
 import { withTimeout } from './src/lib/with-timeout';
 import { getDataModeStatus } from './src/lib/data-mode';
+import { getVapidPublicKey, isWebPushConfigured } from './src/lib/reminders/push';
+import {
+  isPersistentReminderStoreConfigured,
+  removeLandingReminderByEndpoint,
+  removeLandingRemindersForFlight,
+  upsertLandingReminder,
+} from './src/lib/reminders/store';
+import { runLandingReminderCron } from './src/lib/reminders/scheduler';
+import type { PushSubscriptionPayload } from './src/lib/reminders/types';
 
 import type { RouteDirection, BroadcastStyle, NarrativeRegion, SocialCue } from './src/types';
 
@@ -90,6 +99,32 @@ const app = express();
 app.use(express.json());
 app.use(express.static(join(process.cwd(), 'public')));
 
+function envMinutes(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function isValidPushSubscription(value: unknown): value is PushSubscriptionPayload {
+  const sub = value as PushSubscriptionPayload | null;
+  return !!sub
+    && typeof sub.endpoint === 'string'
+    && sub.endpoint.startsWith('https://')
+    && typeof sub.keys?.p256dh === 'string'
+    && typeof sub.keys?.auth === 'string';
+}
+
+function isCronAuthorized(req: express.Request): boolean {
+  const secret = process.env.REMINDER_CRON_SECRET || process.env.CRON_SECRET;
+  if (!secret) return true;
+  const auth = req.get('authorization') || '';
+  const querySecret = typeof req.query.secret === 'string' ? req.query.secret : '';
+  return auth === `Bearer ${secret}` || querySecret === secret;
+}
+
+function logReminderCleanup(err: unknown) {
+  console.warn('[landing-reminder] cleanup failed:', err instanceof Error ? err.message : err);
+}
+
 // ── GET /api/config ───────────────────────────────────────────────────────────
 
 app.get('/api/config', async (_req, res) => {
@@ -99,6 +134,105 @@ app.get('/api/config', async (_req, res) => {
     res.status(500).json({ error: formatNotionError(err) });
   }
 });
+
+// ── Landing reminder push config / subscription ──────────────────────────────
+
+app.get('/api/reminders/config', (_req, res) => {
+  res.json({
+    webPushReady: isWebPushConfigured(),
+    vapidPublicKey: getVapidPublicKey(),
+    persistentStoreReady: isPersistentReminderStoreConfigured(),
+    firstReminderMinutes: envMinutes('REMINDER_FIRST_AFTER_MINUTES', 480),
+    repeatReminderMinutes: envMinutes('REMINDER_REPEAT_MINUTES', 60),
+  });
+});
+
+app.post('/api/reminders/subscribe', async (req, res) => {
+  try {
+    const {
+      passengerId,
+      passengerName = '',
+      name = '',
+      groupId = '',
+      flightId = '',
+      takeoffTime = '',
+      subscription,
+    } = req.body as {
+      passengerId?: string;
+      passengerName?: string;
+      name?: string;
+      groupId?: string;
+      flightId?: string;
+      takeoffTime?: string;
+      subscription?: unknown;
+    };
+
+    if (!isWebPushConfigured()) {
+      res.status(503).json({ error: 'web_push_not_configured', message: '尚未設定 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY。' });
+      return;
+    }
+    if (!passengerId || !flightId || !isValidPushSubscription(subscription)) {
+      res.status(400).json({ error: 'invalid_subscription', message: '缺少乘客、航班或推播訂閱資料。' });
+      return;
+    }
+
+    const activeFlight = await getActiveFlight(passengerId);
+    if (!activeFlight || activeFlight.flightId !== flightId) {
+      res.status(409).json({ error: 'no_active_flight', message: '找不到這位乘客目前飛行中的航班。' });
+      return;
+    }
+
+    const record = await upsertLandingReminder({
+      passengerId,
+      passengerName: passengerName || name || activeFlight.passengerName,
+      groupId: groupId || activeFlight.groupId,
+      flightId,
+      takeoffTime: takeoffTime || activeFlight.takeoffTime,
+      subscription,
+    });
+
+    res.json({
+      ok: true,
+      reminder: {
+        id: record.id,
+        flightId: record.flightId,
+        persistentStoreReady: isPersistentReminderStoreConfigured(),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+});
+
+app.post('/api/reminders/unsubscribe', async (req, res) => {
+  try {
+    const { passengerId, endpoint } = req.body as { passengerId?: string; endpoint?: string };
+    if (!passengerId || !endpoint) {
+      res.status(400).json({ error: 'missing_subscription', message: '請提供 passengerId 與 endpoint。' });
+      return;
+    }
+    const removed = await removeLandingReminderByEndpoint(passengerId, endpoint);
+    res.json({ ok: true, removed });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+});
+
+async function handleReminderCron(req: express.Request, res: express.Response) {
+  if (!isCronAuthorized(req)) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+  try {
+    const result = await runLandingReminderCron();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
+  }
+}
+
+app.get('/api/reminders/cron', handleReminderCron);
+app.post('/api/reminders/cron', handleReminderCron);
 
 // ── GET /api/notion/schema ────────────────────────────────────────────────────
 
@@ -436,6 +570,9 @@ app.post('/api/flight/land', async (req, res) => {
       generateSpeechWithBudget(captainBroadcast, broadcastStyle as BroadcastStyle),
       takeawayPromise,
     ]);
+
+    removeLandingRemindersForFlight(activeFlight.passengerId, activeFlight.flightId)
+      .catch(logReminderCleanup);
 
     // 降落確認後即在伺服器生圖並寫入 Notion：乘客關掉頁面也會完成（前端只輪詢結果）
     runInBackground(`scenery ${activeFlight.flightId}`, async () => {

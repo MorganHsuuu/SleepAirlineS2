@@ -15,7 +15,7 @@ await esbuild.build({
   format: 'cjs',
   target: 'node20',
   sourcemap: true,
-  external: ['@notionhq/client', 'dotenv', 'express', 'openai'],
+  external: ['@notionhq/client', 'dotenv', 'express', 'openai', 'web-push'],
 });
 
 console.log(`Built ${outfile}`);

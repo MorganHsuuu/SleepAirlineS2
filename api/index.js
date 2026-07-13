@@ -109013,6 +109013,236 @@ function withTimeout(promise, ms, onTimeout) {
   });
 }
 
+// src/lib/reminders/push.ts
+var import_web_push = __toESM(require("web-push"));
+var configured = false;
+function getVapidPublicKey() {
+  return process.env.VAPID_PUBLIC_KEY || null;
+}
+function isWebPushConfigured() {
+  return !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+}
+function configureWebPush() {
+  if (configured || !isWebPushConfigured()) return;
+  import_web_push.default.setVapidDetails(
+    process.env.VAPID_SUBJECT || "mailto:sleep-airline@example.com",
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  configured = true;
+}
+function isGonePushError(err) {
+  return err instanceof import_web_push.WebPushError && (err.statusCode === 404 || err.statusCode === 410);
+}
+async function sendLandingReminderPush(record) {
+  configureWebPush();
+  if (!isWebPushConfigured()) throw new Error("Web Push VAPID keys are not configured.");
+  const payload = JSON.stringify({
+    title: "\u7526\u9192\u822A\u73ED\u63D0\u9192",
+    body: "\u4F60\u7684\u822A\u73ED\u4ECD\u5728\u98DB\u884C\u4E2D\u3002\u9192\u4F86\u5F8C\u8A18\u5F97\u56DE\u5230 Sleep Airline \u6309\u4E0B\u300C\u964D\u843D\u300D\u3002",
+    url: "/",
+    tag: `sleep-airline-landing-${record.flightId}`
+  });
+  await import_web_push.default.sendNotification(
+    record.subscription,
+    payload,
+    { TTL: 60 * 60 * 6 }
+  );
+}
+
+// src/lib/reminders/store.ts
+var import_crypto = require("crypto");
+var memoryRecords = /* @__PURE__ */ new Map();
+var INDEX_KEY = `${process.env.REMINDER_REDIS_PREFIX || "sleep-airline"}:landing-reminders:index`;
+var RECORD_PREFIX = `${process.env.REMINDER_REDIS_PREFIX || "sleep-airline"}:landing-reminders:record:`;
+function redisUrl() {
+  return process.env.REMINDER_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || null;
+}
+function redisToken() {
+  return process.env.REMINDER_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || null;
+}
+function isPersistentReminderStoreConfigured() {
+  return !!(redisUrl() && redisToken());
+}
+async function redisCommand(command) {
+  const url = redisUrl();
+  const token = redisToken();
+  if (!url || !token) throw new Error("Reminder Redis REST env is not configured.");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(command)
+  });
+  if (!res.ok) {
+    throw new Error(`Reminder Redis command failed (${res.status}).`);
+  }
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.result;
+}
+function reminderId(passengerId, endpoint) {
+  const hash = (0, import_crypto.createHash)("sha256").update(endpoint).digest("hex").slice(0, 24);
+  const passenger = passengerId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+  return `${passenger}:${hash}`;
+}
+function recordKey(id) {
+  return `${RECORD_PREFIX}${id}`;
+}
+function parseRecord(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  try {
+    const record = JSON.parse(raw);
+    return record?.id && record?.subscription?.endpoint ? record : null;
+  } catch {
+    return null;
+  }
+}
+async function readRecord(id) {
+  if (!isPersistentReminderStoreConfigured()) return memoryRecords.get(id) ?? null;
+  return parseRecord(await redisCommand(["GET", recordKey(id)]));
+}
+async function writeRecord(record) {
+  if (!isPersistentReminderStoreConfigured()) {
+    memoryRecords.set(record.id, record);
+    return;
+  }
+  await redisCommand(["SET", recordKey(record.id), JSON.stringify(record)]);
+  await redisCommand(["SADD", INDEX_KEY, record.id]);
+}
+async function upsertLandingReminder(input) {
+  const id = reminderId(input.passengerId, input.subscription.endpoint);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = await readRecord(id);
+  const record = {
+    id,
+    passengerId: input.passengerId,
+    passengerName: input.passengerName,
+    groupId: input.groupId,
+    flightId: input.flightId,
+    takeoffTime: input.takeoffTime,
+    endpoint: input.subscription.endpoint,
+    subscription: input.subscription,
+    enabled: true,
+    lastReminderAt: existing?.flightId === input.flightId ? existing.lastReminderAt : null,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+  await writeRecord(record);
+  return record;
+}
+async function listLandingReminders() {
+  if (!isPersistentReminderStoreConfigured()) return Array.from(memoryRecords.values());
+  const ids = await redisCommand(["SMEMBERS", INDEX_KEY]);
+  const records = await Promise.all((ids || []).map((id) => readRecord(id)));
+  return records.filter((record) => !!record);
+}
+async function removeLandingReminder(id) {
+  if (!isPersistentReminderStoreConfigured()) {
+    memoryRecords.delete(id);
+    return;
+  }
+  await redisCommand(["DEL", recordKey(id)]);
+  await redisCommand(["SREM", INDEX_KEY, id]);
+}
+async function removeLandingReminderByEndpoint(passengerId, endpoint) {
+  const id = reminderId(passengerId, endpoint);
+  const existing = await readRecord(id);
+  if (!existing) return false;
+  await removeLandingReminder(id);
+  return true;
+}
+async function removeLandingRemindersForFlight(passengerId, flightId) {
+  const records = await listLandingReminders();
+  const matches = records.filter(
+    (record) => record.passengerId === passengerId && record.flightId === flightId
+  );
+  await Promise.all(matches.map((record) => removeLandingReminder(record.id)));
+  return matches.length;
+}
+async function markLandingReminderSent(id, sentAt = /* @__PURE__ */ new Date()) {
+  const record = await readRecord(id);
+  if (!record) return;
+  await writeRecord({
+    ...record,
+    lastReminderAt: sentAt.toISOString(),
+    updatedAt: sentAt.toISOString()
+  });
+}
+
+// src/lib/reminders/scheduler.ts
+var DEFAULT_FIRST_REMINDER_MINUTES = 480;
+var DEFAULT_REPEAT_REMINDER_MINUTES = 60;
+function envMinutes(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function flightKey(flight) {
+  return `${flight.passengerId}:${flight.flightId}`;
+}
+function isReminderDue(takeoffTime, lastReminderAt, now) {
+  const firstMinutes = envMinutes("REMINDER_FIRST_AFTER_MINUTES", DEFAULT_FIRST_REMINDER_MINUTES);
+  const repeatMinutes = envMinutes("REMINDER_REPEAT_MINUTES", DEFAULT_REPEAT_REMINDER_MINUTES);
+  const takeoffMs = new Date(takeoffTime).getTime();
+  if (!Number.isFinite(takeoffMs)) return false;
+  const nowMs = now.getTime();
+  if (nowMs - takeoffMs < firstMinutes * 6e4) return false;
+  if (!lastReminderAt) return true;
+  const lastMs = new Date(lastReminderAt).getTime();
+  if (!Number.isFinite(lastMs)) return true;
+  return nowMs - lastMs >= repeatMinutes * 6e4;
+}
+async function runLandingReminderCron(now = /* @__PURE__ */ new Date()) {
+  const result = {
+    checked: 0,
+    due: 0,
+    sent: 0,
+    removed: 0,
+    skipped: 0,
+    errors: []
+  };
+  const records = await listLandingReminders();
+  result.checked = records.length;
+  if (!isWebPushConfigured()) {
+    result.skipped = records.length;
+    result.errors.push({ id: "config", error: "Web Push VAPID keys are not configured." });
+    return result;
+  }
+  const activeFlights = await getAllActiveFlights();
+  const activeByKey = new Map(activeFlights.map((flight) => [flightKey(flight), flight]));
+  for (const record of records) {
+    const activeFlight = activeByKey.get(`${record.passengerId}:${record.flightId}`);
+    if (!record.enabled || !activeFlight) {
+      await removeLandingReminder(record.id);
+      result.removed += 1;
+      continue;
+    }
+    if (!isReminderDue(record.takeoffTime || activeFlight.takeoffTime, record.lastReminderAt, now)) {
+      result.skipped += 1;
+      continue;
+    }
+    result.due += 1;
+    try {
+      await sendLandingReminderPush(record);
+      await markLandingReminderSent(record.id, now);
+      result.sent += 1;
+    } catch (err) {
+      if (isGonePushError(err)) {
+        await removeLandingReminder(record.id);
+        result.removed += 1;
+        continue;
+      }
+      result.errors.push({
+        id: record.id,
+        error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4"
+      });
+    }
+  }
+  return result;
+}
+
 // server.ts
 import_dotenv.default.config({ path: ".env.local" });
 var SOLO_SOCIAL_CUE = {
@@ -109059,6 +109289,24 @@ function parseDisplayLocation(displayName) {
 var app = (0, import_express.default)();
 app.use(import_express.default.json());
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
+function envMinutes2(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function isValidPushSubscription(value) {
+  const sub = value;
+  return !!sub && typeof sub.endpoint === "string" && sub.endpoint.startsWith("https://") && typeof sub.keys?.p256dh === "string" && typeof sub.keys?.auth === "string";
+}
+function isCronAuthorized(req) {
+  const secret = process.env.REMINDER_CRON_SECRET || process.env.CRON_SECRET;
+  if (!secret) return true;
+  const auth = req.get("authorization") || "";
+  const querySecret = typeof req.query.secret === "string" ? req.query.secret : "";
+  return auth === `Bearer ${secret}` || querySecret === secret;
+}
+function logReminderCleanup(err) {
+  console.warn("[landing-reminder] cleanup failed:", err instanceof Error ? err.message : err);
+}
 app.get("/api/config", async (_req, res) => {
   try {
     res.json(await getDataModeStatus());
@@ -109066,6 +109314,86 @@ app.get("/api/config", async (_req, res) => {
     res.status(500).json({ error: formatNotionError(err) });
   }
 });
+app.get("/api/reminders/config", (_req, res) => {
+  res.json({
+    webPushReady: isWebPushConfigured(),
+    vapidPublicKey: getVapidPublicKey(),
+    persistentStoreReady: isPersistentReminderStoreConfigured(),
+    firstReminderMinutes: envMinutes2("REMINDER_FIRST_AFTER_MINUTES", 480),
+    repeatReminderMinutes: envMinutes2("REMINDER_REPEAT_MINUTES", 60)
+  });
+});
+app.post("/api/reminders/subscribe", async (req, res) => {
+  try {
+    const {
+      passengerId,
+      passengerName = "",
+      name = "",
+      groupId = "",
+      flightId = "",
+      takeoffTime = "",
+      subscription
+    } = req.body;
+    if (!isWebPushConfigured()) {
+      res.status(503).json({ error: "web_push_not_configured", message: "\u5C1A\u672A\u8A2D\u5B9A VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY\u3002" });
+      return;
+    }
+    if (!passengerId || !flightId || !isValidPushSubscription(subscription)) {
+      res.status(400).json({ error: "invalid_subscription", message: "\u7F3A\u5C11\u4E58\u5BA2\u3001\u822A\u73ED\u6216\u63A8\u64AD\u8A02\u95B1\u8CC7\u6599\u3002" });
+      return;
+    }
+    const activeFlight = await getActiveFlight(passengerId);
+    if (!activeFlight || activeFlight.flightId !== flightId) {
+      res.status(409).json({ error: "no_active_flight", message: "\u627E\u4E0D\u5230\u9019\u4F4D\u4E58\u5BA2\u76EE\u524D\u98DB\u884C\u4E2D\u7684\u822A\u73ED\u3002" });
+      return;
+    }
+    const record = await upsertLandingReminder({
+      passengerId,
+      passengerName: passengerName || name || activeFlight.passengerName,
+      groupId: groupId || activeFlight.groupId,
+      flightId,
+      takeoffTime: takeoffTime || activeFlight.takeoffTime,
+      subscription
+    });
+    res.json({
+      ok: true,
+      reminder: {
+        id: record.id,
+        flightId: record.flightId,
+        persistentStoreReady: isPersistentReminderStoreConfigured()
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+});
+app.post("/api/reminders/unsubscribe", async (req, res) => {
+  try {
+    const { passengerId, endpoint } = req.body;
+    if (!passengerId || !endpoint) {
+      res.status(400).json({ error: "missing_subscription", message: "\u8ACB\u63D0\u4F9B passengerId \u8207 endpoint\u3002" });
+      return;
+    }
+    const removed = await removeLandingReminderByEndpoint(passengerId, endpoint);
+    res.json({ ok: true, removed });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+});
+async function handleReminderCron(req, res) {
+  if (!isCronAuthorized(req)) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  try {
+    const result = await runLandingReminderCron();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
+  }
+}
+app.get("/api/reminders/cron", handleReminderCron);
+app.post("/api/reminders/cron", handleReminderCron);
 app.get("/api/notion/schema", async (_req, res) => {
   try {
     res.json(await introspectNotionSchemas());
@@ -109361,6 +109689,7 @@ app.post("/api/flight/land", async (req, res) => {
       generateSpeechWithBudget(captainBroadcast, broadcastStyle),
       takeawayPromise
     ]);
+    removeLandingRemindersForFlight(activeFlight.passengerId, activeFlight.flightId).catch(logReminderCleanup);
     runInBackground(`scenery ${activeFlight.flightId}`, async () => {
       const result = await generateSceneryForLanding({
         flightId: activeFlight.flightId,
