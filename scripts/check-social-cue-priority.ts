@@ -56,7 +56,7 @@ function flight(partial: Partial<Flight> & Pick<Flight, 'passengerId' | 'passeng
     flightDurationMinutes: partial.flightDurationMinutes ?? 120,
     estimatedFlightDistanceKm: partial.estimatedFlightDistanceKm ?? 1800,
     flightProgress: partial.flightProgress ?? (partial.status === 'landed' ? 100 : 40),
-    narrativeRegion: partial.narrativeRegion ?? 'pacific',
+    narrativeRegion: partial.narrativeRegion ?? 'pacific_drift',
     routeDirection: partial.routeDirection ?? 'eastbound',
     takeoffBroadcastStyle: null,
     takeoffBroadcast: null,

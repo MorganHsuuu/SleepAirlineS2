@@ -1538,10 +1538,29 @@ const Compass = (() => {
     const legend = $('compass-friends-legend');
     const friendCol = getComputedStyle(document.body).getPropertyValue('--friend').trim() || '#3b82f6';
 
+    // 方位太接近的朋友沿半徑往內錯開，避免圓點互相疊住
+    const sorted = [...friends].sort((a, b) => a.bearing - b.bearing);
+    const radiusOf = new Map();
+    let clusterStart = null;
+    let clusterDepth = 0;
+    sorted.forEach((f) => {
+      const gap = clusterStart == null
+        ? Infinity
+        : Math.min(Math.abs(f.bearing - clusterStart), 360 - Math.abs(f.bearing - clusterStart));
+      if (gap < 16) {
+        clusterDepth += 1;
+      } else {
+        clusterStart = f.bearing;
+        clusterDepth = 0;
+      }
+      radiusOf.set(f, Math.max(42, 78 - clusterDepth * 17));
+    });
+
     friends.forEach((f) => {
       const rad = toRad(f.bearing - 90);
-      const cx = 120 + 78 * Math.cos(rad);
-      const cy = 120 + 78 * Math.sin(rad);
+      const r = radiusOf.get(f) ?? 78;
+      const cx = 120 + r * Math.cos(rad);
+      const cy = 120 + r * Math.sin(rad);
       const g = el('g', { class: 'compass-friend-mark' });
       const title = el('title', {});
       title.textContent = `${f.name} · ${f.dir}方 · ${f.status}`;
@@ -1592,6 +1611,8 @@ const Compass = (() => {
     takeoffArmed = true;
     syncTakeoffButton();
     closeSheets();
+    // 確認後立即顯示懸浮小羅盤，讓乘客隨時可回來重新調整航向
+    updateUI();
   }
 
   return { build, fate, reset, confirm, refreshFriends, get value() { return current; } };

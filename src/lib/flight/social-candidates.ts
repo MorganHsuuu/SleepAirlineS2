@@ -490,7 +490,7 @@ export function pickPrioritySocialCueCandidate(
 
   const priority = phase === 'landing' ? LANDING_SOCIAL_CUE_PRIORITY : TAKEOFF_SOCIAL_CUE_PRIORITY;
   for (const tier of priority) {
-    const types = (Array.isArray(tier) ? tier : [tier]).filter((type) => type !== 'solo');
+    const types: SocialCueType[] = (Array.isArray(tier) ? tier : [tier]).filter((type) => type !== 'solo');
     if (types.length === 0) continue;
     const pool = candidates.filter((candidate) => types.includes(candidate.cueType));
     if (pool.length === 0) continue;
