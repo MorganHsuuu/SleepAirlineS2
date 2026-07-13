@@ -161,8 +161,16 @@
     <div class="dock">
 
       <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
-        <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
-        <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
+        <div class="trail-chip-row">
+          <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
+          <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
+        </div>
+        <div class="trail-segment-card hidden" id="trail-segment-card" hidden>
+          <button type="button" class="trail-segment-close" id="trail-segment-close" aria-label="關閉航段資訊">×</button>
+          <p class="trail-segment-who" id="trail-segment-who"></p>
+          <p class="trail-segment-route" id="trail-segment-route"></p>
+          <p class="trail-segment-meta" id="trail-segment-meta"></p>
+        </div>
       </div>
 
       <button type="button" class="compass-float glass hidden" id="btn-compass" aria-label="選擇航向">

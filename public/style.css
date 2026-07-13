@@ -124,12 +124,21 @@ body {
   top: 10px;
   right: 12px;
   z-index: 3;
-  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   pointer-events: auto;
-  max-width: calc(100% - 24px);
+  max-width: min(340px, calc(100% - 24px));
 }
 .dock:has(#landed-panel:not(.hidden)) .globe-trails {
   display: none;
+}
+.trail-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .trail-chip {
   padding: 5px 10px; border-radius: 999px;
@@ -152,6 +161,58 @@ body[data-theme="dusk"] .trail-chip { background: rgba(20, 28, 48, .55); }
   background: rgba(59, 130, 246, .12);
 }
 body[data-theme="dusk"] .trail-chip#trail-friends.is-on { color: #93c5fd; }
+
+.trail-segment-card {
+  position: relative;
+  width: min(300px, 100%);
+  padding: 10px 28px 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--gold) 28%, var(--glass-line));
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 22px rgba(40, 60, 100, .16);
+  text-align: left;
+}
+body[data-theme="dusk"] .trail-segment-card {
+  background: rgba(16, 24, 42, .78);
+}
+.trail-segment-card.hidden { display: none; }
+.trail-segment-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.trail-segment-close:hover { color: var(--ink); }
+.trail-segment-who {
+  margin: 0 0 2px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  color: var(--gold-deep);
+}
+.trail-segment-route {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.trail-segment-meta {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
 
 /* ═══ 玻璃基底 ═══ */
 
@@ -2728,6 +2789,7 @@ body.sheet-open #main-section {
     top: -34px;
     left: 14px;
     right: auto;
+    align-items: flex-start;
     justify-content: flex-start;
   }
   .dock-panel--cta .dock-action {

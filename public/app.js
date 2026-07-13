@@ -637,6 +637,7 @@ const Globe = (() => {
   let idleTimer = null, idleOn = true;
   let onFriendPick = null;
   let onPlanePick = null;
+  let onTrailPick = null;
   let motionGen = 0; // 中斷 flyTo / resetView / glide
   let renderRaf = 0;
   let view = {
@@ -822,17 +823,19 @@ const Globe = (() => {
       routes.push({ id: 'you-circle', d: circle, s: '3 5', wd: 1.3, o: 0.55, color: gold, pick: null });
       view.planeC = null;
     }
-    // 歷史航跡（虛線，可切換；焦點隊友加粗）
+    // 歷史航跡（虛線，可切換；選中單段加粗）
     (view.trailRoutes || []).forEach((tr) => {
       routes.push({
         id: tr.id,
         d: lineTo(tr.from, tr.to),
-        s: tr.focused ? '3 7' : '5 9',
+        s: tr.selected ? '2 6' : (tr.focused ? '3 7' : '5 9'),
         wd: tr.wd || 1.35,
         o: tr.o ?? 0.34,
         color: tr.mine ? gold : friendCol,
         pick: tr.pick,
         idx: tr.idx,
+        trailKey: tr.trailKey,
+        segment: tr.segment || null,
       });
     });
     // 隊友進行中航線（實線；非焦點時略淡）
@@ -886,13 +889,23 @@ const Globe = (() => {
       .attr('stroke', 'transparent')
       .attr('stroke-width', 22)
       .attr('stroke-linecap', 'round')
-      .attr('pointer-events', (x) => (x.pick === 'you' && onPlanePick) || x.pick === 'friend' ? 'stroke' : 'none');
+      .attr('pointer-events', (x) => {
+        if (x.pick === 'you' && onPlanePick) return 'stroke';
+        if (x.pick === 'friend' || x.pick === 'trail') return 'stroke';
+        return 'none';
+      });
     routeHitSel.filter((d) => d.pick === 'you' && onPlanePick).call(bindRoutePickTap);
     routeHitSel.filter((d) => d.pick === 'friend')
       .style('cursor', (d) => (Number.isInteger(d.idx) ? 'pointer' : null))
       .on('click', (ev, d) => {
         ev.stopPropagation();
         if (Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+      });
+    routeHitSel.filter((d) => d.pick === 'trail')
+      .style('cursor', 'pointer')
+      .on('click', (ev, d) => {
+        ev.stopPropagation();
+        if (d.segment) onTrailPick?.(d.segment);
       });
 
     // 點位圖層
@@ -931,9 +944,12 @@ const Globe = (() => {
         focused: !!d.focused,
         faint: !!d.faint,
         bright: !!d.bright,
+        selected: !!d.selected,
         showLabel: !!d.showLabel,
         o: d.o,
         idx: d.idx,
+        trailKey: d.trailKey,
+        segment: d.segment || null,
       });
     });
     if (view.mateArc && !view.focusPid) {
@@ -1029,34 +1045,49 @@ const Globe = (() => {
         return;
       }
       if (d.kind === 'land-dot') {
-        g.attr('class', Number.isInteger(d.idx) ? 'pt pt-pick' : 'pt');
+        const hasSeg = !!d.segment;
+        g.attr('class', (hasSeg || Number.isInteger(d.idx)) ? 'pt pt-pick' : 'pt');
         g.select('.plicon').attr('display', 'none');
         const col = d.mine ? gold : friendCol;
         const faint = !!d.faint;
-        const bright = !!d.bright || (!faint && !!d.focused);
-        const coreR = bright ? 3.5 : (faint ? 2.1 : 2.8);
-        const groupOp = typeof d.o === 'number' ? Math.max(0.2, Math.min(1, d.o)) : (faint ? 0.28 : 1);
+        const selected = !!d.selected;
+        const bright = selected || !!d.bright || (!faint && !!d.focused);
+        // 歷史落點略大於航線寬度；選中再放大並加光暈（「你」現在位置維持原樣）
+        const coreR = selected ? 6.6 : (bright ? 5.4 : (faint ? 3.8 : 4.6));
+        const groupOp = selected
+          ? 1
+          : (typeof d.o === 'number' ? Math.max(0.28, Math.min(1, d.o)) : (faint ? 0.35 : 1));
         g.attr('opacity', groupOp);
         g.select('.halo').attr('cx', x).attr('cy', y)
-          .attr('r', 0)
-          .attr('opacity', 0);
+          .attr('r', selected ? coreR + 5.5 : (bright ? coreR + 2.5 : 0))
+          .attr('fill', 'none')
+          .attr('stroke', col)
+          .attr('stroke-width', selected ? 1.4 : 1)
+          .attr('stroke-dasharray', selected ? '3 3' : null)
+          .attr('opacity', selected ? 0.95 : (bright ? 0.35 : 0));
         g.select('.core').attr('cx', x).attr('cy', y).attr('r', coreR)
-          .attr('fill', col).attr('stroke', 'none').attr('stroke-width', 0);
-        g.select('.lbl').attr('x', x).attr('y', y - 11).attr('text-anchor', 'middle')
-          .attr('font-size', bright ? '10px' : '8.5px')
-          .attr('font-weight', bright ? '800' : '700')
+          .attr('fill', col)
+          .attr('stroke', selected ? '#fff' : 'none')
+          .attr('stroke-width', selected ? 1.2 : 0);
+        g.select('.lbl').attr('x', x).attr('y', y - (coreR + 8)).attr('text-anchor', 'middle')
+          .attr('font-size', selected || bright ? '10px' : '8.5px')
+          .attr('font-weight', selected || bright ? '800' : '700')
           .attr('fill', labelInk)
-          .attr('opacity', d.showLabel ? 1 : 0)
-          .text(d.showLabel ? (d.label || '') : '');
-        const clickableDot = Number.isInteger(d.idx);
+          .attr('opacity', d.showLabel || selected ? 1 : 0)
+          .text((d.showLabel || selected) ? (d.label || '') : '');
+        const clickableDot = hasSeg || Number.isInteger(d.idx);
         g.select('.plane-hit')
           .attr('display', clickableDot ? null : 'none')
-          .attr('cx', x).attr('cy', y).attr('r', 18)
+          .attr('cx', x).attr('cy', y).attr('r', 22)
           .attr('fill', 'transparent').attr('stroke', 'none')
           .attr('pointer-events', clickableDot ? 'all' : 'none')
           .raise();
         g.style('cursor', clickableDot ? 'pointer' : null)
-          .on('click', clickableDot ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
+          .on('click', clickableDot ? (ev) => {
+            ev.stopPropagation();
+            if (d.segment) onTrailPick?.(d.segment);
+            else if (Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+          } : null);
         return;
       }
       g.attr('class', 'pt');
@@ -1301,6 +1332,7 @@ const Globe = (() => {
     update(patch) { Object.assign(view, patch); render(); },
     clearRoute() { Object.assign(view, { heading: null, traveledKm: 0, possibilityKm: 0, routeArc: null, planeC: null, arrival: null }); render(); },
     setFriendPick(fn) { onFriendPick = fn; },
+    setTrailPick(fn) { onTrailPick = fn; },
     setPlanePick(fn) { onPlanePick = fn; render(); },
     isPickTarget: isGlobePickTarget,
     /** 拖曳剛結束（用來忽略拖曳後瀏覽器補發的 click） */
@@ -1988,10 +2020,30 @@ function trailAgeT(rank, total) {
   return Math.max(0, Math.min(1, rank / (total - 1)));
 }
 
-/** 最近 5 段：越早越透明，最後一段最實（透明度最低） */
-function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
+/** 最近 5 段：越早越透明，最後一段最實；若有選中單段則只亮那一段 */
+function trailStyle(isMe, focused, { rank = 0, total = 1, trailKey = '' } = {}) {
   const t = trailAgeT(rank, total);
   const isLatest = rank >= total - 1;
+  if (selectedTrailKey) {
+    if (trailKey && trailKey === selectedTrailKey) {
+      return {
+        o: 1,
+        wd: 3.1,
+        focused: true,
+        faint: false,
+        bright: true,
+        selected: true,
+      };
+    }
+    return {
+      o: 0.05 + t * 0.06,
+      wd: 1,
+      focused: false,
+      faint: true,
+      bright: false,
+      selected: false,
+    };
+  }
   if (focused) {
     return {
       o: 0.35 + t * 0.65, // 0.35 → 1.0：點擊後整段航跡更亮
@@ -1999,6 +2051,7 @@ function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
       focused: true,
       faint: !isLatest,
       bright: isLatest,
+      selected: false,
     };
   }
   if (globeFocusPid) {
@@ -2008,6 +2061,7 @@ function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
       focused: false,
       faint: true,
       bright: false,
+      selected: false,
     };
   }
   if (isMe) {
@@ -2017,6 +2071,7 @@ function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
       focused: false,
       faint: !isLatest,
       bright: isLatest,
+      selected: false,
     };
   }
   return {
@@ -2025,6 +2080,7 @@ function trailStyle(isMe, focused, { rank = 0, total = 1 } = {}) {
     focused: false,
     faint: !isLatest,
     bright: isLatest,
+    selected: false,
   };
 }
 
@@ -2055,6 +2111,70 @@ function collectPassengerTrailRecords(pid, name) {
 }
 
 let globeFocusPid = null;
+/** 地圖上選中的單一歷史航段 key（`pid::trailId`） */
+let selectedTrailKey = null;
+
+function makeTrailKey(pid, trailId) {
+  return `${pid}::${trailId}`;
+}
+
+function trailSegmentPayload(t, { pid, name, isMe }) {
+  return {
+    trailKey: makeTrailKey(pid, t.id),
+    passengerId: pid,
+    passengerName: name || t.passengerName || '',
+    mine: !!isMe,
+    depLabel: t.depLabel || cityOnly(t.departureLocation) || '—',
+    arrLabel: t.arrLabel || cityOnly(t.arrivalLocation) || '—',
+    landingTime: t.landingTime || t.takeoffTime || '',
+    flightDurationMinutes: t.flightDurationMinutes ?? null,
+    estimatedFlightDistanceKm: t.estimatedFlightDistanceKm ?? null,
+  };
+}
+
+function renderTrailSegmentCard(seg) {
+  const card = $('trail-segment-card');
+  if (!card) return;
+  if (!seg) {
+    card.hidden = true;
+    card.classList.add('hidden');
+    return;
+  }
+  const who = $('trail-segment-who');
+  const route = $('trail-segment-route');
+  const meta = $('trail-segment-meta');
+  if (who) who.textContent = seg.mine ? '我的航段' : `${seg.passengerName || '隊友'}的航段`;
+  if (route) route.textContent = `${seg.depLabel} → ${seg.arrLabel}`;
+  const bits = [];
+  if (seg.landingTime) bits.push(formatMemoryDate(seg.landingTime));
+  if (seg.flightDurationMinutes != null) bits.push(fmtDuration(seg.flightDurationMinutes));
+  if (seg.estimatedFlightDistanceKm != null) {
+    bits.push(`${Math.round(seg.estimatedFlightDistanceKm)} km`);
+  }
+  if (meta) meta.textContent = bits.join(' · ') || '航段資訊';
+  card.hidden = false;
+  card.classList.remove('hidden');
+}
+
+function selectTrailSegment(seg) {
+  if (!seg?.trailKey) return;
+  selectedTrailKey = seg.trailKey;
+  dismissMateSheetOnly();
+  globeFocusPid = null;
+  Globe.clearMate();
+  renderTrailSegmentCard(seg);
+  Globe.update({ ...globeTrailPatch() });
+}
+
+function clearTrailSegmentSelection({ refresh = true } = {}) {
+  if (!selectedTrailKey) {
+    renderTrailSegmentCard(null);
+    return;
+  }
+  selectedTrailKey = null;
+  renderTrailSegmentCard(null);
+  if (refresh) Globe.update({ ...globeTrailPatch() });
+}
 
 function buildTrailRoutes() {
   if (!passenger) return [];
@@ -2078,7 +2198,9 @@ function buildTrailRoutes() {
     trails.forEach((t, ti) => {
       if (!t.from || !t.to) return;
       const isLatest = ti === trails.length - 1;
-      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
+      const trailKey = makeTrailKey(pid, t.id || ti);
+      const segment = trailSegmentPayload(t, { pid, name, isMe });
+      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length, trailKey });
       routes.push({
         id: `trail-${pid}-${t.id || ti}`,
         from: t.from,
@@ -2090,8 +2212,11 @@ function buildTrailRoutes() {
         focused: st.focused,
         faint: st.faint,
         bright: st.bright,
+        selected: st.selected,
         isLatest,
-        pick: !isMe && idx >= 0 ? 'friend' : null,
+        trailKey,
+        segment,
+        pick: 'trail',
         idx: idx >= 0 ? idx : null,
       });
     });
@@ -2144,7 +2269,9 @@ function buildTrailDots() {
     trails.forEach((t, ti) => {
       if (!t.to) return;
       const isLatest = ti === trails.length - 1;
-      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length });
+      const trailKey = makeTrailKey(pid, t.id || ti);
+      const segment = trailSegmentPayload(t, { pid, name, isMe });
+      const st = trailStyle(isMe, focused, { rank: ti, total: trails.length, trailKey });
       const displayLabel = formatTrailDotLabel(t);
       dots.push({
         key: `land-${pid}-${t.id || ti}`,
@@ -2153,13 +2280,16 @@ function buildTrailDots() {
         mine: isMe,
         passengerId: pid,
         idx: idx >= 0 ? idx : null,
+        trailKey,
+        segment,
         focused: !!focused,
         isLatest,
         faint: st.faint,
         bright: st.bright,
+        selected: st.selected,
         o: st.o,
-        // 地圖只保留小點；城市、國家等資訊改由點擊後的詳情面板呈現。
-        showLabel: false,
+        // 選中時顯示國家標籤；平常只留落點以免字疊在一起
+        showLabel: !!st.selected,
       });
     });
   };
@@ -2205,6 +2335,7 @@ function refreshGlobeTrails() {
 function toggleRouteTrail(key) {
   routeTrails[key] = !routeTrails[key];
   syncTrailControls();
+  clearTrailSegmentSelection({ refresh: false });
   refreshGlobeTrails();
 }
 
@@ -2641,6 +2772,7 @@ function dismissMateSheetOnly() {
 }
 
 function applyMateTrailFocus(f) {
+  clearTrailSegmentSelection({ refresh: false });
   const depMeta = departureMeta(f);
   const landed = f.status === 'landed' && !!f.arrivalLocation;
   const flying = f.status === 'in_flight';
@@ -5108,11 +5240,12 @@ $('globe-svg')?.addEventListener('click', (e) => {
     dismissLandedPanel();
     return;
   }
-  // 點空白處取消地圖軌跡焦點（看板詳情開著時不處理；剛收起詳情的那一下也不算）
-  if (globeFocusPid && !document.body.classList.contains('sheet-open')) {
+  // 點空白處取消地圖軌跡焦點／單段選取（看板詳情開著時不處理；剛收起詳情的那一下也不算）
+  if ((globeFocusPid || selectedTrailKey) && !document.body.classList.contains('sheet-open')) {
     if (Date.now() - mateSheetDismissedAt < 400) return;
     if (e.target.closest('.pt') || e.target.closest('.pt-pick')) return;
     globeFocusPid = null;
+    clearTrailSegmentSelection({ refresh: false });
     Globe.clearMate();
     restoreGlobeView();
   }
@@ -5131,6 +5264,11 @@ $('globe-svg')?.addEventListener('click', (e) => {
 
   // 點地球儀上的隊友／航點才展開詳細資訊；平常地圖維持純淨。
   Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateFromBoard(groupFlights[idx]); });
+  Globe.setTrailPick((seg) => selectTrailSegment(seg));
+  $('trail-segment-close')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearTrailSegmentSelection();
+  });
   // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
   Globe.setPlanePick(() => openFlightWindowFromGlobe());
 
