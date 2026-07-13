@@ -776,8 +776,8 @@ body[data-theme="dusk"] .pill-green {
 /* 懸浮羅盤：浮在出發面板右上方 */
 .compass-float {
   position: absolute;
-  right: 4px;
-  top: -58px;
+  right: 10px;
+  top: -74px;
   z-index: 2;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px;
@@ -834,6 +834,7 @@ body[data-theme="dusk"] .pill-green {
 }
 .dock-action .pill-icon,
 .dock-action .pill-label { position: relative; z-index: 1; }
+.dock-action .pill-label { white-space: nowrap; }
 .dock-action:hover { transform: translateY(-1px); }
 .dock-action:active { transform: translateY(1px) scale(.985); opacity: .92; }
 .dock-action:disabled { opacity: .45; cursor: default; transform: none; }
@@ -2740,11 +2741,23 @@ body.sheet-open #main-section {
     font-size: 14px;
   }
   #flight-panel .dock-panel--cta .dock-action {
-    flex-basis: 108px;
-    width: 108px;
+    flex: 0 0 auto;
+    flex-basis: auto;
+    width: max-content;
+    min-width: 108px;
+    max-width: 168px;
     height: 44px;
     min-height: 44px;
     max-height: 44px;
+    padding: 0 16px;
+    white-space: nowrap;
+  }
+  #flight-panel .dock-panel--cta .dock-action.is-confirm {
+    min-width: 132px;
+    letter-spacing: 0;
+  }
+  #flight-panel .dock-panel--cta .dock-action.is-confirm .pill-label {
+    letter-spacing: 0.04em;
   }
   #flight-panel {
     width: 100%;
