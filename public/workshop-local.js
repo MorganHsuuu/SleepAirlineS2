@@ -220,15 +220,26 @@
     IN: 'Namaste', BR: 'Bom dia', MX: 'Buenos días', RU: 'Доброе утро',
   };
 
-  function fallbackBroadcast(phase, name, departure, arrival, durationMinutes, iso) {
+  function fallbackBroadcast(phase, name, departure, arrival, durationMinutes, iso, locale) {
+    const en = locale === 'en';
     if (phase === 'takeoff') {
+      if (en) {
+        return `Welcome aboard Sleep Airline, this is your captain. Passengers, we are departing ${departure}. ${name}, fasten your seatbelt, dim the window, and rest.`;
+      }
       return `歡迎搭乘 Sleep Airline，這裡是機長。各位乘客，本班即將自 ${departure} 起飛。${name}，請繫好安全帶、調暗舷窗，安心入睡。`;
     }
     const h = durationMinutes ? Math.floor(durationMinutes / 60) : 0;
     const m = durationMinutes ? durationMinutes % 60 : 0;
-    const dur = h > 0 ? `${h} 小時 ${m} 分鐘` : m > 0 ? `${m} 分鐘` : '一段';
-    const greet = (iso && MORNING_GREETING[iso]) ? `${MORNING_GREETING[iso]}！` : '';
-    const hint = (iso && CULTURE_HINT[iso]) || '走出艙門，帶著好奇心向當地人微笑問好吧。';
+    const dur = en
+      ? (h > 0 ? `${h} h ${m} min` : m > 0 ? `${m} min` : 'a stretch')
+      : (h > 0 ? `${h} 小時 ${m} 分鐘` : m > 0 ? `${m} 分鐘` : '一段');
+    const greet = (iso && MORNING_GREETING[iso]) ? `${MORNING_GREETING[iso]}${en ? '! ' : '！'}` : '';
+    const hint = (iso && CULTURE_HINT[iso]) || (en
+      ? 'Step out with curiosity and a smile for the locals.'
+      : '走出艙門，帶著好奇心向當地人微笑問好吧。');
+    if (en) {
+      return `${greet}Welcome aboard Sleep Airline, this is your captain. We have arrived safely in ${arrival}. ${name} flew from ${departure} for ${dur}. ${hint} Until we share the same sky again.`;
+    }
     return `${greet}歡迎搭乘 Sleep Airline，這裡是機長。各位乘客，甦醒航班已平安降落 ${arrival}，本地時間清晨。${name} 自 ${departure} 出發，共飛行 ${dur}。${hint} 期待與您在同一片天空再會。`;
   }
 
@@ -328,7 +339,8 @@
     const takeoffTime = new Date().toISOString();
     const flightId = `FL-LOCAL-${Date.now().toString(36).toUpperCase()}`;
     const routeDirection = body.routeDirection || 'auto';
-    const takeoffBroadcast = fallbackBroadcast('takeoff', p.name, p.currentLocation, null, null);
+    const locale = body.locale === 'en' ? 'en' : 'zh';
+    const takeoffBroadcast = fallbackBroadcast('takeoff', p.name, p.currentLocation, null, null, null, locale);
 
     const flight = {
       notionId: `local_${flightId}`,
@@ -352,7 +364,7 @@
       takeoffBroadcast,
       captainBroadcast: null,
       socialCueType: 'solo',
-      socialCueText: '今晚您獨自飛行。',
+      socialCueText: locale === 'en' ? 'You are flying alone tonight.' : '今晚您獨自飛行。',
       relatedPassenger: null,
     };
 
@@ -389,7 +401,8 @@
       active.departureLocation,
       arrival.displayName,
       durationMinutes,
-      arrival.iso
+      arrival.iso,
+      body.locale === 'en' ? 'en' : 'zh'
     );
 
     const landed = {

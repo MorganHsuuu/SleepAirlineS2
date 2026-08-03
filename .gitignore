@@ -7,3 +7,4 @@ public/country-iso.json
 *.tsbuildinfo
 .vercel
 .env*
+.superpowers/

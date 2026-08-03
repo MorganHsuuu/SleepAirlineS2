@@ -302,6 +302,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection = 'auto',
       broadcastStyle = 'formal_captain',
       simulatedTakeoffTime,
+      locale = 'zh',
     } = req.body;
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
@@ -393,6 +394,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
         socialCue,
         style: broadcastStyle as BroadcastStyle,
         localContext: depLocal,
+        locale: locale === 'en' ? 'en' : 'zh',
       },
       () => fallbackCaptainBroadcast(
         'takeoff',
@@ -402,7 +404,8 @@ app.post('/api/flight/takeoff', async (req, res) => {
         flight.routeDirection,
         null,
         socialCue.cueText,
-        depLocal
+        depLocal,
+        locale === 'en' ? 'en' : 'zh'
       )
     );
 
@@ -446,6 +449,7 @@ app.post('/api/flight/land', async (req, res) => {
       broadcastStyle = 'formal_captain',
       simulatedDurationMinutes,
       simulatedLandingTime,
+      locale = 'zh',
     } = req.body;
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
 
@@ -532,7 +536,8 @@ app.post('/api/flight/land', async (req, res) => {
       activeFlight.routeDirection,
       durationMinutes,
       socialCue.cueText,
-      arrLocal
+      arrLocal,
+      locale === 'en' ? 'en' : 'zh'
     );
 
     const captainBroadcast = await generateBroadcastWithBudget(
@@ -549,6 +554,7 @@ app.post('/api/flight/land', async (req, res) => {
         socialCue,
         style: broadcastStyle as BroadcastStyle,
         localContext: arrLocal,
+        locale: locale === 'en' ? 'en' : 'zh',
       },
       broadcastFallback
     );

@@ -1,0 +1,337 @@
+/** Sleep Airline i18n — zh / en (localStorage only; not logged to research DB) */
+(function (global) {
+  const STORAGE_KEY = 'sleepAirline_locale';
+
+  const DICT = {
+    zh: {
+      'meta.title': '甦醒航班 | Sleep Airline',
+      'brand.name': '✈ 甦醒航班',
+      'brand.sub': 'SLEEP AIRLINE',
+      'login.terminal': 'Terminal 航站',
+      'login.createTerminal': '建立 Terminal',
+      'login.shareInvite': '分享邀請',
+      'login.passportKicker': 'Boarding Identity',
+      'login.passportTitle': '我的護照',
+      'login.pid': '乘客 ID',
+      'login.name': '姓名',
+      'login.pidPh': '例：p_4821_morgan',
+      'login.namePh': '你的名字',
+      'login.submit': '登入',
+      'login.submitting': '登入中…',
+      'login.fillAll': '請填寫所有欄位。',
+      'login.terminalDigits': 'Terminal 須為四位數字（0000–9999）。',
+      'login.created': '已建立 Terminal T-{digits} · 按分享邀請隊友加入',
+      'login.shareNeedTerminal': '請先輸入或建立四位數 Terminal。',
+      'login.shareOk': '航站連結已分享',
+      'login.shareCopied': '航站連結已複製 · 隊友開啟後會自動帶入 Terminal',
+      'login.shareFail': '無法複製連結，請手動分享：{url}',
+      'share.terminalTitle': '甦醒航班 Terminal T-{digits}',
+      'share.terminalText': '加入我的航站 Terminal T-{digits}，一起飛！',
+      'share.arrivalText': '歡迎搭乘 Sleep Airline ✈ 今天我在 {flag} {city}{countryPart} 降落！',
+      'share.countryPart': '・{country}',
+      'board.shareNeed': '無法分享：請先登入並確認 Terminal 代碼。',
+      'board.kicker': '小隊動態',
+      'board.empty': '本 Terminal 尚無航班記錄',
+      'board.broadcasts': '機長廣播紀錄 ▾',
+      'top.preview': 'UI 示範',
+      'top.theme': '切換日夜',
+      'top.memories': '我的夜航回憶',
+      'top.logout': '登出',
+      'top.replayTour': '導覽',
+      'account.kicker': '帳戶',
+      'trail.mine': '我的航跡',
+      'trail.friends': '隊友航跡',
+      'compass.float': '選擇航向',
+      'compass.chip': '方向',
+      'ready.dep': '今晚起飛地',
+      'ready.takeoff': '準備啟航',
+      'fly.mood': '飛行中',
+      'fly.window': '望向窗外',
+      'fly.whisper': '雲層在舷窗外緩緩流過…',
+      'fly.echo': '起飛回聲',
+      'fly.reminderKicker': '降落提醒',
+      'fly.reminderText': '醒來後提醒你回來降落。',
+      'fly.reminderBtn': '啟用提醒',
+      'fly.landConfirm': '再按一次下方按鈕，確認開始下降',
+      'fly.land': '降落',
+      'land.stamp': '已抵達',
+      'land.statsDuration': '飛行時間',
+      'land.statsDistance': '航程',
+      'land.echo': '小隊回聲',
+      'land.sceneryAlt': '降落風景',
+      'land.sceneryLoading': '窗外漸漸亮了起來…',
+      'land.window': '看看窗外',
+      'land.share': '分享這趟',
+      'land.next': '✓ 準備下一趟',
+      'compass.title': '今晚的航向',
+      'compass.sub': '拖動磁針 · 藍點是小隊好友所在方位',
+      'compass.autoHint': '由系統為你選擇方向',
+      'compass.fate': '⚓ 讓命運決定',
+      'compass.confirm': '確認航向',
+      'compass.openNeed': '羅盤已開啟：請選好航向後按「確認航向」。',
+      'sharePreview.title': '分享預覽',
+      'sharePreview.download': '下載圖卡',
+      'sharePreview.send': '分享',
+      'memories.title': '我的夜航回憶',
+      'memories.sub': '左右滑動 · 翻閱最近五趟航程',
+      'lang.zh': '中文',
+      'lang.en': 'EN',
+      'lang.switch': '語言',
+      'dir.auto': '自動',
+      'dir.eastbound': '向東',
+      'dir.westbound': '向西',
+      'dir.northbound': '向北',
+      'dir.southbound': '向南',
+      'dir.northeast': '東北',
+      'dir.northwest': '西北',
+      'dir.southeast': '東南',
+      'dir.southwest': '西南',
+      'dir.circular': '環形',
+      'dir.unknown': '未知',
+      'dir.hint': '今晚傾向醒在{dir}方的城市',
+      'dir.hintAuto': '由系統為你選擇方向',
+      'msg.demoTakeoff': '示範模式無法真正起飛。請登出後登入，再測試起飛。',
+      'msg.demoLand': '示範模式無法降落。請登出後登入，再測試降落。',
+      'msg.uiDemoTakeoff': '目前為 UI 示範。請先登出，登入後再測試起飛。',
+      'msg.uiDemoLand': '目前為 UI 示範。請先登出，登入後再測試降落。',
+      'msg.noFlight': '目前沒有飛行中的航班。',
+      'msg.closeMate': '請先收起隊友詳情（點背景或 Esc），再按降落。',
+      'msg.takeoffBlocked': '請先選擇航向後再起飛。',
+      'fx.takeoffPrep': '塔台連線中 · 請稍候…',
+      'fx.takeoffSync': '同步航線與小隊雷達…',
+      'fx.takeoffBroadcast': '機長整理起飛廣播…',
+      'fx.broadcastPlaying': '機長廣播中…',
+      'fx.takeoffGo': '推進器啟動 · 準備離地…',
+      'onboard.skip': '略過',
+      'onboard.next': '下一步',
+      'onboard.start': '開始飛行',
+      'onboard.story1.title': '今夜，你將起飛',
+      'onboard.story1.body': '選擇航向，讓睡眠帶你降落在未知城市。',
+      'onboard.story2.title': '入睡，即是啟航',
+      'onboard.story2.body': '起飛後安心休息；醒來時，按下降落，揭曉你的目的地。',
+      'onboard.story3.title': '小隊同行',
+      'onboard.story3.body': '看板會看見隊友的航跡；每一次降落，都留下夜航回憶。',
+      'onboard.spot1': '這是羅盤：拖動磁針或點方位，選擇今夜航向。',
+      'onboard.spot2': '準備好後，按下起飛——機長會為你廣播。',
+      'onboard.spot3': '小隊看板顯示同 Terminal 隊友的動態。',
+      'onboard.spot4': '醒來後，下方會出現「降落」——回來按它，揭曉城市與風景。',
+      'onboard.done': '導覽完成 · 祝你一夜好眠',
+    },
+    en: {
+      'meta.title': 'Sleep Airline',
+      'brand.name': '✈ Sleep Airline',
+      'brand.sub': 'SLEEP AIRLINE',
+      'login.terminal': 'Terminal',
+      'login.createTerminal': 'Create Terminal',
+      'login.shareInvite': 'Share invite',
+      'login.passportKicker': 'Boarding Identity',
+      'login.passportTitle': 'My passport',
+      'login.pid': 'Passenger ID',
+      'login.name': 'Name',
+      'login.pidPh': 'e.g. p_4821_morgan',
+      'login.namePh': 'Your name',
+      'login.submit': 'Board',
+      'login.submitting': 'Boarding…',
+      'login.fillAll': 'Please fill in all fields.',
+      'login.terminalDigits': 'Terminal must be 4 digits (0000–9999).',
+      'login.created': 'Created Terminal T-{digits} · Share to invite teammates',
+      'login.shareNeedTerminal': 'Enter or create a 4-digit Terminal first.',
+      'login.shareOk': 'Terminal link shared',
+      'login.shareCopied': 'Link copied · teammates will get the Terminal filled in',
+      'login.shareFail': 'Could not copy. Share manually: {url}',
+      'share.terminalTitle': 'Sleep Airline Terminal T-{digits}',
+      'share.terminalText': 'Join my Terminal T-{digits} and fly with me!',
+      'share.arrivalText': 'Welcome aboard Sleep Airline ✈ I landed in {flag} {city}{countryPart} today!',
+      'share.countryPart': ' · {country}',
+      'board.shareNeed': 'Cannot share: sign in and confirm your Terminal code.',
+      'board.kicker': 'Squad board',
+      'board.empty': 'No flights in this Terminal yet',
+      'board.broadcasts': 'Captain broadcasts ▾',
+      'top.preview': 'UI demo',
+      'top.theme': 'Day / night',
+      'top.memories': 'My night flights',
+      'top.logout': 'Log out',
+      'top.replayTour': 'Tour',
+      'account.kicker': 'Account',
+      'trail.mine': 'My trails',
+      'trail.friends': 'Squad trails',
+      'compass.float': 'Choose heading',
+      'compass.chip': 'Heading',
+      'ready.dep': 'Tonight’s departure',
+      'ready.takeoff': 'Ready for takeoff',
+      'fly.mood': 'In flight',
+      'fly.window': 'Look outside',
+      'fly.whisper': 'Clouds drift past the window…',
+      'fly.echo': 'Takeoff echo',
+      'fly.reminderKicker': 'Landing reminder',
+      'fly.reminderText': 'We’ll nudge you to come back and land.',
+      'fly.reminderBtn': 'Enable',
+      'fly.landConfirm': 'Press again below to confirm descent',
+      'fly.land': 'Land',
+      'land.stamp': 'Arrived',
+      'land.statsDuration': 'Flight time',
+      'land.statsDistance': 'Distance',
+      'land.echo': 'Squad echo',
+      'land.sceneryAlt': 'Landing scenery',
+      'land.sceneryLoading': 'The window is brightening…',
+      'land.window': 'Look outside',
+      'land.share': 'Share this flight',
+      'land.next': '✓ Ready for next',
+      'compass.title': 'Tonight’s heading',
+      'compass.sub': 'Drag the needle · blue dots are squad friends',
+      'compass.autoHint': 'Let the system choose your heading',
+      'compass.fate': '⚓ Leave it to fate',
+      'compass.confirm': 'Confirm heading',
+      'compass.openNeed': 'Compass is open: pick a heading, then tap Confirm.',
+      'sharePreview.title': 'Share preview',
+      'sharePreview.download': 'Download card',
+      'sharePreview.send': 'Share',
+      'memories.title': 'My night flights',
+      'memories.sub': 'Swipe · last five journeys',
+      'lang.zh': '中文',
+      'lang.en': 'EN',
+      'lang.switch': 'Language',
+      'dir.auto': 'Auto',
+      'dir.eastbound': 'East',
+      'dir.westbound': 'West',
+      'dir.northbound': 'North',
+      'dir.southbound': 'South',
+      'dir.northeast': 'Northeast',
+      'dir.northwest': 'Northwest',
+      'dir.southeast': 'Southeast',
+      'dir.southwest': 'Southwest',
+      'dir.circular': 'Circular',
+      'dir.unknown': 'Unknown',
+      'dir.hint': 'Tonight you tend to wake in cities to the {dir}',
+      'dir.hintAuto': 'Let the system choose your heading',
+      'msg.demoTakeoff': 'Demo mode cannot take off. Log out, sign in, then try again.',
+      'msg.demoLand': 'Demo mode cannot land. Log out, sign in, then try again.',
+      'msg.uiDemoTakeoff': 'UI demo only. Log out, sign in, then take off.',
+      'msg.uiDemoLand': 'UI demo only. Log out, sign in, then land.',
+      'msg.noFlight': 'No active flight.',
+      'msg.closeMate': 'Close teammate details first (backdrop or Esc), then land.',
+      'msg.takeoffBlocked': 'Choose a heading before takeoff.',
+      'fx.takeoffPrep': 'Connecting to tower…',
+      'fx.takeoffSync': 'Syncing route & squad radar…',
+      'fx.takeoffBroadcast': 'Captain preparing takeoff PA…',
+      'fx.broadcastPlaying': 'Captain speaking…',
+      'fx.takeoffGo': 'Engines up · ready to leave…',
+      'onboard.skip': 'Skip',
+      'onboard.next': 'Next',
+      'onboard.start': 'Begin flight',
+      'onboard.story1.title': 'Tonight, you take off',
+      'onboard.story1.body': 'Pick a heading. Sleep carries you to an unknown city.',
+      'onboard.story2.title': 'Sleep is departure',
+      'onboard.story2.body': 'Rest after takeoff. When you wake, land to reveal your destination.',
+      'onboard.story3.title': 'Fly with your squad',
+      'onboard.story3.body': 'The board shows teammates’ trails. Every landing becomes a night-flight memory.',
+      'onboard.spot1': 'This is the compass: drag the needle or tap a bearing to choose tonight’s heading.',
+      'onboard.spot2': 'When ready, take off — the captain will address you.',
+      'onboard.spot3': 'The squad board shows everyone in your Terminal.',
+      'onboard.spot4': 'When you wake, a Land button appears below — come back to reveal city and scenery.',
+      'onboard.done': 'Tour complete · sleep well',
+    },
+  };
+
+  let locale = 'zh';
+  const listeners = new Set();
+
+  function detectDefault() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved === 'zh' || saved === 'en') return saved;
+    } catch { /* ignore */ }
+    const nav = String(navigator.language || '').toLowerCase();
+    return nav.startsWith('en') ? 'en' : 'zh';
+  }
+
+  function getLocale() {
+    return locale;
+  }
+
+  function htmlLang(loc) {
+    return loc === 'en' ? 'en' : 'zh-TW';
+  }
+
+  function t(key, vars) {
+    const table = DICT[locale] || DICT.zh;
+    let str = table[key] ?? DICT.zh[key] ?? key;
+    if (vars && typeof vars === 'object') {
+      Object.keys(vars).forEach((k) => {
+        str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k] ?? ''));
+      });
+    }
+    return str;
+  }
+
+  function applyDomTranslations(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-i18n]').forEach((el) => {
+      const key = el.getAttribute('data-i18n');
+      if (!key) return;
+      const attr = el.getAttribute('data-i18n-attr');
+      const value = t(key);
+      if (attr) {
+        attr.split(',').map((a) => a.trim()).filter(Boolean).forEach((a) => {
+          if (a === 'text') el.textContent = value;
+          else el.setAttribute(a, value);
+        });
+      } else {
+        el.textContent = value;
+      }
+    });
+    scope.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-placeholder');
+      if (key) el.setAttribute('placeholder', t(key));
+    });
+    scope.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-aria');
+      if (key) el.setAttribute('aria-label', t(key));
+    });
+    scope.querySelectorAll('[data-i18n-title]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-title');
+      if (key) el.setAttribute('title', t(key));
+    });
+    document.title = t('meta.title');
+    document.documentElement.lang = htmlLang(locale);
+    document.querySelectorAll('[data-locale-btn]').forEach((btn) => {
+      const loc = btn.getAttribute('data-locale-btn');
+      btn.classList.toggle('is-active', loc === locale);
+      btn.setAttribute('aria-pressed', loc === locale ? 'true' : 'false');
+    });
+  }
+
+  function setLocale(next, opts) {
+    const loc = next === 'en' ? 'en' : 'zh';
+    const silent = opts && opts.silent;
+    if (loc === locale && !opts?.force) {
+      applyDomTranslations();
+      return locale;
+    }
+    locale = loc;
+    try { localStorage.setItem(STORAGE_KEY, locale); } catch { /* ignore */ }
+    applyDomTranslations();
+    if (!silent) listeners.forEach((fn) => { try { fn(locale); } catch { /* ignore */ } });
+    return locale;
+  }
+
+  function onLocaleChange(fn) {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+
+  function init() {
+    locale = detectDefault();
+    applyDomTranslations();
+  }
+
+  global.SleepI18n = {
+    t,
+    getLocale,
+    setLocale,
+    applyDomTranslations,
+    onLocaleChange,
+    init,
+    htmlLang,
+  };
+})(typeof window !== 'undefined' ? window : globalThis);

@@ -36,9 +36,16 @@
     <div class="glass login-card">
       <div class="login-brand">
         <a href="architecture.html" class="brand-link" title="系統架構說明">
-          <div class="b1">✈ 甦醒航班</div>
-          <div class="b2">SLEEP AIRLINE</div>
+          <div class="b1" data-i18n="brand.name">✈ 甦醒航班</div>
+          <div class="b2" data-i18n="brand.sub">SLEEP AIRLINE</div>
         </a>
+      </div>
+
+      <div class="login-lang" role="group" aria-label="Language">
+        <div class="lang-switch" id="login-lang-switch">
+          <button type="button" class="lang-switch__btn" data-locale-btn="zh" data-i18n="lang.zh">中文</button>
+          <button type="button" class="lang-switch__btn" data-locale-btn="en" data-i18n="lang.en">EN</button>
+        </div>
       </div>
 
       <div id="login-error" class="msg msg-error"></div>
@@ -49,11 +56,11 @@
           <div class="terminal-card">
             <div class="terminal-card-head">
               <div>
-                <div class="field-label terminal-kicker">Terminal 航站</div>
+                <div class="field-label terminal-kicker" data-i18n="login.terminal">Terminal 航站</div>
               </div>
               <span class="terminal-chip">4 DIGITS</span>
             </div>
-            <label class="terminal-input-wrap" aria-label="四位數 Terminal 航站代碼">
+            <label class="terminal-input-wrap" aria-label="四位數 Terminal 航站代碼" data-i18n-aria="login.terminal">
               <span class="terminal-prefix" aria-hidden="true">T-</span>
               <input class="input terminal-input" id="input-group" inputmode="numeric" autocomplete="off"
                 maxlength="4" pattern="[0-9]{4}" placeholder="0000" required>
@@ -61,14 +68,14 @@
             <div class="terminal-actions">
               <button type="button" class="terminal-btn terminal-btn--create" id="btn-create-terminal" title="建立新 Terminal">
                 <span class="terminal-btn-icon" aria-hidden="true">✦</span>
-                <span>建立 Terminal</span>
+                <span data-i18n="login.createTerminal">建立 Terminal</span>
               </button>
               <button type="button" class="terminal-btn terminal-btn--share" id="btn-share-terminal" title="分享 Terminal 連結">
                 <svg class="terminal-share-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   <path d="M12 16V4m0 0 4 4m-4-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
-                <span>分享邀請</span>
+                <span data-i18n="login.shareInvite">分享邀請</span>
               </button>
             </div>
           </div>
@@ -77,24 +84,24 @@
           <div class="passport-stamp" aria-hidden="true">PASSPORT</div>
           <div class="passport-head">
             <div>
-              <div class="field-label passport-kicker">Boarding Identity</div>
-              <div class="passport-title">我的護照</div>
+              <div class="field-label passport-kicker" data-i18n="login.passportKicker">Boarding Identity</div>
+              <div class="passport-title" data-i18n="login.passportTitle">我的護照</div>
             </div>
           </div>
           <div class="passport-grid">
             <div class="field passport-field">
-              <div class="field-label">乘客 ID</div>
-              <input class="input passport-input" id="input-pid" placeholder="例：p_4821_morgan" required>
+              <div class="field-label" data-i18n="login.pid">乘客 ID</div>
+              <input class="input passport-input" id="input-pid" placeholder="例：p_4821_morgan" data-i18n-placeholder="login.pidPh" required>
             </div>
             <div class="field passport-field">
-              <div class="field-label">姓名</div>
-              <input class="input passport-input" id="input-name" placeholder="你的名字" required>
+              <div class="field-label" data-i18n="login.name">姓名</div>
+              <input class="input passport-input" id="input-name" placeholder="你的名字" data-i18n-placeholder="login.namePh" required>
             </div>
           </div>
         </div>
         <button type="submit" class="dock-action dock-action--gold" id="btn-login">
           <span class="login-spinner" aria-hidden="true"></span>
-          <span class="pill-label" id="btn-login-label">登入</span>
+          <span class="pill-label" id="btn-login-label" data-i18n="login.submit">登入</span>
         </button>
       </form>
     </div>
@@ -106,30 +113,32 @@
     <!-- 頂部 HUD：品牌／乘客／看板同一寬度堆疊 -->
     <div class="hud-top" id="hud-top">
       <header class="glass topbar">
-        <a href="architecture.html" class="brand-link" title="系統架構說明">
-          <div class="brand-title">✈ 甦醒航班</div>
-          <div class="brand-sub">SLEEP AIRLINE</div>
-        </a>
+        <div class="brand-menu-wrap" id="brand-menu-wrap">
+          <button type="button" class="brand-link brand-menu-btn" id="btn-brand-menu" aria-expanded="false" aria-haspopup="dialog" aria-controls="brand-menu">
+            <div class="brand-title" data-i18n="brand.name">✈ 甦醒航班</div>
+            <div class="brand-sub" data-i18n="brand.sub">SLEEP AIRLINE</div>
+          </button>
+        </div>
         <div class="topbar-identity">
           <span class="topbar-name" id="hdr-name">—</span>
           <span class="topbar-status" id="hdr-badge">—</span>
         </div>
         <div class="topbar-actions">
-          <span id="hdr-preview-hint" class="hidden">UI 示範</span>
-          <button type="button" class="icon-btn" id="btn-theme" title="切換日夜" aria-label="切換日夜">🌙</button>
-          <button type="button" class="icon-btn icon-btn--memories" id="btn-memories" title="我的夜航回憶" aria-label="開啟我的夜航回憶">
+          <span id="hdr-preview-hint" class="hidden" data-i18n="top.preview">UI 示範</span>
+          <button type="button" class="icon-btn" id="btn-theme" title="切換日夜" data-i18n-title="top.theme" data-i18n-aria="top.theme" aria-label="切換日夜">🌙</button>
+          <button type="button" class="icon-btn icon-btn--memories" id="btn-memories" title="我的夜航回憶" data-i18n-title="top.memories" data-i18n-aria="top.memories" aria-label="開啟我的夜航回憶">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 6.5h16v11H4zM4 9h16M8 6.5v11M10.7 13h6.2M10.7 15.4h4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <button type="button" class="icon-btn icon-btn--text" id="btn-logout" title="登出">登出</button>
+          <button type="button" class="icon-btn icon-btn--text" id="btn-logout" title="登出" data-i18n="top.logout" data-i18n-title="top.logout">登出</button>
         </div>
       </header>
 
       <div class="glass board" id="board-card">
         <div class="board-head" id="board-head">
           <div class="board-head-copy">
-            <span class="board-kicker">小隊動態</span>
+            <span class="board-kicker" data-i18n="board.kicker">小隊動態</span>
             <b>Terminal <span id="bd-group">—</span></b>
           </div>
           <div class="board-head-right">
@@ -143,10 +152,10 @@
           </div>
         </div>
         <div class="board-body">
-          <div id="bd-empty" class="board-empty">本 Terminal 尚無航班記錄</div>
+          <div id="bd-empty" class="board-empty" data-i18n="board.empty">本 Terminal 尚無航班記錄</div>
           <div id="bd-list"></div>
           <div id="bd-broadcasts" class="hidden">
-            <div class="board-sub-head" id="bd-broadcasts-head">機長廣播紀錄 ▾</div>
+            <div class="board-sub-head" id="bd-broadcasts-head" data-i18n="board.broadcasts">機長廣播紀錄 ▾</div>
             <div id="bd-broadcasts-list" class="hidden"></div>
           </div>
         </div>
@@ -181,14 +190,14 @@
       <div class="dock-stage">
       <div class="globe-trails hidden" id="globe-trails" aria-label="地球儀航跡圖層">
         <div class="trail-chip-row">
-          <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true">我的航跡</button>
-          <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true">隊友航跡</button>
+          <button type="button" class="trail-chip is-on" id="trail-mine" aria-pressed="true" data-i18n="trail.mine">我的航跡</button>
+          <button type="button" class="trail-chip is-on" id="trail-friends" aria-pressed="true" data-i18n="trail.friends">隊友航跡</button>
         </div>
       </div>
 
-      <button type="button" class="compass-float glass hidden" id="btn-compass" aria-label="選擇航向">
+      <button type="button" class="compass-float glass hidden" id="btn-compass" aria-label="選擇航向" data-i18n-aria="compass.float">
         <span class="compass-float-dial" aria-hidden="true">🧭</span>
-        <span class="compass-float-label" id="dir-chip-label">方向</span>
+        <span class="compass-float-label" id="dir-chip-label" data-i18n="compass.chip">方向</span>
       </button>
 
       <!-- ready：出發準備 -->
@@ -197,45 +206,45 @@
           <div class="dock-panel-main">
             <div class="ready-row">
               <div class="ready-dep">
-                <div class="k">今晚起飛地</div>
+                <div class="k" data-i18n="ready.dep">今晚起飛地</div>
                 <div class="v" id="tk-departure">—</div>
               </div>
             </div>
           </div>
           <button class="dock-action dock-action--gold" id="btn-takeoff" type="button" aria-label="準備啟航，選擇航向">
             <span class="pill-icon">🧭</span>
-            <span class="pill-label">準備啟航</span>
+            <span class="pill-label" data-i18n="ready.takeoff">準備啟航</span>
           </button>
         </div>
       </div>
 
       <!-- flying：飛行中（框外望向窗外；框內飛機虛線僅裝飾） -->
       <div id="flight-panel" class="hidden">
-        <button class="fly-window-chip glass" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外">
+        <button class="fly-window-chip glass" id="btn-flight-window" type="button" aria-expanded="false" aria-label="望向窗外" data-i18n-aria="fly.window">
           <span aria-hidden="true">✈</span>
-          <span>望向窗外</span>
+          <span data-i18n="fly.window">望向窗外</span>
         </button>
         <div class="glass dock-panel dock-panel--cta">
           <div class="dock-panel-main">
             <div class="ready-row fly-copy">
               <div class="ready-dep">
-                <div class="k" id="fl-mood">飛行中</div>
+                <div class="k" id="fl-mood" data-i18n="fly.mood">飛行中</div>
                 <div class="v" id="fl-stats" aria-live="polite">
                   <span id="fl-duration">0 分鐘</span><span class="fly-meta-sep" aria-hidden="true"> · </span><span id="fl-distance">0 km</span>
                 </div>
-                <p class="fly-whisper" id="fl-whisper">雲層在舷窗外緩緩流過…</p>
+                <p class="fly-whisper" id="fl-whisper" data-i18n="fly.whisper">雲層在舷窗外緩緩流過…</p>
               </div>
             </div>
             <div class="squad-echo hidden" id="fl-echo">
-              <span class="squad-echo-kicker">起飛回聲</span>
+              <span class="squad-echo-kicker" data-i18n="fly.echo">起飛回聲</span>
               <p class="squad-echo-text" id="fl-echo-text"></p>
             </div>
             <div class="landing-reminder hidden" id="landing-reminder">
               <div class="landing-reminder-copy">
-                <span class="landing-reminder-kicker">降落提醒</span>
-                <p id="landing-reminder-text">醒來後提醒你回來降落。</p>
+                <span class="landing-reminder-kicker" data-i18n="fly.reminderKicker">降落提醒</span>
+                <p id="landing-reminder-text" data-i18n="fly.reminderText">醒來後提醒你回來降落。</p>
               </div>
-              <button class="landing-reminder-btn" id="btn-landing-reminder" type="button">啟用提醒</button>
+              <button class="landing-reminder-btn" id="btn-landing-reminder" type="button" data-i18n="fly.reminderBtn">啟用提醒</button>
             </div>
             <div class="fly-portal fly-portal--deco" aria-hidden="true">
               <span class="fly-portal-lane">
@@ -245,12 +254,12 @@
             </div>
             <span class="sr-only" id="fl-direction"></span>
           </div>
-          <p class="land-confirm-hint hidden" id="land-confirm-hint" aria-live="polite">
+          <p class="land-confirm-hint hidden" id="land-confirm-hint" aria-live="polite" data-i18n="fly.landConfirm">
             再按一次下方按鈕，確認開始下降
           </p>
           <button class="dock-action dock-action--green" id="btn-land" type="button">
             <span class="pill-icon">🌅</span>
-            <span class="pill-label">降落</span>
+            <span class="pill-label" data-i18n="fly.land">降落</span>
           </button>
         </div>
       </div>
@@ -262,7 +271,7 @@
         <div class="landed-copy">
           <header class="landed-hero">
             <div class="landed-place">
-              <p class="landed-kicker"><span class="stamp" id="bc-stamp">已抵達</span></p>
+              <p class="landed-kicker"><span class="stamp" id="bc-stamp" data-i18n="land.stamp">已抵達</span></p>
               <h2 class="landed-city"><span class="landed-flag" id="bc-flag">🌍</span><span id="bc-route">—</span></h2>
               <p class="landed-country" id="bc-country">—</p>
             </div>
@@ -289,13 +298,13 @@
           </div>
 
           <div class="landed-stats" aria-label="本趟航程摘要">
-            <span><b id="bc-duration">—</b><small>飛行時間</small></span>
+            <span><b id="bc-duration">—</b><small data-i18n="land.statsDuration">飛行時間</small></span>
             <i aria-hidden="true"></i>
-            <span><b id="bc-distance">—</b><small>航程</small></span>
+            <span><b id="bc-distance">—</b><small data-i18n="land.statsDistance">航程</small></span>
           </div>
 
           <div class="squad-echo hidden" id="landed-echo">
-            <span class="squad-echo-kicker">小隊回聲</span>
+            <span class="squad-echo-kicker" data-i18n="land.echo">小隊回聲</span>
             <p class="squad-echo-text" id="landed-echo-text"></p>
           </div>
           <span class="sr-only" id="bc-origin">—</span>
@@ -306,9 +315,9 @@
             <div class="pw-frame pw-frame--porthole">
               <div class="pw-scene" id="scenery-wrap">
                 <div class="pw-fallback" id="pw-fallback"></div>
-                <img id="scenery-img" class="scenery-img" alt="降落風景" hidden>
+                <img id="scenery-img" class="scenery-img" alt="降落風景" data-i18n-attr="alt" data-i18n="land.sceneryAlt" hidden>
                 <div class="pw-glare" aria-hidden="true"></div>
-                <div class="scenery-loading hidden" id="scenery-loading">窗外漸漸亮了起來…</div>
+                <div class="scenery-loading hidden" id="scenery-loading" data-i18n="land.sceneryLoading">窗外漸漸亮了起來…</div>
               </div>
             </div>
             <div class="pw-meta">
@@ -316,12 +325,12 @@
               <a id="scenery-link" class="scenery-link hidden" href="#" target="_blank" rel="noopener">原圖 ↗</a>
             </div>
           </div>
-          <button class="fly-portal fly-portal--landed" id="btn-window" type="button" aria-expanded="false" aria-label="看看窗外風景">
+          <button class="fly-portal fly-portal--landed" id="btn-window" type="button" aria-expanded="false" aria-label="看看窗外風景" data-i18n-aria="land.window">
             <span class="fly-portal-aura" aria-hidden="true"></span>
             <span class="fly-portal-lane" aria-hidden="true">
               <span class="fly-portal-shimmer"></span>
             </span>
-            <span class="fly-portal-label">看看窗外</span>
+            <span class="fly-portal-label" data-i18n="land.window">看看窗外</span>
           </button>
         </div>
 
@@ -330,9 +339,9 @@
         <div class="panel-actions">
           <button class="btn-soft btn-soft--share" id="btn-share-arrival" type="button">
             <span aria-hidden="true">↗</span>
-            <span>分享這趟</span>
+            <span data-i18n="land.share">分享這趟</span>
           </button>
-          <button class="btn-soft" id="btn-close-landed" type="button">✓ 準備下一趟</button>
+          <button class="btn-soft" id="btn-close-landed" type="button" data-i18n="land.next">✓ 準備下一趟</button>
         </div>
       </div>
       </div><!-- /.dock-stage -->
@@ -372,19 +381,19 @@
   <!-- 羅盤 -->
   <div class="sheet" id="compass-sheet">
     <div class="sheet-grip"></div>
-    <div class="sheet-title">今晚的航向</div>
-    <div class="sheet-sub">拖動磁針 · 藍點是小隊好友所在方位</div>
+    <div class="sheet-title" data-i18n="compass.title">今晚的航向</div>
+    <div class="sheet-sub" data-i18n="compass.sub">拖動磁針 · 藍點是小隊好友所在方位</div>
     <div class="compass-holder" id="compass-holder">
       <svg id="compass-svg" width="240" height="240" viewBox="0 0 240 240"></svg>
     </div>
     <div class="compass-friends-legend" id="compass-friends-legend" hidden></div>
     <div class="compass-readout">
       <div class="d" id="compass-dir">自動</div>
-      <div class="s" id="compass-hint">由系統為你選擇方向</div>
+      <div class="s" id="compass-hint" data-i18n="compass.autoHint">由系統為你選擇方向</div>
     </div>
     <div class="compass-actions">
-      <button class="btn-fate" id="btn-fate">⚓ 讓命運決定</button>
-      <button class="btn-confirm" id="btn-compass-confirm">確認航向</button>
+      <button class="btn-fate" id="btn-fate" data-i18n="compass.fate">⚓ 讓命運決定</button>
+      <button class="btn-confirm" id="btn-compass-confirm" data-i18n="compass.confirm">確認航向</button>
     </div>
   </div>
 
@@ -506,7 +515,7 @@
       <header class="memory-gallery-head">
         <div>
           <p>PERSONAL FLIGHT ARCHIVE</p>
-          <h2 id="memory-gallery-title">我的夜航回憶</h2>
+          <h2 id="memory-gallery-title" data-i18n="memories.title">我的夜航回憶</h2>
         </div>
         <div class="memory-gallery-head-actions">
           <span id="memory-gallery-count">0 / 0</span>
@@ -519,23 +528,44 @@
     </section>
   </div>
 
+  <div id="brand-menu-overlay" class="brand-menu-overlay hidden" aria-hidden="true">
+    <div class="brand-menu-backdrop" id="brand-menu-backdrop"></div>
+    <div class="brand-menu glass" id="brand-menu" role="dialog" aria-modal="true" aria-labelledby="brand-menu-name">
+      <button type="button" class="brand-menu-close" id="brand-menu-close" aria-label="Close">×</button>
+      <div class="brand-menu-account">
+        <span class="brand-menu-kicker" data-i18n="account.kicker">帳戶</span>
+        <div class="brand-menu-name" id="brand-menu-name">—</div>
+      </div>
+      <div class="brand-menu-row">
+        <span class="brand-menu-label" data-i18n="lang.switch">語言</span>
+        <div class="lang-switch" id="main-lang-switch" role="group" aria-label="Language">
+          <button type="button" class="lang-switch__btn" data-locale-btn="zh" data-i18n="lang.zh">中文</button>
+          <button type="button" class="lang-switch__btn" data-locale-btn="en" data-i18n="lang.en">EN</button>
+        </div>
+      </div>
+      <button type="button" class="brand-menu-tour" id="btn-replay-tour" data-i18n="top.replayTour" data-i18n-title="top.replayTour" title="導覽">導覽</button>
+    </div>
+  </div>
+
   <div id="share-preview" class="share-preview hidden" aria-hidden="true">
     <div class="share-preview-backdrop" id="share-preview-backdrop"></div>
     <div class="share-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="share-preview-title">
       <header class="share-preview-head">
-        <h3 id="share-preview-title">分享預覽</h3>
+        <h3 id="share-preview-title" data-i18n="sharePreview.title">分享預覽</h3>
         <button type="button" class="share-preview-x" id="share-preview-close" aria-label="關閉預覽">×</button>
       </header>
       <div class="share-preview-frame">
         <img id="share-preview-img" alt="抵達分享圖卡預覽">
       </div>
       <div class="share-preview-actions">
-        <button type="button" class="btn-soft" id="share-preview-download">下載圖卡</button>
-        <button type="button" class="btn-soft btn-soft--share" id="share-preview-send">分享</button>
+        <button type="button" class="btn-soft" id="share-preview-download" data-i18n="sharePreview.download">下載圖卡</button>
+        <button type="button" class="btn-soft btn-soft--share" id="share-preview-send" data-i18n="sharePreview.send">分享</button>
       </div>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
+  <script src="onboarding.js"></script>
   <script src="workshop-local.js"></script>
   <script src="broadcast-audio.js"></script>
   <script src="vendor/html2canvas.min.js"></script>

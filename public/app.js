@@ -15,11 +15,26 @@
 
 // ── 常數與顯示對照 ────────────────────────────────────────────────────────────
 
+function tt(key, vars) {
+  return window.SleepI18n?.t?.(key, vars) ?? key;
+}
+
+function currentLocale() {
+  return window.SleepI18n?.getLocale?.() === 'en' ? 'en' : 'zh';
+}
+
 const DIRECTION_LABEL = {
   auto: '自動', eastbound: '向東', westbound: '向西', northbound: '向北',
   southbound: '向南', northeast: '東北', northwest: '西北',
   southeast: '東南', southwest: '西南', circular: '環形', unknown: '未知',
 };
+
+function dirLabel(key) {
+  const k = `dir.${key}`;
+  const translated = window.SleepI18n?.t?.(k);
+  if (translated && translated !== k) return translated;
+  return DIRECTION_LABEL[key] || key;
+}
 const DIRECTION_BEARING = {
   northbound: 0, northeast: 45, eastbound: 90, southeast: 135,
   southbound: 180, southwest: 225, westbound: 270, northwest: 315,
@@ -1429,13 +1444,13 @@ const Compass = (() => {
     const dirEl = $('compass-dir'), hintEl = $('compass-hint');
     const chip = $('dir-chip-label');
     if (current === 'auto') {
-      dirEl.textContent = '自動';
-      hintEl.textContent = '由系統為你選擇方向';
-      if (chip) chip.textContent = '方向';
+      dirEl.textContent = dirLabel('auto');
+      hintEl.textContent = tt('compass.autoHint');
+      if (chip) chip.textContent = tt('compass.chip');
     } else {
-      dirEl.textContent = DIRECTION_LABEL[current];
-      hintEl.textContent = `今晚傾向醒在${DIRECTION_LABEL[current]}方的城市`;
-      if (chip) chip.textContent = DIRECTION_LABEL[current];
+      dirEl.textContent = dirLabel(current);
+      hintEl.textContent = tt('dir.hint', { dir: dirLabel(current) });
+      if (chip) chip.textContent = dirLabel(current);
     }
     needle?.setAttribute('opacity', current === 'auto' ? '0.35' : '1');
   }
@@ -1653,7 +1668,7 @@ const Compass = (() => {
     updateUI();
   }
 
-  return { build, fate, reset, confirm, refreshFriends, get value() { return current; } };
+  return { build, fate, reset, confirm, refreshFriends, refreshLabels: readout, get value() { return current; } };
 })();
 
 // ── Sheet 管理 ───────────────────────────────────────────────────────────────
@@ -1730,14 +1745,14 @@ function onTakeoffClick() {
       document.body.classList.contains('sheet-open')
       && $('compass-sheet')?.classList.contains('show')
     ) {
-      showMsg('main', 'error', '羅盤已開啟：請選好航向後按「確認航向」。');
+      showMsg('main', 'error', tt('compass.openNeed'));
       return;
     }
     openSheet('compass-sheet');
     return;
   }
   if (previewMode) {
-    showMsg('main', 'error', '示範模式無法真正起飛。請登出後登入，再測試起飛。');
+    showMsg('main', 'error', tt('msg.demoTakeoff'));
     return;
   }
   primeMediaOnUserGesture();
@@ -1756,16 +1771,16 @@ async function ensureMediaUnlocked() {
 
 function onLandClick() {
   if (previewMode) {
-    showMsg('main', 'error', '示範模式無法降落。請登出後登入，再測試降落。');
+    showMsg('main', 'error', tt('msg.demoLand'));
     return;
   }
   if (passenger?.status !== 'in_flight') {
-    showMsg('main', 'error', '目前沒有飛行中的航班。');
+    showMsg('main', 'error', tt('msg.noFlight'));
     resetLandPrep();
     return;
   }
   if (document.body.classList.contains('sheet-open')) {
-    showMsg('main', 'error', '請先收起隊友詳情（點背景或 Esc），再按降落。');
+    showMsg('main', 'error', tt('msg.closeMate'));
     return;
   }
   if (!landArmed) {
@@ -1796,6 +1811,11 @@ function closeSheets() {
   Globe.clearMate();
   restoreGlobeView();
 }
+
+window.SleepAirlineSheets = {
+  open: openSheet,
+  close: closeSheets,
+};
 
 function restoreGlobeView() {
   if (!passenger) { Globe.setIdle(true); return; }
@@ -2436,7 +2456,7 @@ function updateGlobeForFlight() {
 
 function updateFlightMood() {
   if (!activeFlight) return;
-  const dir = DIRECTION_LABEL[activeFlight.routeDirection] || activeFlight.routeDirection;
+  const dir = dirLabel(activeFlight.routeDirection) || activeFlight.routeDirection;
   const mood = $('fl-mood');
   if (mood) mood.textContent = dir ? `飛行中 · ${dir}` : '飛行中';
   const flDir = $('fl-direction');
@@ -2707,8 +2727,8 @@ function populateMateSheet(f) {
   if (landed && f.estimatedFlightDistanceKm) {
     chips.push(`${Math.round(f.estimatedFlightDistanceKm).toLocaleString()} km`);
   }
-  if (f.routeDirection && DIRECTION_LABEL[f.routeDirection]) {
-    chips.push(DIRECTION_LABEL[f.routeDirection]);
+  if (f.routeDirection && (DIRECTION_LABEL[f.routeDirection] || dirLabel(f.routeDirection))) {
+    chips.push(dirLabel(f.routeDirection));
   }
   $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
 
@@ -3798,6 +3818,8 @@ function updateUI() {
 
   $('hdr-name').textContent = passenger.name || '乘客';
   $('hdr-badge').textContent = STATUS_LABEL[passenger.status] || passenger.status;
+  const brandName = $('brand-menu-name');
+  if (brandName) brandName.textContent = passenger.name || tt('account.kicker');
 
   let showReady;
   let showFlight;
@@ -4007,26 +4029,26 @@ function createRandomTerminal() {
     input.focus();
   }
   clearMsg('login');
-  showMsg('login', 'success', `已建立 Terminal T-${digits} · 按分享邀請隊友加入`);
+  showMsg('login', 'success', tt('login.created', { digits }));
 }
 
 async function shareTerminalLink(source = 'login') {
   const digits = readTerminalGroupId() || groupIdToTerminalDigits(passenger?.groupId);
   if (!/^\d{4}$/.test(digits)) {
     const msg = source === 'board'
-      ? '無法分享：請先登入並確認 Terminal 代碼。'
-      : '請先輸入或建立四位數 Terminal。';
+      ? tt('board.shareNeed')
+      : tt('login.shareNeedTerminal');
     showMsg(source === 'board' ? 'main' : 'login', 'error', msg);
     return;
   }
   const url = buildTerminalShareUrl(digits);
-  const title = `甦醒航班 Terminal T-${digits}`;
-  const text = `加入我的航站 Terminal T-${digits}，一起飛！`;
+  const title = tt('share.terminalTitle', { digits });
+  const text = tt('share.terminalText', { digits });
   if (navigator.share) {
     try {
       await navigator.share({ title, text, url });
-      if (source === 'login') showMsg('login', 'success', '航站連結已分享');
-      else showMsg('main', 'success', '航站連結已分享');
+      if (source === 'login') showMsg('login', 'success', tt('login.shareOk'));
+      else showMsg('main', 'success', tt('login.shareOk'));
       return;
     } catch (err) {
       if (err?.name === 'AbortError') return;
@@ -4034,11 +4056,11 @@ async function shareTerminalLink(source = 'login') {
   }
   try {
     await navigator.clipboard.writeText(url);
-    const okMsg = '航站連結已複製 · 隊友開啟後會自動帶入 Terminal';
+    const okMsg = tt('login.shareCopied');
     if (source === 'login') showMsg('login', 'success', okMsg);
     else showMsg('main', 'success', okMsg);
   } catch {
-    const failMsg = `無法複製連結，請手動分享：${url}`;
+    const failMsg = tt('login.shareFail', { url });
     if (source === 'login') showMsg('login', 'error', failMsg);
     else showMsg('main', 'error', failMsg);
   }
@@ -4202,7 +4224,11 @@ function openSharePreview(blob, info) {
     url,
     filename: `sleep-airline-${safeCity}.png`,
     title: `Sleep Airline · ${info.city}`,
-    text: `歡迎搭乘 Sleep Airline ✈ 今天我在 ${info.flag} ${info.city}${info.country ? `・${info.country}` : ''} 降落！`,
+    text: tt('share.arrivalText', {
+      flag: info.flag,
+      city: info.city,
+      countryPart: info.country ? tt('share.countryPart', { country: info.country }) : '',
+    }),
     shareUrl: location.origin + location.pathname,
   };
   img.src = url;
@@ -4611,7 +4637,7 @@ async function doLogin(e) {
   const name = $('input-name').value.trim();
   const groupId = readTerminalGroupId();
   if (!passengerId || !name || !groupId) {
-    showMsg('login', 'error', groupId ? '請填寫所有欄位。' : 'Terminal 須為四位數字（0000–9999）。');
+    showMsg('login', 'error', groupId ? tt('login.fillAll') : tt('login.terminalDigits'));
     return;
   }
 
@@ -4651,6 +4677,7 @@ async function doLogin(e) {
       } catch { /* silent */ }
     })();
     void Promise.all([sceneryPromise, boardPromise]);
+    void window.SleepOnboarding?.start?.({ passengerId: passenger.passengerId });
   } catch (err) {
     showMsg('login', 'error', err.message);
     setLoginLoading(false);
@@ -4664,7 +4691,7 @@ function setLoginLoading(on) {
   btn.disabled = on;
   btn.classList.toggle('is-loading', on);
   btn.setAttribute('aria-busy', on ? 'true' : 'false');
-  if (label) label.textContent = on ? '登入中…' : '登入';
+  if (label) label.textContent = on ? tt('login.submitting') : tt('login.submit');
 }
 
 async function loadLandingSceneryForFlight(flightId) {
@@ -4708,7 +4735,7 @@ async function ensureLandingSceneryForFlight(flightId, { allowBackfill = false }
 
 async function doTakeoff() {
   if (previewMode) {
-    showMsg('main', 'error', '目前為 UI 示範。請先登出，登入後再測試起飛。');
+    showMsg('main', 'error', tt('msg.uiDemoTakeoff'));
     return;
   }
   clearMsg('main');
@@ -4721,12 +4748,12 @@ async function doTakeoff() {
   try {
     await ensureMediaUnlocked();
     lockDockForFx('takeoff');
-    showTakeoffFx('塔台連線中 · 請稍候…', { phase: 'prep' });
+    showTakeoffFx(tt('fx.takeoffPrep'), { phase: 'prep' });
     BroadcastAudio?.startTowerSignalLoop?.();
     statusCycle = startFxStatusCycle('takeoff-fx-sub', [
-      '塔台連線中 · 請稍候…',
-      '同步航線與小隊雷達…',
-      '機長整理起飛廣播…',
+      tt('fx.takeoffPrep'),
+      tt('fx.takeoffSync'),
+      tt('fx.takeoffBroadcast'),
     ]);
     const mediaPrime = primeCeremonyMedia({ playTakeoffVideo: false });
     const data = await Promise.all([
@@ -4735,6 +4762,7 @@ async function doTakeoff() {
         name: passenger.name,
         groupId: passenger.groupId,
         routeDirection: $('tk-direction').value,
+        locale: currentLocale(),
       }, { timeoutMs: 52000 }),
       waitMs(TAKEOFF_FX_MS.prepMin),
       mediaPrime,
@@ -4753,7 +4781,7 @@ async function doTakeoff() {
 
     if (activeFlight.takeoffBroadcast) {
       await ensureMediaUnlocked();
-      await animateFxLine('takeoff-fx-sub', '機長廣播中…');
+      await animateFxLine('takeoff-fx-sub', tt('fx.broadcastPlaying'));
       await playBroadcastWithWave(
         activeFlight.takeoffBroadcast,
         activeFlight.takeoffBroadcastStyle,
@@ -4761,7 +4789,7 @@ async function doTakeoff() {
       );
     }
 
-    await animateFxLine('takeoff-fx-sub', '推進器啟動 · 準備離地…');
+    await animateFxLine('takeoff-fx-sub', tt('fx.takeoffGo'));
     setTakeoffFxPhase('launch');
     await waitTakeoffLaunchComplete();
 
@@ -4801,7 +4829,7 @@ async function doTakeoff() {
 
 async function doLand() {
   if (previewMode) {
-    showMsg('main', 'error', '目前為 UI 示範。請先登出，登入後再測試降落。');
+    showMsg('main', 'error', tt('msg.uiDemoLand'));
     return;
   }
   clearMsg('main');
@@ -4826,6 +4854,7 @@ async function doLand() {
       passengerId: passenger.passengerId,
       name: passenger.name,
       groupId: passenger.groupId,
+      locale: currentLocale(),
     }, { timeoutMs: 52000 });
 
     const data = await landPromise;
@@ -5452,6 +5481,55 @@ $('btn-land').addEventListener('click', onLandClick);
 $('btn-landing-reminder')?.addEventListener('click', toggleLandingReminder);
 $('btn-logout').addEventListener('click', onLogoutClick);
 $('btn-theme').addEventListener('click', toggleTheme);
+
+function setBrandMenuOpen(open) {
+  const overlay = $('brand-menu-overlay');
+  const menu = $('brand-menu');
+  const btn = $('btn-brand-menu');
+  if (!overlay || !menu || !btn) return;
+  overlay.classList.toggle('hidden', !open);
+  overlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+  menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  document.body.classList.toggle('brand-menu-open', !!open);
+}
+
+$('btn-brand-menu')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const overlay = $('brand-menu-overlay');
+  setBrandMenuOpen(!!overlay?.classList.contains('hidden'));
+});
+
+$('brand-menu-backdrop')?.addEventListener('click', () => setBrandMenuOpen(false));
+$('brand-menu-close')?.addEventListener('click', () => setBrandMenuOpen(false));
+
+$('btn-replay-tour')?.addEventListener('click', () => {
+  setBrandMenuOpen(false);
+  const pid = passenger?.passengerId;
+  if (pid) void window.SleepOnboarding?.replay?.(pid);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') setBrandMenuOpen(false);
+});
+
+document.querySelectorAll('[data-locale-btn]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const loc = btn.getAttribute('data-locale-btn');
+    window.SleepI18n?.setLocale?.(loc);
+  });
+});
+window.SleepI18n?.onLocaleChange?.(() => {
+  Compass.refreshLabels?.();
+  try { updateUI(); } catch { /* ignore during boot */ }
+  const loginBtn = $('btn-login');
+  if (loginBtn && !loginBtn.classList.contains('is-loading')) {
+    const label = $('btn-login-label');
+    if (label) label.textContent = tt('login.submit');
+  }
+  window.SleepI18n?.applyDomTranslations?.();
+});
 $('btn-memories')?.addEventListener('click', openMemoryGallery);
 $('memory-gallery-close')?.addEventListener('click', closeMemoryGallery);
 $('memory-gallery-backdrop')?.addEventListener('click', closeMemoryGallery);
@@ -5558,6 +5636,7 @@ $('globe-svg')?.addEventListener('click', (e) => {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 (async function initApp() {
+  window.SleepI18n?.init?.();
   applyTheme(autoTheme());
   Compass.build();
   void ensureCities();

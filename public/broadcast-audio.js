@@ -828,12 +828,14 @@ async function playPaChime() {
   await delay(620);
 }
 
-function pickZhVoice() {
+function pickSpeechVoice(preferredLang) {
   const voices = speechSynthesis.getVoices();
+  const lang = preferredLang || 'zh-TW';
+  const prefix = lang.slice(0, 2);
   return (
-    voices.find((v) => v.lang === 'zh-TW')
-    || voices.find((v) => v.lang.startsWith('zh-TW'))
-    || voices.find((v) => v.lang.startsWith('zh'))
+    voices.find((v) => v.lang === lang)
+    || voices.find((v) => v.lang?.startsWith(lang))
+    || voices.find((v) => v.lang?.startsWith(prefix))
     || null
   );
 }
@@ -858,11 +860,12 @@ function speakTextOnce(text) {
     speechSynthesis.cancel();
     // 開頭短停頓，減少首字「歡迎」被吃掉
     const utter = new SpeechSynthesisUtterance(`… ${text}`);
-    utter.lang = 'zh-TW';
+    const locale = window.SleepI18n?.getLocale?.() === 'en' ? 'en' : 'zh';
+    utter.lang = locale === 'en' ? 'en-US' : 'zh-TW';
     utter.rate = 0.9;
     utter.pitch = 0.95;
     utter.volume = 1;
-    const voice = pickZhVoice();
+    const voice = pickSpeechVoice(utter.lang);
     if (voice) utter.voice = voice;
     utter.onend = () => finish(true);
     utter.onerror = () => finish(false);
