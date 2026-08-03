@@ -6,7 +6,7 @@
     { "source": "/api/(.*)", "destination": "/api" }
   ],
   "crons": [
-    { "path": "/api/reminders/cron", "schedule": "*/30 * * * *" }
+    { "path": "/api/reminders/cron", "schedule": "0 12 * * *" }
   ],
   "functions": {
     "api/index.js": {
