@@ -2380,6 +2380,13 @@ body[data-ui-phase="landed"] #sheet-mask.show {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+/* 羅盤開啟時隱藏底下 dock 行動鈕，避免「準備啟航」從 sheet 邊緣被裁切露出 */
+body.sheet-open[data-open-sheet="compass-sheet"] #ready-panel,
+body.sheet-open[data-open-sheet="compass-sheet"] #btn-compass {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
 /* 隊友詳情：遮罩全透明且不攔截事件——地球維持清晰、可直接繼續拖曳
    （碰地球時由 app.js 收起資訊卡），拖曳條與 Escape 也能收起 */
 body[data-open-sheet="mate-sheet"] #sheet-mask.show {
@@ -3056,14 +3063,19 @@ body.sheet-open #main-section {
     justify-content: flex-start;
   }
   .dock-panel--cta .dock-action {
-    flex: 0 0 120px;
+    flex: 0 0 auto;
     align-self: center;
-    width: 120px;
+    width: max-content;
+    min-width: 128px;
+    max-width: min(240px, 46vw);
     height: 48px;
     min-height: 48px;
     max-height: 48px;
-    padding: 0 14px;
+    padding: 0 18px;
     font-size: 14px;
+  }
+  #ready-panel .dock-panel--cta .dock-action .pill-label {
+    letter-spacing: 0.04em;
   }
   #flight-panel .dock-panel--cta .dock-action {
     flex: 0 0 auto;

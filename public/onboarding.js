@@ -107,6 +107,11 @@
       }
     } else if (step.closeSheets) {
       window.SleepAirlineSheets?.close?.();
+      // 關掉羅盤後把 ready dock 找回來，讓「準備啟航」可被高亮
+      document.getElementById('ready-panel')?.classList.remove('hidden');
+      document.body.dataset.uiPhase = document.body.dataset.uiPhase === 'flying'
+        ? 'flying'
+        : 'ready';
       await delay(220);
     }
   }
