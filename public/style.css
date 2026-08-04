@@ -322,13 +322,13 @@ body[data-theme="dusk"] .trail-segment-card {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px 16px;
-  padding: 10px 12px 10px 16px;
+  gap: 10px 12px;
+  padding: 10px 12px 10px 14px;
   min-height: var(--topbar-height);
   border-radius: 18px;
   position: relative;
   z-index: 3;
-  overflow: visible;
+  overflow: hidden;
   /* 標題感：暖色晨光底，與下方看板拉開層級 */
   background:
     linear-gradient(135deg,
@@ -377,7 +377,17 @@ body[data-theme="dusk"] .topbar {
   outline-offset: 3px;
   border-radius: 8px;
 }
-.brand-title { font-size: 13px; font-weight: 800; letter-spacing: 1.2px; color: var(--ink); line-height: 1.15; }
+.brand-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: var(--ink);
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(148px, 34vw);
+}
 .brand-sub { font-size: 7.5px; letter-spacing: 2.2px; color: var(--ink-faint); margin-top: 2px; }
 
 .brand-menu-overlay {
@@ -468,9 +478,15 @@ body[data-theme="dusk"] .topbar {
   font-weight: 700;
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
+  display: block;
+  box-sizing: border-box;
 }
 .brand-menu-tour:hover {
   border-color: color-mix(in srgb, var(--gold) 40%, var(--glass-line));
+}
+a.brand-menu-tour {
+  color: var(--ink);
 }
 
 .topbar-identity {
@@ -497,10 +513,13 @@ body[data-theme="dusk"] .topbar {
 .topbar-status {
   font-size: 10px;
   font-weight: 650;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   color: var(--gold-deep);
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .topbar-actions {
@@ -564,7 +583,7 @@ body[data-theme="dusk"] .icon-btn--text.is-confirming {
 #hdr-preview-hint { color: var(--ink-faint); font-size: 9px; letter-spacing: 1px; white-space: nowrap; margin-right: 2px; }
 @media (max-width: 480px) { #hdr-preview-hint { display: none; } }
 
-@media (max-width: 380px) {
+@media (max-width: 560px) {
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -572,15 +591,31 @@ body[data-theme="dusk"] .icon-btn--text.is-confirming {
       "identity identity";
     gap: 8px 10px;
     padding: 10px 12px;
+    overflow: visible;
   }
   .brand-link,
   .brand-menu-wrap { grid-area: brand; }
+  .brand-title { max-width: min(200px, 58vw); }
   .topbar-identity {
     grid-area: identity;
     padding-left: 0;
     border-left: none;
-    padding-top: 2px;
+    padding-top: 6px;
     border-top: 1px solid var(--divider);
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .topbar-name,
+  .topbar-status {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+  .topbar-status {
+    text-align: right;
+    flex: 0 1 auto;
+    max-width: 58%;
   }
   .topbar-actions { grid-area: actions; }
 }
