@@ -3934,7 +3934,6 @@ function updateUI() {
 
   if (isFlying && activeFlight && !fxDockLock) {
     updateFlightMood();
-    renderSquadEcho('fl-echo', 'fl-echo-text', activeFlight.socialTakeaway);
     renderLandingReminder();
     syncLandingReminderSchedule();
     Globe.setIdle(false);
@@ -3974,7 +3973,6 @@ function updateUI() {
     if (origin) origin.textContent = dist;
     const bcDist = $('bc-distance');
     if (bcDist) bcDist.textContent = dist;
-    renderSquadEcho('landed-echo', 'landed-echo-text', lastLandedFlight.socialTakeaway);
     renderSceneryCard(false);
     celebrateArrival(lastLandedFlight.flightId || lastLandedFlight.notionId || 'landed');
     if (landingMusicActive) syncLandingMusicLabel(true);
