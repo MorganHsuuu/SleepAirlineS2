@@ -2365,6 +2365,16 @@ body[data-ui-phase="landed"] #compass-sheet {
   pointer-events: none;
   visibility: hidden;
 }
+/* 導覽進行中允許羅盤出現（即使先前相位是 landed／flying） */
+body.onboard-tour-open #compass-sheet.show {
+  transform: translateX(-50%) translateY(0) !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+body.onboard-tour-open #sheet-mask.show {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
 body[data-ui-phase="flying"] #sheet-mask.show,
 body[data-ui-phase="landed"] #sheet-mask.show {
   opacity: 0 !important;

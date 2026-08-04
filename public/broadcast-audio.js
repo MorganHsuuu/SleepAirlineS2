@@ -421,17 +421,16 @@ async function playCaptainIntro({ fadeInMs = 0 } = {}) {
   const cfg = { ...CAPTAIN_SFX, ...window.SLEEP_AIRLINE_CAPTAIN_SFX };
   if (!cfg.url) return false;
   const sec = Math.max(0.5, Math.min(30, Number(cfg.seconds) || 7));
-  await Promise.race([
-    playTimedClip(cfg.url, {
-      seconds: sec,
-      volume: cfg.volume ?? 0.72,
-      loop: false,
-      fadeInMs,
-    }),
-    delay(sec * 1000 + 180),
-  ]);
+  // 直接等 playTimedClip（內建 Web Audio → HTML Audio 後備與秒數上限）。
+  // 舊寫法 Promise.race(play, delay) 在 play 失敗時會立刻結束，整段 captain.mp3 被跳過。
+  const ok = await playTimedClip(cfg.url, {
+    seconds: sec,
+    volume: cfg.volume ?? 0.95,
+    loop: false,
+    fadeInMs,
+  });
   await fadeOutCeremonyTag('captain', Math.min(450, fadeInMs || 450));
-  return true;
+  return ok;
 }
 
 /** captain.mp3 起播時：wakeup 同步漸弱至無聲 */
@@ -1000,18 +999,39 @@ async function speakWithOpenAI(text, style) {
   return playPreparedSpeech({ kind: 'openai', audio: new Audio(url), url });
 }
 
+/**
+ * 準備機長 TTS：有 base64 直接用；沒有則短等 OpenAI，逾時改走瀏覽器 TTS，
+ * 避免降落後空等 /api/broadcast/speech 造成「廣播靜音空窗」。
+ */
+async function prepareCaptainSpeechForPlay(text, style, speechBase64) {
+  if (speechBase64) {
+    const ready = await prepareCaptainSpeechFromBase64(speechBase64, text, style);
+    if (ready) return ready;
+  }
+  const openaiP = prepareCaptainSpeech(text, style);
+  const raced = await Promise.race([
+    openaiP,
+    delay(2800).then(() => 'timeout'),
+  ]);
+  if (raced && raced !== 'timeout') return raced;
+  if (text?.trim() && window.speechSynthesis) {
+    return { kind: 'browser', text, fallbackText: text };
+  }
+  return openaiP;
+}
+
 async function playCaptainBroadcast(text, style, { speechBase64, restoreBed = true } = {}) {
   if (!text?.trim()) return false;
   stopPlayback();
   try {
+    await unlockMedia();
     await ensureAudioCtx();
-    const prepPromise = speechBase64
-      ? prepareCaptainSpeechFromBase64(speechBase64, text, style)
-      : prepareCaptainSpeech(text, style);
+    const prepPromise = prepareCaptainSpeechForPlay(text, style, speechBase64);
     await crossfadeLandingToCaptainIntro();
     await muteCeremonyBedForSpeech();
     const prepared = await prepPromise;
     await unlockMedia();
+    await ensureAudioCtx();
     // 短間隔，讓裝置緩衝就緒，減少首字「歡迎」被吃
     await delay(280);
     if (!prepared) return await speakText(text);

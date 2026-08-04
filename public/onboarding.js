@@ -84,8 +84,27 @@
 
   async function prepareStep(step) {
     if (step.open === 'compass') {
-      window.SleepAirlineSheets?.open?.('compass-sheet');
+      window.SleepAirlineSheets?.prepareCompassTour?.();
+      await delay(60);
+      // force：略過 canPickCompass（降落面板／飛行中）阻擋
+      window.SleepAirlineSheets?.open?.('compass-sheet', { force: true });
+      await delay(120);
+      // 再確認一次：CSS phase / 動畫未就緒時重試
+      const sheet = document.getElementById('compass-sheet');
+      if (!sheet?.classList.contains('show')) {
+        document.body.dataset.uiPhase = 'ready';
+        window.SleepAirlineSheets?.open?.('compass-sheet', { force: true });
+      }
       await delay(380);
+      // 等 sheet 滑入可視區
+      for (let n = 0; n < 8; n += 1) {
+        if (isVisibleTarget(sheet)) break;
+        document.body.dataset.uiPhase = 'ready';
+        sheet?.classList.add('show');
+        document.getElementById('sheet-mask')?.classList.add('show');
+        document.body.classList.add('sheet-open');
+        await delay(80);
+      }
     } else if (step.closeSheets) {
       window.SleepAirlineSheets?.close?.();
       await delay(220);

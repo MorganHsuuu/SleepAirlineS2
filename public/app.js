@@ -1841,13 +1841,17 @@ function onLandClick() {
   void doLand();
 }
 
-function openSheet(id) {
-  if (id === 'compass-sheet' && !canPickCompass()) return;
+function openSheet(id, opts = {}) {
+  if (id === 'compass-sheet' && !opts.force && !canPickCompass()) return;
   $('sheet-mask').classList.add('show');
   $(id).classList.add('show');
   document.body.classList.add('sheet-open');
   document.body.dataset.openSheet = id;
-  if (id === 'compass-sheet') Compass.refreshFriends();
+  if (id === 'compass-sheet') {
+    const svg = $('compass-svg');
+    if (svg && !svg.childElementCount) Compass.build?.();
+    Compass.refreshFriends();
+  }
 }
 function closeSheets() {
   $('sheet-mask')?.classList.remove('show');
@@ -1859,9 +1863,30 @@ function closeSheets() {
   restoreGlobeView();
 }
 
+/** 導覽用：收起降落／飛行阻擋，讓羅盤 sheet 能真正出現 */
+function prepareCompassTour() {
+  // 飛行中無法選航向：導覽仍強制顯示羅盤（唯讀示範），並暫時切到 ready 相位避開 CSS 隱藏
+  if (passenger?.status === 'in_flight') {
+    document.body.dataset.uiPhase = 'ready';
+  }
+  // 降落面板會讓 canPickCompass=false，也會把 data-ui-phase 設成 landed → CSS 藏羅盤
+  const panel = $('landed-panel');
+  if (panel && lastLandedFlight && !panel.dataset.dismissed) {
+    panel.dataset.dismissed = '1';
+    if (passenger?.status === 'landed') passenger.status = 'not_started';
+  }
+  closeSheets();
+  try { updateUI(); } catch { /* boot */ }
+  document.body.dataset.uiPhase = 'ready';
+  $('ready-panel')?.classList.remove('hidden');
+  $('flight-panel')?.classList.add('hidden');
+  $('landed-panel')?.classList.add('hidden');
+}
+
 window.SleepAirlineSheets = {
   open: openSheet,
   close: closeSheets,
+  prepareCompassTour,
 };
 
 function restoreGlobeView() {
@@ -4917,7 +4942,7 @@ async function doLand() {
       name: passenger.name,
       groupId: passenger.groupId,
       locale: currentLocale(),
-    }, { timeoutMs: 52000 });
+    }, { timeoutMs: 90000 });
 
     const data = await landPromise;
     stopFxStatusCycle(statusCycle);
@@ -5007,6 +5032,28 @@ async function doLand() {
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
     renderSceneryCard(false);
     if (await tryRecoverLandedState()) {
+      // API 逾時但伺服器已降落：仍補播機長 intro + TTS，避免完全靜音抵達
+      const recovered = lastLandedFlight;
+      if (recovered?.captainBroadcast && window.BroadcastAudio) {
+        try {
+          lockDockForFx('landing');
+          showLandingFx('機長廣播中…', { phase: 'descent' });
+          await ensureMediaUnlocked();
+          await playBroadcastWithWave(
+            recovered.captainBroadcast,
+            recovered.captainBroadcastStyle || recovered.takeoffBroadcastStyle,
+            { maxMs: 180000, restoreBed: false },
+          );
+          await bridgeAfterCaptainBroadcast();
+          await hideLandingFx();
+          unlockDockForFx();
+          await revealDockPanel('landed-panel');
+        } catch {
+          unlockDockForFx();
+          hideLandingFx({ fast: true });
+          updateUI();
+        }
+      }
       showMsg('main', 'error', '此航班已在伺服器完成降落，已恢復抵達畫面。');
       return;
     }
