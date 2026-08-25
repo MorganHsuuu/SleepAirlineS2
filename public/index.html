@@ -163,9 +163,9 @@
         <div class="board-body">
           <div id="bd-empty" class="board-empty" data-i18n="board.empty">本 Terminal 尚無航班記錄</div>
           <div id="bd-list"></div>
-          <div id="bd-broadcasts" class="hidden">
-            <div class="board-sub-head" id="bd-broadcasts-head" data-i18n="board.broadcasts">機長廣播紀錄 ▾</div>
-            <div id="bd-broadcasts-list" class="hidden"></div>
+          <div id="bd-broadcasts">
+            <div class="board-sub-head" id="bd-broadcasts-head" data-i18n="board.broadcasts">夜空留言 ▾</div>
+            <div id="bd-broadcasts-list"></div>
           </div>
         </div>
       </div>
@@ -428,8 +428,12 @@
     </div>
     <div class="landed-meta" id="mate-meta"></div>
 
+    <div class="mate-memo" id="mate-memo">
+      <span class="bc-cap" data-i18n="mate.memo">夜空留言</span>
+      <p id="mate-memo-text">—</p>
+    </div>
     <details class="mate-more" id="mate-more">
-      <summary class="mate-more-sum">風景與廣播</summary>
+      <summary class="mate-more-sum" data-i18n="mate.scenery">窗外風景</summary>
       <div class="plane-window plane-window--porthole plane-window--mate-sm" id="mate-window" hidden>
         <div class="pw-frame pw-frame--porthole">
           <div class="pw-scene" id="mate-scene">
@@ -442,10 +446,6 @@
         <div class="pw-meta">
           <span class="scenery-caption" id="mate-caption"></span>
         </div>
-      </div>
-      <div class="broadcast-box" id="mate-bc">
-        <span class="bc-cap">機長廣播</span>
-        <span id="mate-bc-text">—</span>
       </div>
       <div class="social-cue hidden" id="mate-cue"></div>
     </details>

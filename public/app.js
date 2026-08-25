@@ -438,8 +438,6 @@ let memoryScrollTimer = null;
 const memorySceneryCache = new Map();
 const memorySceneryJobs = new Map();
 const LANDING_REMINDER_KEY = 'sleepAirline_landingReminder_v1';
-const LANDING_REMINDER_FLIGHT_MINUTES = 480;
-const LANDING_REMINDER_REPEAT_MINUTES = 60;
 let landingReminderTimer = null;
 let landingReminderRegistration = null;
 let landingReminderConfigPromise = null;
@@ -706,6 +704,8 @@ const Globe = (() => {
   let onFriendPick = null;
   let onPlanePick = null;
   let onTrailPick = null;
+  let onAfterRender = null;
+  let onDrag = null;
   let motionGen = 0; // 中斷 flyTo / resetView / glide
   let renderRaf = 0;
   let view = {
@@ -1183,6 +1183,7 @@ const Globe = (() => {
       g.style('cursor', clickable ? 'pointer' : null)
         .on('click', clickable ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx, ev); } : null);
     });
+    onAfterRender?.();
   }
 
   function setZoom(nk, { immediate = false } = {}) {
@@ -1308,6 +1309,7 @@ const Globe = (() => {
           r[0] + (next[0] - prev[0]) * f,
           Math.max(-75, Math.min(75, r[1] - (next[1] - prev[1]) * f)),
         ]);
+        onDrag?.();
         scheduleRender();
       } else if (touches.size === 2) {
         const [a, b] = [...touches.values()];
@@ -1402,6 +1404,25 @@ const Globe = (() => {
     setFriendPick(fn) { onFriendPick = fn; },
     setTrailPick(fn) { onTrailPick = fn; },
     setPlanePick(fn) { onPlanePick = fn; render(); },
+    setAfterRender(fn) { onAfterRender = fn; },
+    setOnDrag(fn) { onDrag = fn; },
+    projectScreen(coord) {
+      if (!ok || !coord || !svg) return { visible: false };
+      if (!visible(coord)) return { visible: false };
+      const p = projection(coord);
+      if (!p) return { visible: false };
+      const node = svg.node();
+      if (!node) return { visible: false };
+      const rect = node.getBoundingClientRect();
+      const vb = node.viewBox.baseVal;
+      const vw = vb.width || w;
+      const vh = vb.height || h;
+      return {
+        visible: true,
+        x: rect.left + (p[0] / vw) * rect.width,
+        y: rect.top + (p[1] / vh) * rect.height,
+      };
+    },
     isPickTarget: isGlobePickTarget,
     /** 拖曳剛結束（用來忽略拖曳後瀏覽器補發的 click） */
     dragJustEnded() { return Date.now() - lastDragEndAt < 350; },
@@ -2010,13 +2031,18 @@ function renderBrandAvatar() {
 }
 
 let planeBubbleTimer = null;
+let planeBubbleFlight = null;
+let planeBubbleFade = 0;
 function hidePlaneBubble({ immediate = false } = {}) {
   const el = $('plane-bubble');
+  const fadeToken = ++planeBubbleFade;
+  planeBubbleFlight = null;
   if (!el) return;
   if (planeBubbleTimer) {
     clearTimeout(planeBubbleTimer);
     planeBubbleTimer = null;
   }
+  el.classList.remove('is-occluded');
   if (immediate) {
     el.classList.add('hidden');
     el.hidden = true;
@@ -2025,6 +2051,7 @@ function hidePlaneBubble({ immediate = false } = {}) {
   }
   el.classList.add('is-out');
   setTimeout(() => {
+    if (fadeToken !== planeBubbleFade) return;
     el.classList.add('hidden');
     el.hidden = true;
     el.classList.remove('is-out');
@@ -2033,19 +2060,68 @@ function hidePlaneBubble({ immediate = false } = {}) {
 function ownFlightBubbleSource() {
   const mine = groupFlights.find((f) => (
     f.passengerId === passenger?.passengerId && f.status === 'in_flight'
-  ));
+  )) || activeFlight || {};
   return {
-    passengerName: passenger?.name || mine?.passengerName,
-    passengerId: passenger?.passengerId,
-    textMemo: mine?.textMemo || activeFlight?.textMemo || '',
-    idPhotoUrl: mine?.idPhotoUrl || passenger?.idPhotoUrl || '',
+    ...mine,
+    passengerName: passenger?.name || mine.passengerName,
+    passengerId: passenger?.passengerId || mine.passengerId,
+    textMemo: mine.textMemo || activeFlight?.textMemo || '',
+    idPhotoUrl: mine.idPhotoUrl || passenger?.idPhotoUrl || '',
+    status: 'in_flight',
+    takeoffTime: mine.takeoffTime || activeFlight?.takeoffTime,
+    routeDirection: mine.routeDirection || activeFlight?.routeDirection,
+    departureLatitude: mine.departureLatitude || activeFlight?.departureLatitude,
+    departureLongitude: mine.departureLongitude || activeFlight?.departureLongitude,
   };
+}
+
+function bubbleCoordForFlight(f) {
+  if (!f) return null;
+  const flying = f.status === 'in_flight'
+    || (passenger && f.passengerId === passenger.passengerId && passenger.status === 'in_flight');
+  if (flying) return flightPlaneCoord(f)?.c || null;
+  if (f.status === 'landed') return coordOf(f, 'arrivalLatitude', 'arrivalLongitude');
+  return coordOf(f, 'departureLatitude', 'departureLongitude');
+}
+
+function resolveBubbleFlight() {
+  if (!planeBubbleFlight) return null;
+  const pid = planeBubbleFlight.passengerId;
+  const name = planeBubbleFlight.passengerName;
+  const live = groupFlights.find((row) => (
+    (pid && row.passengerId === pid) || (name && row.passengerName === name)
+  ));
+  if (live) return { ...planeBubbleFlight, ...live };
+  if (pid && passenger?.passengerId === pid && activeFlight) return ownFlightBubbleSource();
+  return planeBubbleFlight;
+}
+
+function schedulePlaneBubbleHide() {
+  if (planeBubbleTimer) clearTimeout(planeBubbleTimer);
+  planeBubbleTimer = setTimeout(() => hidePlaneBubble(), 8000);
+}
+
+function syncPlaneBubblePosition() {
+  const el = $('plane-bubble');
+  if (!el || el.hidden || el.classList.contains('hidden') || el.classList.contains('is-out')) return;
+  const f = resolveBubbleFlight();
+  const coord = bubbleCoordForFlight(f);
+  const pt = coord ? Globe.projectScreen(coord) : null;
+  if (!pt?.visible) {
+    el.classList.add('is-occluded');
+    return;
+  }
+  el.classList.remove('is-occluded');
+  el.style.left = `${Math.min(window.innerWidth - 24, Math.max(16, pt.x))}px`;
+  el.style.top = `${Math.max(24, pt.y - 8)}px`;
 }
 
 function showPlaneBubble(f, ev) {
   const el = $('plane-bubble');
   if (!el || !f) return;
   if (isFlightWindowVisible()) setFlightWindowOpen(false);
+  planeBubbleFade += 1;
+  planeBubbleFlight = f;
   const photo = photoForFlight(f);
   paintAvatarEl($('plane-bubble-av'), f.passengerName, photo);
   $('plane-bubble-name').textContent = f.passengerName || tt('geo.teammate');
@@ -2058,9 +2134,9 @@ function showPlaneBubble(f, ev) {
   el.style.left = `${Math.min(window.innerWidth - 24, Math.max(16, x))}px`;
   el.style.top = `${Math.max(24, y - 8)}px`;
   el.hidden = false;
-  el.classList.remove('hidden', 'is-out');
-  if (planeBubbleTimer) clearTimeout(planeBubbleTimer);
-  planeBubbleTimer = setTimeout(() => hidePlaneBubble(), 4200);
+  el.classList.remove('hidden', 'is-out', 'is-occluded');
+  syncPlaneBubblePosition();
+  schedulePlaneBubbleHide();
 }
 function hideAvatarPrompt() {
   const el = $('avatar-prompt');
@@ -2866,24 +2942,23 @@ function renderBoard() {
     </div>`;
   }).join('');
 
-  const bcs = groupFlights.filter((f) => f.takeoffBroadcast || f.captainBroadcast);
-  $('bd-broadcasts').classList.toggle('hidden', !bcs.length);
-  if (bcs.length) {
-    $('bd-broadcasts-list').innerHTML = bcs.map((f) => {
-      const parts = [];
-      if (f.takeoffBroadcast) {
-        parts.push(`<div class="board-bc-meta">${escHtml(tt('board.bcTakeoff', { name: f.passengerName }))}</div><div class="board-bc-text">${escHtml(f.takeoffBroadcast)}</div>`);
-      }
-      if (f.captainBroadcast) {
-        const arrM = arrivalMeta(f);
-        parts.push(`<div class="board-bc-meta">${escHtml(tt('board.bcLand', {
-          name: f.passengerName,
-          flag: arrM.flag,
-          city: arrM.city,
-          country: countryDisplay(arrM),
-        }))}</div><div class="board-bc-text">${escHtml(f.captainBroadcast)}</div>`);
-      }
-      return `<div class="board-bc-item">${parts.join('')}</div>`;
+  const notes = groupFlights
+    .map((f, i) => ({ f, i, memo: String(f.textMemo || '').trim() }))
+    .filter((row) => row.memo);
+  $('bd-broadcasts').classList.remove('hidden');
+  const list = $('bd-broadcasts-list');
+  if (!notes.length) {
+    list.innerHTML = `<div class="board-bc-item board-memo-empty">${escHtml(tt('board.memosEmpty'))}</div>`;
+  } else {
+    list.innerHTML = notes.map(({ f, i, memo }) => {
+      const photo = photoForFlight(f);
+      return `<button type="button" class="board-memo-item" data-idx="${i}">
+        <div class="avatar" style="background:${photo ? 'transparent' : avatarColor(f.passengerName)}">${avatarInnerHtml(f.passengerName, photo)}</div>
+        <div class="board-memo-copy">
+          <div class="board-bc-meta">${escHtml(f.passengerName)}</div>
+          <div class="board-bc-text">${escHtml(memo)}</div>
+        </div>
+      </button>`;
     }).join('');
   }
   if ($('compass-sheet')?.classList.contains('show')) Compass.refreshFriends();
@@ -2989,11 +3064,17 @@ function populateMateSheet(f) {
   }
   $('mate-meta').innerHTML = chips.map((c) => `<span class="meta-chip">${c}</span>`).join('');
 
-  const bc = f.captainBroadcast || f.takeoffBroadcast;
-  $('mate-bc-text').textContent = bc || tt('mate.noBroadcast');
+  const memo = String(f.textMemo || '').trim();
+  const memoBox = $('mate-memo');
+  const memoText = $('mate-memo-text');
+  if (memoText) memoText.textContent = memo || tt('geo.noMemo');
+  memoBox?.classList.toggle('is-empty', !memo);
+
   const cue = $('mate-cue');
-  cue.classList.toggle('hidden', !f.socialCueText);
-  cue.textContent = f.socialCueText ? '◎ ' + f.socialCueText : '';
+  if (cue) {
+    cue.classList.toggle('hidden', !f.socialCueText);
+    cue.textContent = f.socialCueText ? '◎ ' + f.socialCueText : '';
+  }
 
   renderMateScenery(f, meta, landed);
 }
@@ -5441,25 +5522,15 @@ async function ensureLandingReminderRegistration() {
   }
 }
 
-function landingReminderTimeText(takeoffTime) {
-  const takeoffMs = new Date(takeoffTime).getTime();
-  if (!Number.isFinite(takeoffMs)) return '預計 8 小時後提醒你降落。';
-  const due = new Date(takeoffMs + LANDING_REMINDER_FLIGHT_MINUTES * 60000);
-  return `預計 ${due.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })} 提醒你降落。`;
-}
-
-async function showLandingReminderNotification(kind = 'landing') {
+async function showLandingReminderNotification() {
   if (Notification.permission !== 'granted') return false;
   const registration = await ensureLandingReminderRegistration();
   if (!registration?.showNotification) return false;
-  const title = kind === 'enabled' ? '降落提醒已啟用' : '甦醒航班提醒';
-  const body = kind === 'enabled'
-    ? landingReminderTimeText(activeFlight?.takeoffTime)
-    : '你的航班仍在飛行中。醒來後記得回到 Sleep Airline 按下「降落」。';
-  await registration.showNotification(title, {
-    body,
+  await registration.showNotification('甦醒航班提醒', {
+    body: '醒來後記得回到 Sleep Airline 按下「降落」。',
     tag: 'sleep-airline-landing-reminder',
-    renotify: true,
+    renotify: false,
+    requireInteraction: true,
     icon: '/media/icon-192.png',
     badge: '/media/icon-192.png',
     data: { url: '/' },
@@ -5496,34 +5567,8 @@ async function subscribeBackendLandingReminder(registration) {
   };
 }
 
-function nextLandingReminderAt(setting) {
-  const takeoffMs = new Date(setting.takeoffTime).getTime();
-  const now = Date.now();
-  const firstDue = Number.isFinite(takeoffMs)
-    ? takeoffMs + LANDING_REMINDER_FLIGHT_MINUTES * 60000
-    : now + LANDING_REMINDER_FLIGHT_MINUTES * 60000;
-  if (now < firstDue) return firstDue;
-  const last = Number(setting.lastReminderAt || 0);
-  const repeatAt = last + LANDING_REMINDER_REPEAT_MINUTES * 60000;
-  return Math.max(now + 10000, repeatAt);
-}
-
 function syncLandingReminderSchedule() {
   stopLandingReminderTimer();
-  const setting = readLandingReminderSetting();
-  if (!canUseLandingReminder() || !landingReminderMatches(setting) || Notification.permission !== 'granted') return;
-  const delay = Math.max(1000, Math.min(nextLandingReminderAt(setting) - Date.now(), 2147483647));
-  landingReminderTimer = setTimeout(async () => {
-    const latest = readLandingReminderSetting();
-    if (!landingReminderMatches(latest) || passenger?.status !== 'in_flight') return;
-    const sent = await showLandingReminderNotification('landing');
-    if (sent) {
-      latest.lastReminderAt = Date.now();
-      writeLandingReminderSetting(latest);
-    }
-    syncLandingReminderSchedule();
-    renderLandingReminder();
-  }, delay);
 }
 
 function renderLandingReminder() {
@@ -5580,11 +5625,11 @@ async function enableLandingReminder() {
     endpoint: backendState.endpoint || '',
     backendSynced: backendState.backendSynced,
     persistentStoreReady: backendState.persistentStoreReady,
-    lastReminderAt: 0,
+    lastReminderAt: Date.now(),
   });
   renderLandingReminder();
   syncLandingReminderSchedule();
-  await showLandingReminderNotification('enabled');
+  await showLandingReminderNotification();
   showMsg(
     'main',
     'success',
@@ -5679,6 +5724,7 @@ function enterDemoPreview() {
       arrivalLocation: 'New York, USA', arrivalLatitude: 40.7, arrivalLongitude: -74.0,
       flightDurationMinutes: 460, landingTime: new Date(Date.now() - 3600000).toISOString(),
       captainBroadcast: '歡迎抵達紐約，清晨的哈德遜河正亮起來。',
+      textMemo: '哈德遜早安',
     },
     {
       passengerName: '小柔', status: 'landed',
@@ -5855,6 +5901,15 @@ $('board-head').addEventListener('click', () => {
   if (card.classList.contains('open')) void fetchBoard();
 });
 $('bd-broadcasts-head').addEventListener('click', () => $('bd-broadcasts-list').classList.toggle('hidden'));
+$('bd-broadcasts-list')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.board-memo-item');
+  if (!btn) return;
+  const f = groupFlights[+btn.dataset.idx];
+  if (!f) return;
+  const coord = bubbleCoordForFlight(f);
+  if (coord) Globe.flyTo(coord, 700);
+  showPlaneBubble(f);
+});
 
 $('bd-list').addEventListener('click', (e) => {
   const row = e.target.closest('.brow');
@@ -5982,6 +6037,8 @@ $('globe-svg')?.addEventListener('click', (e) => {
     else openMateFromBoard(f);
   });
   Globe.setTrailPick((seg) => selectTrailSegment(seg));
+  Globe.setAfterRender(syncPlaneBubblePosition);
+  Globe.setOnDrag(schedulePlaneBubbleHide);
   $('trail-segment-close')?.addEventListener('click', (e) => {
     e.stopPropagation();
     clearTrailSegmentSelection();

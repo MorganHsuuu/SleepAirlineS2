@@ -8,29 +8,12 @@ import { isGonePushError, isWebPushConfigured, sendLandingReminderPush } from '.
 import type { Flight } from '../../types';
 import type { ReminderCronResult } from './types';
 
-const DEFAULT_FIRST_REMINDER_MINUTES = 480;
-const DEFAULT_REPEAT_REMINDER_MINUTES = 60;
-
-function envMinutes(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 function flightKey(flight: Flight): string {
   return `${flight.passengerId}:${flight.flightId}`;
 }
 
-function isReminderDue(takeoffTime: string, lastReminderAt: string | null, now: Date): boolean {
-  const firstMinutes = envMinutes('REMINDER_FIRST_AFTER_MINUTES', DEFAULT_FIRST_REMINDER_MINUTES);
-  const repeatMinutes = envMinutes('REMINDER_REPEAT_MINUTES', DEFAULT_REPEAT_REMINDER_MINUTES);
-  const takeoffMs = new Date(takeoffTime).getTime();
-  if (!Number.isFinite(takeoffMs)) return false;
-  const nowMs = now.getTime();
-  if (nowMs - takeoffMs < firstMinutes * 60000) return false;
-  if (!lastReminderAt) return true;
-  const lastMs = new Date(lastReminderAt).getTime();
-  if (!Number.isFinite(lastMs)) return true;
-  return nowMs - lastMs >= repeatMinutes * 60000;
+function isReminderDue(lastReminderAt: string | null): boolean {
+  return !lastReminderAt;
 }
 
 export async function runLandingReminderCron(now = new Date()): Promise<ReminderCronResult> {
@@ -61,7 +44,7 @@ export async function runLandingReminderCron(now = new Date()): Promise<Reminder
       result.removed += 1;
       continue;
     }
-    if (!isReminderDue(record.takeoffTime || activeFlight.takeoffTime, record.lastReminderAt, now)) {
+    if (!isReminderDue(record.lastReminderAt)) {
       result.skipped += 1;
       continue;
     }

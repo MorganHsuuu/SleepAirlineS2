@@ -20,7 +20,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(payload.title || '甦醒航班提醒', {
     body: payload.body || '醒來後記得回到 Sleep Airline 按下「降落」。',
     tag: payload.tag || LANDING_REMINDER_TAG,
-    renotify: true,
+    renotify: false,
+    requireInteraction: true,
     icon: '/media/icon-192.png',
     badge: '/media/icon-192.png',
     data: { url: payload.url || '/' },
@@ -46,7 +47,8 @@ self.addEventListener('message', (event) => {
   event.waitUntil(self.registration.showNotification(data.title || '甦醒航班提醒', {
     body: data.body || '醒來後記得回到 Sleep Airline 按下「降落」。',
     tag: data.tag || LANDING_REMINDER_TAG,
-    renotify: true,
+    renotify: false,
+    requireInteraction: true,
     icon: '/media/icon-192.png',
     badge: '/media/icon-192.png',
     data: { url: data.url || '/' },

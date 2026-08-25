@@ -31,9 +31,10 @@ import {
   clampTextMemo,
   savePassengerIdPhoto,
 } from './src/lib/notion/id-photo';
-import { getVapidPublicKey, isWebPushConfigured } from './src/lib/reminders/push';
+import { getVapidPublicKey, isWebPushConfigured, sendLandingReminderPush } from './src/lib/reminders/push';
 import {
   isPersistentReminderStoreConfigured,
+  markLandingReminderSent,
   removeLandingReminderByEndpoint,
   removeLandingRemindersForFlight,
   upsertLandingReminder,
@@ -105,11 +106,6 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(join(process.cwd(), 'public')));
 
-function envMinutes(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 function isValidPushSubscription(value: unknown): value is PushSubscriptionPayload {
   const sub = value as PushSubscriptionPayload | null;
   return !!sub
@@ -148,8 +144,8 @@ app.get('/api/reminders/config', (_req, res) => {
     webPushReady: isWebPushConfigured(),
     vapidPublicKey: getVapidPublicKey(),
     persistentStoreReady: isPersistentReminderStoreConfigured(),
-    firstReminderMinutes: envMinutes('REMINDER_FIRST_AFTER_MINUTES', 480),
-    repeatReminderMinutes: envMinutes('REMINDER_REPEAT_MINUTES', 60),
+    firstReminderMinutes: 0,
+    repeatReminderMinutes: 0,
   });
 });
 
@@ -197,11 +193,23 @@ app.post('/api/reminders/subscribe', async (req, res) => {
       subscription,
     });
 
+    let sent = false;
+    if (!record.lastReminderAt) {
+      try {
+        await sendLandingReminderPush(record);
+        await markLandingReminderSent(record.id);
+        sent = true;
+      } catch (err) {
+        console.warn('[landing-reminder] immediate push failed:', err instanceof Error ? err.message : err);
+      }
+    }
+
     res.json({
       ok: true,
       reminder: {
         id: record.id,
         flightId: record.flightId,
+        sent,
         persistentStoreReady: isPersistentReminderStoreConfigured(),
       },
     });

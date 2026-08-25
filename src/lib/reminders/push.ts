@@ -32,14 +32,14 @@ export async function sendLandingReminderPush(record: LandingReminderRecord): Pr
 
   const payload = JSON.stringify({
     title: '甦醒航班提醒',
-    body: '你的航班仍在飛行中。醒來後記得回到 Sleep Airline 按下「降落」。',
+    body: '醒來後記得回到 Sleep Airline 按下「降落」。',
     url: '/',
-    tag: `sleep-airline-landing-${record.flightId}`,
+    tag: 'sleep-airline-landing-reminder',
   });
 
   await webpush.sendNotification(
     record.subscription as PushSubscriptionPayload,
     payload,
-    { TTL: 60 * 60 * 6 }
+    { TTL: 60 * 60 * 24 }
   );
 }

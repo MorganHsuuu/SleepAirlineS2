@@ -2443,6 +2443,28 @@ body[data-theme="dusk"] .board {
 .board-bc-item { padding: 8px 16px 10px; border-top: 1px dashed var(--divider); }
 .board-bc-meta { font-size: 9px; color: var(--ink-faint); font-weight: 700; }
 .board-bc-text { font-size: 11px; line-height: 1.7; margin-top: 3px; color: var(--ink-soft); }
+.board-memo-empty { color: var(--ink-faint); font-size: 11px; line-height: 1.6; }
+.board-memo-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  width: 100%; padding: 8px 16px 10px;
+  border: 0; border-top: 1px dashed var(--divider);
+  background: transparent; color: inherit; font: inherit;
+  text-align: left; cursor: pointer;
+}
+.board-memo-item:active { background: color-mix(in srgb, var(--gold) 10%, transparent); }
+.board-memo-copy { min-width: 0; flex: 1; }
+.mate-memo {
+  margin-top: 12px; padding: 11px 13px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--glass-bg-strong) 82%, transparent);
+  border: 1px solid var(--glass-line);
+}
+.mate-memo .bc-cap { margin-bottom: 4px; }
+.mate-memo p {
+  margin: 0; font-size: 14px; line-height: 1.55; font-weight: 700;
+  color: var(--ink);
+}
+.mate-memo.is-empty p { font-weight: 500; color: var(--ink-faint); }
 
 /* ═══ Sheet（羅盤 / 票夾）═══ */
 
@@ -3019,16 +3041,31 @@ body.sheet-open #main-section {
   opacity: 0;
   transform: translate(-12px, -118%);
 }
+.plane-bubble.is-occluded {
+  opacity: 0;
+  pointer-events: none;
+}
 .plane-bubble-card {
   pointer-events: auto;
   min-width: 132px;
   max-width: 188px;
-  background: #f4ead8;
-  color: #1a1408;
-  border-radius: 16px 16px 16px 5px;
-  padding: 9px 11px 10px;
-  box-shadow: 0 10px 24px rgba(8, 14, 28, .32);
+  color: var(--ink);
+  border-radius: 18px 18px 18px 6px;
+  padding: 10px 12px 11px;
+  background: color-mix(in srgb, #fff 36%, transparent);
+  backdrop-filter: blur(16px) saturate(1.85);
+  -webkit-backdrop-filter: blur(16px) saturate(1.85);
+  border: 1px solid var(--glass-line);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
   cursor: pointer;
+}
+body[data-theme="dusk"] .plane-bubble-card {
+  background: color-mix(in srgb, rgba(22, 32, 54, .42) 70%, transparent);
+  box-shadow:
+    0 10px 28px rgba(6, 12, 24, .38),
+    inset 0 1px 0 rgba(255, 255, 255, .16);
 }
 .plane-bubble-who {
   display: flex;
@@ -3059,10 +3096,10 @@ body.sheet-open #main-section {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.4;
-  color: #3d3424;
+  color: var(--ink);
 }
 .plane-bubble-memo.is-empty {
-  color: #8a7d68;
+  color: var(--ink-faint);
   font-weight: 500;
 }
 
