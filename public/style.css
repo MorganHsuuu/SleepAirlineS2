@@ -3049,7 +3049,7 @@ body.sheet-open #main-section {
 .plane-bubble-card {
   pointer-events: auto;
   min-width: 132px;
-  max-width: 188px;
+  max-width: 228px;
   color: var(--ink);
   border-radius: 18px 18px 18px 6px;
   padding: 10px 12px 11px;

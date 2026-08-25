@@ -11,7 +11,7 @@ import type { Flight } from '../../types';
 
 export const ID_PHOTO_PROP = 'ID photo';
 export const TEXT_MEMO_PROP = 'Text memo';
-export const TEXT_MEMO_MAX = 10;
+export const TEXT_MEMO_MAX = 20;
 
 export function clampTextMemo(raw: unknown): string {
   const text = String(raw ?? '').trim();

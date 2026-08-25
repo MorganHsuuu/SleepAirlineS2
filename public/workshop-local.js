@@ -506,7 +506,7 @@
       const store = loadStore();
       const flight = store.flights.find((f) => f.passengerId === body.passengerId && f.status === 'in_flight');
       if (!flight) throw new Error('找不到進行中的航班。');
-      const memo = Array.from(String(body.textMemo || '')).slice(0, 10).join('');
+      const memo = Array.from(String(body.textMemo || '')).slice(0, 20).join('');
       flight.textMemo = memo;
       saveStore(store);
       return { textMemo: memo, flight: enrichFlight(flight) };

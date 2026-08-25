@@ -1954,7 +1954,7 @@ function avatarColor(name) {
   return AVATAR_COLORS[hsh % AVATAR_COLORS.length];
 }
 
-const TEXT_MEMO_MAX = 10;
+const TEXT_MEMO_MAX = 20;
 function avatarStorageKey(pid) {
   return 'sleepAirline_avatar_' + String(pid || '');
 }
