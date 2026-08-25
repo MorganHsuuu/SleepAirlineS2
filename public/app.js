@@ -831,7 +831,7 @@ const Globe = (() => {
         if (!tap) return;
         if (Math.hypot(ev.clientX - tap.x, ev.clientY - tap.y) > 14) return;
         ev.stopPropagation();
-        onPlanePick(tap.sx, tap.sy);
+        onPlanePick(ev.clientX, ev.clientY);
       });
   }
 
@@ -2030,14 +2030,29 @@ function hidePlaneBubble({ immediate = false } = {}) {
     el.classList.remove('is-out');
   }, 560);
 }
+function ownFlightBubbleSource() {
+  const mine = groupFlights.find((f) => (
+    f.passengerId === passenger?.passengerId && f.status === 'in_flight'
+  ));
+  return {
+    passengerName: passenger?.name || mine?.passengerName,
+    passengerId: passenger?.passengerId,
+    textMemo: mine?.textMemo || activeFlight?.textMemo || '',
+    idPhotoUrl: mine?.idPhotoUrl || passenger?.idPhotoUrl || '',
+  };
+}
+
 function showPlaneBubble(f, ev) {
   const el = $('plane-bubble');
   if (!el || !f) return;
+  if (isFlightWindowVisible()) setFlightWindowOpen(false);
   const photo = photoForFlight(f);
   paintAvatarEl($('plane-bubble-av'), f.passengerName, photo);
   $('plane-bubble-name').textContent = f.passengerName || tt('geo.teammate');
   const memo = String(f.textMemo || '').trim();
-  $('plane-bubble-memo').textContent = memo;
+  const memoEl = $('plane-bubble-memo');
+  memoEl.textContent = memo || tt('geo.noMemo');
+  memoEl.classList.toggle('is-empty', !memo);
   const x = ev?.clientX ?? (window.innerWidth / 2);
   const y = ev?.clientY ?? (window.innerHeight / 2);
   el.style.left = `${Math.min(window.innerWidth - 24, Math.max(16, x))}px`;
@@ -3394,6 +3409,7 @@ function setFlightWindowOpen(open, { origin } = {}) {
   if (!win) return;
   const center = flightWindowCenter();
   if (open) {
+    hidePlaneBubble({ immediate: true });
     closeSheets();
     positionFlightWindow(center);
     win.hidden = false;
@@ -3439,10 +3455,6 @@ function toggleFlightWindow() {
   const win = $('flight-window');
   if (!win || win.hidden) setFlightWindowOpen(true);
   else setFlightWindowOpen(false);
-}
-
-function openFlightWindowFromGlobe() {
-  toggleFlightWindow();
 }
 
 function bindFlightShadeDrag() {
@@ -5659,6 +5671,7 @@ function enterDemoPreview() {
       departureLocation: 'London, UK', departureLatitude: 51.5, departureLongitude: -0.12,
       takeoffTime: new Date(Date.now() - 190 * 60000).toISOString(),
       takeoffBroadcast: '夜航開始，請調暗舷窗。',
+      textMemo: '慢慢醒來',
     },
     {
       passengerName: '阿哲', status: 'landed',
@@ -5961,7 +5974,7 @@ $('globe-svg')?.addEventListener('click', (e) => {
   if (document.readyState === 'complete') Globe.init();
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
-  // 點地球儀上的隊友／航點才展開詳細資訊；平常地圖維持純淨。
+  // 點地球儀上的飛機 → 留言氣泡；窗外風景改由「望向窗外」開啟。
   Globe.setFriendPick((idx, ev) => {
     const f = groupFlights[idx];
     if (!f) return;
@@ -5973,8 +5986,10 @@ $('globe-svg')?.addEventListener('click', (e) => {
     e.stopPropagation();
     clearTrailSegmentSelection();
   });
-  // 飛行中點地球儀航線或飛機 → 從該處縮放展開巡航舷窗
-  Globe.setPlanePick(() => openFlightWindowFromGlobe());
+  Globe.setPlanePick((clientX, clientY) => {
+    if (passenger?.status !== 'in_flight') return;
+    showPlaneBubble(ownFlightBubbleSource(), { clientX, clientY });
+  });
 
   if (window.WorkshopLocal) await WorkshopLocal.probe();
   await loadCountryIso();
