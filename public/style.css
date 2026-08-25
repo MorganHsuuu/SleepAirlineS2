@@ -3292,6 +3292,23 @@ body[data-theme="dusk"] .plane-bubble-card {
   line-height: 1.55;
   color: var(--ink-soft, var(--ink-muted));
 }
+.avatar-prompt-never {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: -3px 0 16px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.avatar-prompt-never input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
 .avatar-prompt-actions {
   display: flex;
   gap: 8px;

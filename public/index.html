@@ -613,7 +613,11 @@
     <section class="avatar-prompt-card glass" role="dialog" aria-modal="true" aria-labelledby="avatar-prompt-title">
       <p class="avatar-prompt-kicker" data-i18n="avatar.kicker">護照照片</p>
       <h2 id="avatar-prompt-title" data-i18n="avatar.title">要設定頭像嗎？</h2>
-      <p class="avatar-prompt-copy" data-i18n="avatar.copy">小隊看板與飛機氣泡會用這張照片。現在沒有的話，下次登入還會再問一次。</p>
+      <p class="avatar-prompt-copy" data-i18n="avatar.copy">小隊看板與飛機氣泡會用這張照片；現在沒有也沒關係，之後可從帳戶設定。</p>
+      <label class="avatar-prompt-never">
+        <input type="checkbox" id="avatar-prompt-never">
+        <span data-i18n="avatar.never">不再提醒我</span>
+      </label>
       <div class="avatar-prompt-actions">
         <button type="button" class="btn-soft" id="avatar-prompt-later" data-i18n="avatar.later">稍後</button>
         <button type="button" class="btn-soft btn-soft--share" id="avatar-prompt-now" data-i18n="avatar.now">上傳照片</button>

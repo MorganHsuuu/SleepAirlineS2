@@ -2206,7 +2206,23 @@ function showPlaneBubble(f, ev) {
   syncPlaneBubblePosition();
   schedulePlaneBubbleHide();
 }
-function hideAvatarPrompt() {
+function avatarPromptDismissStorageKey(passengerId) {
+  return `sleepAirline_avatarPromptDismissed_v1::${String(passengerId || '').trim()}`;
+}
+function hasDismissedAvatarPrompt(passengerId) {
+  if (!String(passengerId || '').trim()) return false;
+  try { return localStorage.getItem(avatarPromptDismissStorageKey(passengerId)) === 'true'; }
+  catch { return false; }
+}
+function saveAvatarPromptDismissed(passengerId) {
+  if (!String(passengerId || '').trim()) return;
+  try { localStorage.setItem(avatarPromptDismissStorageKey(passengerId), 'true'); }
+  catch { /* noop */ }
+}
+function hideAvatarPrompt({ rememberChoice = false } = {}) {
+  if (rememberChoice && passenger && $('avatar-prompt-never')?.checked) {
+    saveAvatarPromptDismissed(passenger.passengerId);
+  }
   const el = $('avatar-prompt');
   if (!el) return;
   el.classList.add('hidden');
@@ -2215,9 +2231,11 @@ function hideAvatarPrompt() {
 function maybePromptAvatar() {
   if (!passenger || previewMode) return;
   const hasPhoto = !!(passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId));
-  if (hasPhoto) return;
+  if (hasPhoto || hasDismissedAvatarPrompt(passenger.passengerId)) return;
   const el = $('avatar-prompt');
   if (!el) return;
+  const never = $('avatar-prompt-never');
+  if (never) never.checked = false;
   el.classList.remove('hidden');
   el.setAttribute('aria-hidden', 'false');
 }
@@ -6149,8 +6167,8 @@ $('input-avatar')?.addEventListener('change', async (e) => {
     showMsg('main', 'error', tt('account.avatarFail'));
   }
 });
-$('avatar-prompt-later')?.addEventListener('click', hideAvatarPrompt);
-$('avatar-prompt-backdrop')?.addEventListener('click', hideAvatarPrompt);
+$('avatar-prompt-later')?.addEventListener('click', () => hideAvatarPrompt({ rememberChoice: true }));
+$('avatar-prompt-backdrop')?.addEventListener('click', () => hideAvatarPrompt({ rememberChoice: true }));
 $('avatar-prompt-now')?.addEventListener('click', () => {
   hideAvatarPrompt();
   void pickAndUploadAvatar();
