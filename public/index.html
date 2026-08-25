@@ -99,25 +99,16 @@
             </div>
           </div>
         </div>
-        <aside class="consent-card" id="research-consent">
-          <p class="consent-kicker" data-i18n="consent.kicker">研究參與</p>
-          <p class="consent-title" data-i18n="consent.title">登機前請先同意</p>
-          <p class="consent-copy" data-i18n="consent.copy">甦醒航班是學術研究。登入後，你的航程、姓名、頭像與夜空留言會寫入主辦總表，供小隊看板與後續論文使用。論文發表前會去識別化。不同意請不要登入。</p>
-          <a
-            class="consent-more"
-            href="https://morganportfolio-orcin.vercel.app/projects/sleep-airline.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-i18n="account.research"
-          >研究說明</a>
+        <aside class="consent-compact" id="research-consent">
           <label class="consent-check">
             <input type="checkbox" id="input-research-consent" required>
-            <span data-i18n="consent.agree">我已了解，並同意上述資料用於研究。</span>
+            <span data-i18n="consent.agree">我已閱讀研究說明，並願意參與本研究。</span>
           </label>
+          <button type="button" class="consent-details-btn" id="btn-consent-details" data-i18n="consent.details">查看資料使用方式</button>
         </aside>
-        <button type="submit" class="dock-action dock-action--gold" id="btn-login">
+        <button type="submit" class="dock-action dock-action--gold" id="btn-login" disabled>
           <span class="login-spinner" aria-hidden="true"></span>
-          <span class="pill-label" id="btn-login-label" data-i18n="login.submit">登入</span>
+          <span class="pill-label" id="btn-login-label" data-i18n="login.submit">同意並登機</span>
         </button>
       </form>
     </div>
@@ -130,6 +121,24 @@
         rel="noopener noreferrer"
       >Morgan Hsu</a>
     </p>
+  </div>
+
+  <div class="consent-dialog hidden" id="consent-dialog" aria-hidden="true">
+    <div class="consent-dialog-backdrop" id="consent-dialog-backdrop"></div>
+    <section class="consent-dialog-card glass" role="dialog" aria-modal="true" aria-labelledby="consent-dialog-title">
+      <button type="button" class="consent-dialog-close" id="consent-dialog-close" aria-label="關閉">×</button>
+      <p class="consent-kicker" data-i18n="consent.kicker">研究參與</p>
+      <h2 id="consent-dialog-title" data-i18n="consent.title">一起完成這趟研究航程</h2>
+      <p class="consent-dialog-copy" data-i18n="consent.copy">甦醒航班同時是一項學術研究。登機後，航程、姓名、頭像與夜空留言將用於小隊互動及後續研究分析；研究成果發表前會移除可識別個人的資訊。請閱讀研究說明，確認願意參與後再繼續登機。</p>
+      <a
+        class="consent-more"
+        href="https://morganportfolio-orcin.vercel.app/projects/sleep-airline.html"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-i18n="consent.fullDetails"
+      >閱讀完整研究說明</a>
+      <button type="button" class="btn-soft consent-dialog-done" id="consent-dialog-done" data-i18n="consent.back">返回登機</button>
+    </section>
   </div>
 
   <!-- ════ 主畫面 ════ -->

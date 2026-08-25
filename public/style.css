@@ -1011,54 +1011,25 @@ body[data-theme="dusk"] .icon-btn--text.is-confirming {
   margin-bottom: 0;
 }
 
-.consent-card {
-  position: relative;
-  margin: 0 0 14px;
-  padding: 13px 14px 12px;
-  border-radius: 18px;
-  border: 1px dashed color-mix(in srgb, var(--gold) 42%, var(--divider));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--gold) 10%, transparent), transparent 42%),
-    color-mix(in srgb, var(--glass-bg-strong) 88%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
-}
-.consent-kicker {
-  margin: 0 0 4px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 1.8px;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-.consent-title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: .4px;
-  color: var(--ink);
-}
-.consent-copy {
-  margin: 0 0 8px;
-  font-size: 11.5px;
-  line-height: 1.65;
-  color: var(--ink-soft);
-}
-.consent-more {
-  display: inline-block;
-  margin-bottom: 10px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--gold-deep, var(--gold));
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.consent-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px dashed color-mix(in srgb, var(--gold) 38%, var(--divider));
+  background: color-mix(in srgb, var(--glass-bg-strong) 86%, transparent);
 }
 .consent-check {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
   cursor: pointer;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.4;
   font-weight: 650;
   color: var(--ink);
 }
@@ -1085,6 +1056,99 @@ body[data-theme="dusk"] .icon-btn--text.is-confirming {
 .consent-check input:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+.consent-details-btn {
+  flex-shrink: 0;
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--gold-deep, var(--gold));
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.consent-details-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.consent-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.consent-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 18, 34, .5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.consent-dialog-card {
+  position: relative;
+  width: min(92vw, 430px);
+  padding: 25px 24px 22px;
+  border-radius: 24px;
+}
+.consent-dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 13px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--glass-bg-strong) 85%, transparent);
+  color: var(--ink-soft);
+  font-size: 20px;
+  cursor: pointer;
+}
+.consent-kicker {
+  margin: 0 0 6px;
+  color: var(--ink-faint);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+.consent-dialog-card h2 {
+  max-width: calc(100% - 32px);
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1.3;
+}
+.consent-dialog-copy {
+  margin: 0 0 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.75;
+}
+.consent-more {
+  display: inline-block;
+  color: var(--gold-deep, var(--gold));
+  font-size: 12px;
+  font-weight: 750;
+  text-underline-offset: 3px;
+}
+.consent-dialog-done {
+  width: 100%;
+  margin-top: 18px;
+}
+@media (max-width: 520px) {
+  .consent-compact {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .consent-details-btn {
+    margin-left: 27px;
+  }
 }
 
 .passport-field .field-label {
@@ -3419,7 +3483,7 @@ body[data-theme="dusk"] .plane-bubble-card {
   #login-form .passport-card {
     min-height: 100%;
   }
-  #login-form .consent-card {
+  #login-form .consent-compact {
     grid-column: 1 / -1;
     margin: 0;
   }

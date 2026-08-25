@@ -5168,6 +5168,7 @@ async function doLogin(e) {
     resetTakeoffPrep();
     delete $('landed-panel').dataset.dismissed;
     saveLoginProfile({ passengerId, name, groupId });
+    saveResearchConsent(passengerId);
     if (lastLandedFlight) {
       archiveFlightTrail(lastLandedFlight);
     }
@@ -5209,10 +5210,30 @@ function setLoginLoading(on) {
   const btn = $('btn-login');
   const label = $('btn-login-label');
   if (!btn) return;
-  btn.disabled = on;
+  btn.disabled = on || !$('input-research-consent')?.checked;
   btn.classList.toggle('is-loading', on);
   btn.setAttribute('aria-busy', on ? 'true' : 'false');
   if (label) label.textContent = on ? tt('login.submitting') : tt('login.submit');
+  if (!on) syncResearchConsentButton();
+}
+
+function syncResearchConsentButton() {
+  const btn = $('btn-login');
+  if (!btn || btn.getAttribute('aria-busy') === 'true') return;
+  const passengerId = $('input-pid')?.value.trim();
+  const returning = hasSavedResearchConsent(passengerId);
+  btn.disabled = !$('input-research-consent')?.checked;
+  const label = $('btn-login-label');
+  if (label) label.textContent = tt(returning ? 'login.submitReturning' : 'login.submit');
+}
+
+function setConsentDialogOpen(open) {
+  const dialog = $('consent-dialog');
+  if (!dialog) return;
+  dialog.classList.toggle('hidden', !open);
+  dialog.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (open) $('consent-dialog-close')?.focus();
+  else $('btn-consent-details')?.focus();
 }
 
 async function loadLandingSceneryForFlight(flightId) {
@@ -5807,6 +5828,27 @@ function toggleLandingReminder() {
 // ── 登入資料記憶 ─────────────────────────────────────────────────────────────
 
 const LOGIN_STORAGE_KEY = 'sleepAirline_lastLogin';
+const RESEARCH_CONSENT_VERSION = 'v1';
+function researchConsentStorageKey(passengerId) {
+  return `sleepAirline_researchConsent_${RESEARCH_CONSENT_VERSION}::${String(passengerId || '').trim()}`;
+}
+function hasSavedResearchConsent(passengerId) {
+  if (!String(passengerId || '').trim()) return false;
+  try { return localStorage.getItem(researchConsentStorageKey(passengerId)) === 'true'; }
+  catch { return false; }
+}
+function saveResearchConsent(passengerId) {
+  try { localStorage.setItem(researchConsentStorageKey(passengerId), 'true'); }
+  catch { /* noop */ }
+}
+function syncResearchConsentForPassenger() {
+  const passengerId = $('input-pid')?.value.trim();
+  const saved = hasSavedResearchConsent(passengerId);
+  const consent = $('input-research-consent');
+  if (consent) consent.checked = saved;
+  $('research-consent')?.classList.toggle('hidden', saved);
+  syncResearchConsentButton();
+}
 function saveLoginProfile(p) {
   try { localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify(p)); } catch { /* noop */ }
 }
@@ -5948,8 +5990,7 @@ function doLogout() {
   BroadcastAudio?.stopFlightSfx?.();
   Globe.clearRoute();
   clearMsg('main');
-  const consent = $('input-research-consent');
-  if (consent) consent.checked = false;
+  syncResearchConsentForPassenger();
   updateUI();
 }
 
@@ -5970,6 +6011,17 @@ function stopAutoRefresh() {
 // ── 事件繫結 ─────────────────────────────────────────────────────────────────
 
 $('login-form').addEventListener('submit', doLogin);
+$('input-research-consent')?.addEventListener('change', syncResearchConsentButton);
+$('input-pid')?.addEventListener('input', syncResearchConsentForPassenger);
+$('btn-consent-details')?.addEventListener('click', () => setConsentDialogOpen(true));
+$('consent-dialog-close')?.addEventListener('click', () => setConsentDialogOpen(false));
+$('consent-dialog-done')?.addEventListener('click', () => setConsentDialogOpen(false));
+$('consent-dialog-backdrop')?.addEventListener('click', () => setConsentDialogOpen(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('consent-dialog')?.classList.contains('hidden')) {
+    setConsentDialogOpen(false);
+  }
+});
 $('btn-preview')?.addEventListener('click', enterDemoPreview);
 $('btn-create-terminal')?.addEventListener('click', createRandomTerminal);
 $('btn-share-terminal')?.addEventListener('click', () => { void shareTerminalLink('login'); });
@@ -6220,6 +6272,7 @@ $('globe-svg')?.addEventListener('click', (e) => {
   bindTerminalInput();
   const urlTerminalApplied = applyTerminalFromUrl();
   fillLoginForm(loadLoginProfile());
+  syncResearchConsentForPassenger();
   if (urlTerminalApplied) {
     const digits = normalizeTerminalDigits(new URLSearchParams(location.search).get('terminal')
       || new URLSearchParams(location.search).get('t'));
