@@ -271,6 +271,9 @@
   }
 
   function handlePassenger(body) {
+    if (body.researchConsent !== true) {
+      throw new Error('請先勾選研究參與同意，才能登入。');
+    }
     const store = loadStore();
     const { passengerId, name, groupId } = body;
     let created = false;
@@ -339,6 +342,9 @@
     if (!p) throw new Error('請先登入。');
     if (store.flights.some((f) => f.passengerId === body.passengerId && f.status === 'in_flight')) {
       throw new Error('你已有一趟尚未降落的航班，請先降落。');
+    }
+    if (body.researchConsent !== true) {
+      throw new Error('請先勾選研究參與同意，才能起飛。');
     }
 
     const takeoffTime = new Date().toISOString();

@@ -5144,11 +5144,21 @@ async function doLogin(e) {
     showMsg('login', 'error', groupId ? tt('login.fillAll') : tt('login.terminalDigits'));
     return;
   }
+  if (!$('input-research-consent')?.checked) {
+    showMsg('login', 'error', tt('consent.need'));
+    return;
+  }
 
   primeMediaOnUserGesture();
   setLoginLoading(true);
   try {
-    const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
+    const data = await api('POST', '/api/passenger', {
+      passengerId,
+      name,
+      groupId,
+      researchConsent: true,
+      researchConsentAt: new Date().toISOString(),
+    });
     previewMode = false;
     passenger = data.passenger;
     const localPhoto = getLocalAvatar(passenger.passengerId);
@@ -5276,6 +5286,8 @@ async function doTakeoff() {
         routeDirection: $('tk-direction').value,
         locale: currentLocale(),
         idPhotoBase64: passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || undefined,
+        researchConsent: true,
+        researchConsentAt: new Date().toISOString(),
       }, { timeoutMs: 52000 }),
       waitMs(TAKEOFF_FX_MS.prepMin),
       mediaPrime,
@@ -5936,6 +5948,8 @@ function doLogout() {
   BroadcastAudio?.stopFlightSfx?.();
   Globe.clearRoute();
   clearMsg('main');
+  const consent = $('input-research-consent');
+  if (consent) consent.checked = false;
   updateUI();
 }
 

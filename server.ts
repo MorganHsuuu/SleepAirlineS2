@@ -31,6 +31,7 @@ import {
   clampTextMemo,
   savePassengerIdPhoto,
 } from './src/lib/notion/id-photo';
+import { isResearchConsentGranted, stampResearchConsent } from './src/lib/notion/research-consent';
 import { getVapidPublicKey, isWebPushConfigured, sendLandingReminderPush } from './src/lib/reminders/push';
 import {
   isPersistentReminderStoreConfigured,
@@ -264,6 +265,10 @@ app.get('/api/notion/schema', async (_req, res) => {
 app.post('/api/passenger', async (req, res) => {
   try {
     const { passengerId, name, groupId } = req.body;
+    if (!isResearchConsentGranted(req.body)) {
+      res.status(403).json({ error: '需同意研究資料使用後才能登機。' });
+      return;
+    }
     if (!passengerId || !name || !groupId) {
       res.status(400).json({ error: '請填寫乘客 ID、姓名和小隊 ID。' });
       return;
@@ -281,6 +286,14 @@ app.post('/api/passenger', async (req, res) => {
         if (patch.groupId) result.passenger.groupId = patch.groupId;
       }
     }
+
+    const consentAt = typeof req.body.researchConsentAt === 'string'
+      ? req.body.researchConsentAt
+      : new Date().toISOString();
+    const stampPageId = result.sourcePage && typeof (result.sourcePage as { id?: string }).id === 'string'
+      ? (result.sourcePage as { id: string }).id
+      : result.passenger.notionId;
+    await stampResearchConsent(stampPageId, consentAt).catch(() => {});
 
     // 重用 getOrCreatePassenger 已查到的 landed 列，避免再打一次 Notion
     let lastLandedFlight = null;
@@ -369,6 +382,10 @@ app.post('/api/flight/takeoff', async (req, res) => {
     } = req.body;
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
+    if (!isResearchConsentGranted(req.body)) {
+      res.status(403).json({ error: '需同意研究資料使用後才能起飛。' });
+      return;
+    }
 
     const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
     if (!passenger.name || !passenger.groupId) {
@@ -399,6 +416,10 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection: routeDirection as RouteDirection,
       takeoffTime,
     });
+    const consentAt = typeof req.body.researchConsentAt === 'string'
+      ? req.body.researchConsentAt
+      : new Date().toISOString();
+    await stampResearchConsent(flight.notionId, consentAt).catch(() => {});
 
     if (typeof idPhotoBase64 === 'string' && idPhotoBase64.startsWith('data:image/')) {
       try {
