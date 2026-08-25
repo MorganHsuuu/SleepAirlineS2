@@ -2141,9 +2141,19 @@ function resolveBubbleFlight() {
   return planeBubbleFlight;
 }
 
+const PLANE_BUBBLE_MS = 3000;
 function schedulePlaneBubbleHide() {
   if (planeBubbleTimer) clearTimeout(planeBubbleTimer);
-  planeBubbleTimer = setTimeout(() => hidePlaneBubble(), 8000);
+  planeBubbleTimer = setTimeout(() => hidePlaneBubble(), PLANE_BUBBLE_MS);
+}
+
+function planeBubbleClearance() {
+  const hud = $('hud-top')?.getBoundingClientRect();
+  const dock = document.querySelector('.dock')?.getBoundingClientRect();
+  return {
+    minTop: hud && hud.height ? hud.bottom + 8 : 24,
+    maxBottom: dock && dock.top > 80 ? dock.top - 8 : window.innerHeight - 16,
+  };
 }
 
 function syncPlaneBubblePosition() {
@@ -2157,8 +2167,21 @@ function syncPlaneBubblePosition() {
     return;
   }
   el.classList.remove('is-occluded');
-  el.style.left = `${Math.min(window.innerWidth - 24, Math.max(16, pt.x))}px`;
-  el.style.top = `${Math.max(24, pt.y - 8)}px`;
+  const { minTop, maxBottom } = planeBubbleClearance();
+  const card = el.querySelector('.plane-bubble-card');
+  const h = card?.offsetHeight || 88;
+  const left = Math.min(window.innerWidth - 24, Math.max(16, pt.x));
+  let top = pt.y - 8;
+  const visualTopIfAbove = top - h * 1.08;
+  if (visualTopIfAbove < minTop) {
+    el.classList.add('is-below');
+    top = Math.max(pt.y + 10, minTop + 4);
+    if (top + h > maxBottom) top = Math.max(minTop, maxBottom - h);
+  } else {
+    el.classList.remove('is-below');
+  }
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
 }
 
 function showPlaneBubble(f, ev) {
@@ -6019,6 +6042,10 @@ $('trail-friends')?.addEventListener('click', () => toggleRouteTrail('friends'))
 $('board-head').addEventListener('click', () => {
   const card = $('board-card');
   card.classList.toggle('open');
+  const nudgeBubble = () => syncPlaneBubblePosition();
+  nudgeBubble();
+  requestAnimationFrame(nudgeBubble);
+  card.addEventListener('transitionend', nudgeBubble, { once: true });
   if (card.classList.contains('open')) void fetchBoard();
 });
 $('bd-broadcasts-head').addEventListener('click', () => $('bd-broadcasts-list').classList.toggle('hidden'));

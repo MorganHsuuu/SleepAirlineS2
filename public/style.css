@@ -3029,7 +3029,7 @@ body.sheet-open #main-section {
 
 .plane-bubble {
   position: fixed;
-  z-index: 80;
+  z-index: 35; /* 低於 .hud-top(40)，小隊動態打開時不被氣泡擋住 */
   pointer-events: none;
   transform: translate(-12px, -108%);
   transition: opacity .55s ease, transform .55s ease;
@@ -3041,6 +3041,15 @@ body.sheet-open #main-section {
 .plane-bubble.is-out {
   opacity: 0;
   transform: translate(-12px, -118%);
+}
+.plane-bubble.is-below {
+  transform: translate(-12px, 12px);
+}
+.plane-bubble.is-below.hidden {
+  transform: translate(-12px, 28px);
+}
+.plane-bubble.is-below.is-out {
+  transform: translate(-12px, -8px);
 }
 .plane-bubble.is-occluded {
   opacity: 0;
