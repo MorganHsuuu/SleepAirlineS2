@@ -1966,21 +1966,66 @@ function setLocalAvatar(pid, dataUrl) {
     if (pid && dataUrl) localStorage.setItem(avatarStorageKey(pid), dataUrl);
   } catch { /* quota */ }
 }
-function photoForFlight(f) {
-  if (f?.idPhotoUrl) return f.idPhotoUrl;
-  if (passenger && f?.passengerId === passenger.passengerId) {
-    return passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || '';
-  }
-  return '';
+function photoIdentity(url) {
+  return String(url || '').trim().split('#')[0].split('?')[0];
 }
-function avatarInnerHtml(name, photoUrl) {
-  if (photoUrl) return `<img src="${escHtml(photoUrl)}" alt="">`;
-  return escHtml((name || '?').slice(0, 1));
+const shownPhotoByPassenger = new Map();
+function stablePhotoUrl(passengerId, url) {
+  const key = String(passengerId || '');
+  const next = String(url || '').trim();
+  if (!key) return next;
+  if (!next) {
+    shownPhotoByPassenger.delete(key);
+    return '';
+  }
+  const prev = shownPhotoByPassenger.get(key) || '';
+  if (prev && photoIdentity(prev) === photoIdentity(next)) return prev;
+  shownPhotoByPassenger.set(key, next);
+  return next;
+}
+function photoForFlight(f) {
+  let url = '';
+  if (f?.idPhotoUrl) url = f.idPhotoUrl;
+  else if (passenger && f?.passengerId === passenger.passengerId) {
+    url = passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || '';
+  }
+  return stablePhotoUrl(f?.passengerId, url);
+}
+function reuseSignedPhotoUrls(flights) {
+  const prev = new Map();
+  for (const f of groupFlights) {
+    if (f?.passengerId && f.idPhotoUrl) prev.set(f.passengerId, f.idPhotoUrl);
+  }
+  for (const f of flights) {
+    const oldUrl = prev.get(f.passengerId);
+    if (oldUrl && f.idPhotoUrl && photoIdentity(oldUrl) === photoIdentity(f.idPhotoUrl)) {
+      f.idPhotoUrl = oldUrl;
+    }
+  }
+  return flights;
 }
 function paintAvatarEl(el, name, photoUrl) {
   if (!el) return;
-  if (photoUrl) el.innerHTML = `<img src="${escHtml(photoUrl)}" alt="">`;
-  else el.textContent = (name || '＋').slice(0, 1);
+  if (el.classList.contains('avatar')) {
+    el.style.background = avatarColor(name);
+  }
+  const img = el.querySelector('img');
+  if (photoUrl) {
+    if (img) {
+      const current = img.getAttribute('src') || '';
+      if (current !== photoUrl && photoIdentity(current) !== photoIdentity(photoUrl)) {
+        img.src = photoUrl;
+      }
+      return;
+    }
+    const next = document.createElement('img');
+    next.alt = '';
+    next.src = photoUrl;
+    el.replaceChildren(next);
+    return;
+  }
+  const initial = (name || '＋').slice(0, 1);
+  if (img || el.textContent !== initial) el.textContent = initial;
 }
 function compressImageFile(file) {
   return new Promise((resolve, reject) => {
@@ -2914,33 +2959,104 @@ async function playBroadcastWithWave(text, style, {
 
 // ── 看板 ─────────────────────────────────────────────────────────────────────
 
+function trimElementChildren(el, count) {
+  while (el.children.length > count) el.removeChild(el.lastElementChild);
+}
+
+function syncBoardStatusTag(row, flying, landed) {
+  const go = row.querySelector('.brow-go');
+  let tag = row.querySelector('.tag-fly, .tag-land');
+  const wantClass = flying ? 'tag-fly' : landed ? 'tag-land' : '';
+  const wantText = flying ? tt('board.tagFlying') : landed ? tt('board.tagLanded') : '';
+  if (!wantClass) {
+    tag?.remove();
+    return;
+  }
+  if (!tag || !tag.classList.contains(wantClass)) {
+    tag?.remove();
+    tag = document.createElement('span');
+    tag.className = wantClass;
+    row.insertBefore(tag, go);
+  }
+  if (tag.textContent !== wantText) tag.textContent = wantText;
+}
+
+function syncBoardRow(row, f, i) {
+  row.setAttribute('role', 'button');
+  row.tabIndex = 0;
+  row.dataset.idx = String(i);
+
+  let avatar = row.querySelector('.avatar');
+  let info = row.querySelector('.brow-info');
+  let go = row.querySelector('.brow-go');
+  if (!avatar || !info || !go) {
+    row.replaceChildren();
+    avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    info = document.createElement('div');
+    info.className = 'brow-info';
+    info.innerHTML = '<div class="brow-name"></div><div class="brow-sub"></div>';
+    go = document.createElement('span');
+    go.className = 'brow-go';
+    go.textContent = '›';
+    row.append(avatar, info, go);
+  }
+
+  paintAvatarEl(avatar, f.passengerName, photoForFlight(f));
+  const nameEl = info.querySelector('.brow-name');
+  const subEl = info.querySelector('.brow-sub');
+  if (nameEl && nameEl.textContent !== f.passengerName) nameEl.textContent = f.passengerName;
+  const sub = formatBoardRouteLine(f);
+  if (subEl && subEl.textContent !== sub) subEl.textContent = sub;
+  syncBoardStatusTag(row, f.status === 'in_flight', f.status === 'landed');
+}
+
+function syncBoardMemoItem(btn, f, i, memo) {
+  btn.type = 'button';
+  btn.className = 'board-memo-item';
+  btn.dataset.idx = String(i);
+  let avatar = btn.querySelector('.avatar');
+  let copy = btn.querySelector('.board-memo-copy');
+  if (!avatar || !copy) {
+    btn.replaceChildren();
+    avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    copy = document.createElement('div');
+    copy.className = 'board-memo-copy';
+    copy.innerHTML = '<div class="board-bc-meta"></div><div class="board-bc-text"></div>';
+    btn.append(avatar, copy);
+  }
+  paintAvatarEl(avatar, f.passengerName, photoForFlight(f));
+  const meta = copy.querySelector('.board-bc-meta');
+  const text = copy.querySelector('.board-bc-text');
+  if (meta && meta.textContent !== f.passengerName) meta.textContent = f.passengerName;
+  if (text && text.textContent !== memo) text.textContent = memo;
+}
+
 function renderBoard() {
   $('bd-group').textContent = formatTerminalLabel(passenger?.groupId);
   const empty = $('bd-empty'), listEl = $('bd-list');
   if (!groupFlights.length) {
     empty.classList.remove('hidden');
-    listEl.innerHTML = '';
+    listEl.replaceChildren();
     $('bd-broadcasts').classList.add('hidden');
     return;
   }
   empty.classList.add('hidden');
 
-  listEl.innerHTML = groupFlights.map((f, i) => {
-    const flying = f.status === 'in_flight';
-    const sub = formatBoardRouteLine(f);
-    const tag = flying
-      ? `<span class="tag-fly">${escHtml(tt('board.tagFlying'))}</span>`
-      : f.status === 'landed' ? `<span class="tag-land">${escHtml(tt('board.tagLanded'))}</span>` : '';
-    const photo = photoForFlight(f);
-    return `<div class="brow" role="button" tabindex="0" data-idx="${i}">
-      <div class="avatar" style="background:${photo ? 'transparent' : avatarColor(f.passengerName)}">${avatarInnerHtml(f.passengerName, photo)}</div>
-      <div class="brow-info">
-        <div class="brow-name">${f.passengerName}</div>
-        <div class="brow-sub">${sub}</div>
-      </div>${tag}
-      <span class="brow-go">›</span>
-    </div>`;
-  }).join('');
+  if ([...listEl.children].some((el) => !el.classList.contains('brow'))) {
+    listEl.replaceChildren();
+  }
+  groupFlights.forEach((f, i) => {
+    let row = listEl.children[i];
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'brow';
+      listEl.appendChild(row);
+    }
+    syncBoardRow(row, f, i);
+  });
+  trimElementChildren(listEl, groupFlights.length);
 
   const notes = groupFlights
     .map((f, i) => ({ f, i, memo: String(f.textMemo || '').trim() }))
@@ -2948,18 +3064,23 @@ function renderBoard() {
   $('bd-broadcasts').classList.remove('hidden');
   const list = $('bd-broadcasts-list');
   if (!notes.length) {
-    list.innerHTML = `<div class="board-bc-item board-memo-empty">${escHtml(tt('board.memosEmpty'))}</div>`;
+    const emptyMemo = list.querySelector('.board-memo-empty');
+    if (list.children.length === 1 && emptyMemo) {
+      emptyMemo.textContent = tt('board.memosEmpty');
+    } else {
+      list.innerHTML = `<div class="board-bc-item board-memo-empty">${escHtml(tt('board.memosEmpty'))}</div>`;
+    }
   } else {
-    list.innerHTML = notes.map(({ f, i, memo }) => {
-      const photo = photoForFlight(f);
-      return `<button type="button" class="board-memo-item" data-idx="${i}">
-        <div class="avatar" style="background:${photo ? 'transparent' : avatarColor(f.passengerName)}">${avatarInnerHtml(f.passengerName, photo)}</div>
-        <div class="board-memo-copy">
-          <div class="board-bc-meta">${escHtml(f.passengerName)}</div>
-          <div class="board-bc-text">${escHtml(memo)}</div>
-        </div>
-      </button>`;
-    }).join('');
+    if (list.querySelector('.board-memo-empty')) list.replaceChildren();
+    notes.forEach(({ f, i, memo }, idx) => {
+      let btn = list.children[idx];
+      if (!btn) {
+        btn = document.createElement('button');
+        list.appendChild(btn);
+      }
+      syncBoardMemoItem(btn, f, i, memo);
+    });
+    trimElementChildren(list, notes.length);
   }
   if ($('compass-sheet')?.classList.contains('show')) Compass.refreshFriends();
 }
@@ -5371,7 +5492,7 @@ async function fetchBoard() {
       }
     }
     if (flights.length || results.some((r) => r.status === 'fulfilled')) {
-      groupFlights = flights.sort((a, b) => {
+      groupFlights = reuseSignedPhotoUrls(flights).sort((a, b) => {
         const at = new Date(a.landingTime || a.takeoffTime || 0).getTime();
         const bt = new Date(b.landingTime || b.takeoffTime || 0).getTime();
         return bt - at;
