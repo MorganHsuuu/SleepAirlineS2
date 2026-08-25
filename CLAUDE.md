@@ -62,7 +62,8 @@ npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini          # 廣播文字，選填
 OPENAI_TTS_MODEL=tts-1            # 語音
-OPENAI_IMAGE_MODEL=gpt-image-1-mini   # 降落風景圖
+OPENAI_IMAGE_MODEL=gpt-image-2        # 降落風景圖，選填（預設值）
+OPENAI_IMAGE_QUALITY=low              # 快速生成；可改 medium / high
 # OPENAI_TTS_VOICE=onyx           # 選填
 ```
 

@@ -7,27 +7,31 @@ export interface SceneryGenerationResult {
   filename: string;
 }
 
+export const DEFAULT_SCENERY_IMAGE_MODEL = 'gpt-image-2';
+export const DEFAULT_SCENERY_IMAGE_QUALITY = 'low';
+
 export function buildSceneryPrompt(city: string, country: string, displayName: string): string {
   const place = displayName || `${city}, ${country}`;
   return [
-    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
-    `Art style: stylized 3D animated film look — soft Pixar-like cartoon rendering,`,
-    `NOT photorealistic, NOT live-action, NOT illustration or watercolor.`,
-    `Depict the real geography of this exact location: the place name may be written in Chinese,`,
-    `but the scenery must match the actual place on the map, never the language of the name —`,
-    `do not default to Chinese or East-Asian architecture unless the place is actually in such a region.`,
-    `If ${city} is famous for architecture, show its true iconic landmarks and authentic local building styles.`,
-    `If the place is defined by nature (polar ice, glaciers, atolls, desert, tundra, open mountains),`,
-    `show ONLY that natural landscape with wildlife typical of the region —`,
-    `never invent buildings, temples, pagodas or towns that do not exist there.`,
-    `Rounded friendly forms, smooth CGI surfaces, subtle subsurface glow,`,
-    `charmingly exaggerated landmarks that feel instantly recognizable.`,
-    `Golden sunrise light, hopeful just-woke-up arrival feeling;`,
-    `bright saturated palette: warm gold, peach, fresh morning-blue sky, soft volumetric haze;`,
-    `gentle window-glass reflection at the frame edges — dreamy, luminous, family-friendly.`,
+    `Create a premium dimensional travel postcard of ${place}, seen during a gentle airplane descent.`,
+    `The destination must be instantly recognizable without relying on text.`,
+    `Use a polished handcrafted 3D relief / miniature-diorama aesthetic: tactile depth, refined forms,`,
+    `cinematic composition and believable materials, but not photorealistic and not a generic toy scene.`,
+    `Build the image from the real visual DNA of ${city}, ${country}:`,
+    `accurate terrain and coastline or river pattern; one or two landmarks only if they truly exist there;`,
+    `authentic local architecture, street or roof materials, native vegetation and region-appropriate weather.`,
+    `Use a destination-specific color palette derived from the local landscape, craft traditions,`,
+    `building materials and natural light. Do not impose a universal orange-and-blue travel palette.`,
+    `Let the local colors dominate: preserve the characteristic mineral, botanical, coastal, desert,`,
+    `tropical, polar or urban hues that distinguish this place from every other destination.`,
+    `The place name may be provided in another language, but geography and culture must follow the actual location.`,
+    `Never substitute East-Asian motifs unless ${city}, ${country} genuinely calls for them.`,
+    `For nature-led destinations, prioritize the true landforms and ecosystem and do not invent a city.`,
+    `Show soft first light and a calm just-awakened arrival mood while keeping the destination's own palette intact.`,
+    `A very subtle airplane-window reflection may appear at the outer edge; keep the scenery large and unobstructed.`,
     `Absolutely no text of any kind anywhere in the image: no signs, billboards, banners,`,
     `storefront lettering, street markings, no letters, numbers or writing in any language.`,
-    `No close-up people, no watermark, no logos.`,
+    `No invented landmarks, no close-up people, no watermark, no logos.`,
   ].join(' ');
 }
 
@@ -36,12 +40,12 @@ export const SCENERY_IMAGE_SIZE = '1024x1024';
 
 /**
  * gpt-image 系列的生圖品質，可用 OPENAI_IMAGE_QUALITY 環境變數調整（low / medium / high）。
- * 生圖已改為降落後由伺服器背景完成，不趕過場時間，medium 的細節值得多等的十幾秒。
+ * gpt-image-2 的 low 適合即時降落圖：速度快，首張品質也優於 mini 草稿模型。
  */
 type GptImageQuality = 'low' | 'medium' | 'high';
 function resolveImageQuality(): GptImageQuality {
   const q = process.env.OPENAI_IMAGE_QUALITY?.toLowerCase();
-  return q === 'low' || q === 'medium' || q === 'high' ? q : 'medium';
+  return q === 'low' || q === 'medium' || q === 'high' ? q : DEFAULT_SCENERY_IMAGE_QUALITY;
 }
 
 function safeFilename(city: string, flightId: string): string {
@@ -63,7 +67,7 @@ export async function generateLandingScenery(
 
   const imagePrompt = buildSceneryPrompt(city, country, displayName);
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1-mini';
+  const model = process.env.OPENAI_IMAGE_MODEL ?? DEFAULT_SCENERY_IMAGE_MODEL;
   const useGptImage = isGptImageModel(model);
 
   try {

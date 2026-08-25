@@ -258,4 +258,5 @@ curl -X POST https://sleep-airline-s2.vercel.app/api/scenery/backfill \
 | `NOTION_LANDSCAPE_DB_ID` | Landing Scenery | 用主辦提供的 ID（生圖時） |
 | `NOTION_PARENT_PAGE_ID` | 自動尋表／建表 | **勿設定**；避免建出孤島庫 |
 | `OPENAI_API_KEY` | 廣播／生圖 | 各組可用自己的 key |
-| `OPENAI_IMAGE_MODEL` | 生圖模型 | 選填，預設 `gpt-image-1-mini` |
+| `OPENAI_IMAGE_MODEL` | 生圖模型 | 選填，預設 `gpt-image-2` |
+| `OPENAI_IMAGE_QUALITY` | 生圖品質 | 選填，預設 `low`（快速）；可改 `medium` / `high` |

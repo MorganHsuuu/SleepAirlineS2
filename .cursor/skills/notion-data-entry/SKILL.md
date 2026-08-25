@@ -83,7 +83,7 @@ Phase 1 — UI 改造
   · 契約說明：docs/WORKSHOP_CONTRACT.md
 
 Phase 2 — 機長 AI
-  · Vercel 加 OPENAI_API_KEY、OPENAI_TTS_MODEL=tts-1、OPENAI_IMAGE_MODEL=gpt-image-1-mini
+  · Vercel 加 OPENAI_API_KEY、OPENAI_TTS_MODEL=tts-1、OPENAI_IMAGE_MODEL=gpt-image-2、OPENAI_IMAGE_QUALITY=low
   · Redeploy → 測廣播／語音／風景圖
 
 Phase 3 — 主辦 Notion（主辦發連線資訊後）
@@ -114,7 +114,8 @@ Phase 3 — 主辦 Notion（主辦發連線資訊後）
 ```bash
 OPENAI_API_KEY=sk-...
 OPENAI_TTS_MODEL=tts-1
-OPENAI_IMAGE_MODEL=gpt-image-1-mini
+OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_QUALITY=low
 ```
 
 **Phase 3** — 主辦 Notion（必填前三項）
@@ -126,7 +127,8 @@ NOTION_LANDSCAPE_DB_ID=...
 
 # 選填
 OPENAI_API_KEY=sk-...
-OPENAI_IMAGE_MODEL=gpt-image-1-mini
+OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_QUALITY=low
 ```
 
 ## 主辦方要做的事
