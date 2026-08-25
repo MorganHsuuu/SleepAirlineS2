@@ -19,7 +19,15 @@ export async function resolveGroupSocialCue(
   current: CurrentFlightContext,
   groupFlights: Flight[]
 ): Promise<SocialCue> {
-  const candidates = collectSocialCueCandidates(current, groupFlights)
+  const others = groupFlights.filter((flight) => {
+    if (flight.passengerId && current.passengerId && flight.passengerId === current.passengerId) {
+      return false;
+    }
+    const relatedName = String(flight.passengerName || '').trim().toLowerCase();
+    const selfName = String(current.passengerName || '').trim().toLowerCase();
+    return !relatedName || relatedName !== selfName;
+  });
+  const candidates = collectSocialCueCandidates(current, others)
     .filter((candidate) => {
       const related = candidate.relatedPassenger?.trim();
       if (!related) return true;

@@ -3,6 +3,7 @@ import {
   getNotionClient, isNotionConfigured,
   readTitle, readText, readSelect, readNumber, readDate,
 } from './client';
+import { readIdPhotoUrl } from './id-photo';
 import { resolveDashboardDbId } from './ensure-dashboard';
 
 const DEFAULT_LOCATION = 'Taipei, Taiwan';
@@ -79,6 +80,7 @@ function parsePassengerFromFlightRow(
     currentLongitude,
     lastFlightId: readFlightId(props) || null,
     status: status === 'not_started' ? 'landed' : status,
+    idPhotoUrl: readIdPhotoUrl(props),
     createdAt: readDate(props, 'Created At') ?? new Date().toISOString(),
     updatedAt: readDate(props, 'Updated At') ?? new Date().toISOString(),
   };
@@ -100,6 +102,7 @@ function defaultPassenger(
     currentLongitude: DEFAULT_LNG,
     lastFlightId: null,
     status: 'not_started',
+    idPhotoUrl: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -208,6 +211,7 @@ export function syncMemPassenger(
     lastFlightId?: string;
     name?: string;
     groupId?: string;
+    idPhotoUrl?: string | null;
   }
 ): void {
   const p = mem.get(passengerId);
@@ -219,5 +223,6 @@ export function syncMemPassenger(
   if (updates.lastFlightId !== undefined) p.lastFlightId = updates.lastFlightId;
   if (updates.name !== undefined) p.name = updates.name;
   if (updates.groupId !== undefined) p.groupId = updates.groupId;
+  if (updates.idPhotoUrl !== undefined) p.idPhotoUrl = updates.idPhotoUrl;
   p.updatedAt = new Date().toISOString();
 }

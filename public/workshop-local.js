@@ -285,6 +285,7 @@
         currentLocation: DEFAULT_LOCATION,
         currentLatitude: DEFAULT_LAT,
         currentLongitude: DEFAULT_LNG,
+        idPhotoUrl: null,
       };
     } else {
       p.name = name;
@@ -312,6 +313,10 @@
     }
 
     store.passengers[passengerId] = p;
+    const latestPhoto = [...store.flights]
+      .reverse()
+      .find((f) => f.passengerId === passengerId && f.idPhotoUrl)?.idPhotoUrl;
+    if (latestPhoto && !p.idPhotoUrl) p.idPhotoUrl = latestPhoto;
     saveStore(store);
 
     const lastLandedFlight = p.status !== 'in_flight'
@@ -364,9 +369,18 @@
       takeoffBroadcast,
       captainBroadcast: null,
       socialCueType: 'solo',
-      socialCueText: locale === 'en' ? 'You are flying alone tonight.' : '今晚您獨自飛行。',
+      socialCueText: locale === 'en'
+        ? 'Tonight the sky is yours alone.'
+        : '今晚你獨自享受這片天空。同組雷達上暫時只有你一人。',
       relatedPassenger: null,
+      textMemo: '',
+      idPhotoUrl: p.idPhotoUrl || (typeof body.idPhotoBase64 === 'string' ? body.idPhotoBase64 : null),
     };
+
+    if (typeof body.idPhotoBase64 === 'string' && body.idPhotoBase64.startsWith('data:image/')) {
+      p.idPhotoUrl = body.idPhotoBase64;
+      flight.idPhotoUrl = body.idPhotoBase64;
+    }
 
     store.flights.push(flight);
     p.status = 'in_flight';
@@ -477,6 +491,26 @@
     const path = u.pathname;
 
     if (method === 'POST' && path === '/api/passenger') return handlePassenger(body);
+    if (method === 'POST' && path === '/api/passenger/avatar') {
+      const store = loadStore();
+      const p = store.passengers[body.passengerId];
+      if (!p) throw new Error('請先登入。');
+      p.idPhotoUrl = body.imageDataUrl || p.idPhotoUrl;
+      store.flights.forEach((f) => {
+        if (f.passengerId === body.passengerId) f.idPhotoUrl = p.idPhotoUrl;
+      });
+      saveStore(store);
+      return { idPhotoUrl: p.idPhotoUrl, pending: false };
+    }
+    if (method === 'POST' && path === '/api/flight/memo') {
+      const store = loadStore();
+      const flight = store.flights.find((f) => f.passengerId === body.passengerId && f.status === 'in_flight');
+      if (!flight) throw new Error('找不到進行中的航班。');
+      const memo = Array.from(String(body.textMemo || '')).slice(0, 10).join('');
+      flight.textMemo = memo;
+      saveStore(store);
+      return { textMemo: memo, flight: enrichFlight(flight) };
+    }
     if (method === 'POST' && path === '/api/flight/takeoff') return handleTakeoff(body);
     if (method === 'POST' && path === '/api/flight/land') return handleLand(body);
     if (method === 'GET' && path === '/api/board') return handleBoard(u.searchParams.get('groupId') || '');

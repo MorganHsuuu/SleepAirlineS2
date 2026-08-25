@@ -9,6 +9,7 @@ import {
   readDate,
 } from './client';
 import { resolveDashboardDbId } from './ensure-dashboard';
+import { readIdPhotoUrl } from './id-photo';
 import { calculateFlightProgress } from '../flight/progress';
 import { getNarrativeRegion } from '../flight/region';
 
@@ -62,6 +63,8 @@ export function parseFlightFromPage(page: Record<string, unknown>): Flight {
     socialCueType: readSelect(props, 'Social Cue Type') as Flight['socialCueType'],
     socialCueText: readText(props, 'Social Cue Text') || null,
     relatedPassenger: readText(props, 'Related Passenger') || null,
+    textMemo: readText(props, 'Text memo') || null,
+    idPhotoUrl: readIdPhotoUrl(props),
     createdAt: readDate(props, 'Created At') ?? new Date().toISOString(),
     updatedAt: readDate(props, 'Updated At') ?? new Date().toISOString(),
   };

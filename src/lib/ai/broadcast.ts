@@ -186,6 +186,8 @@ Identity (critical):
 - Never speak as the passenger
 - Address them as “passengers” or “${pax}”; never call yourself by the passenger name
 - Use the given name directly; do not add Mr/Ms/Mrs
+- Squad lines are about FRIENDS only — never say the addressee has already taken off
+- If squad social is solo / first of night: one line that they get the sky to themselves; do not restate their own takeoff
 
 Geography (critical):
 - Use the broadcast place labels; do not recite hard romanization
@@ -223,6 +225,8 @@ ${STYLE_DESCRIPTIONS.zh[style]}
 - 禁止冒充乘客、禁止用第一人稱代替乘客說話
 - 用「各位乘客」或「${pax}」稱呼對方；不要稱自己為乘客姓名
 - 稱呼乘客時直接使用名字，禁止附加「先生」「女士」「小姐」或「先生／女士」
+- 社交句只講隊友，禁止說正在聽廣播的乘客「已經起飛」
+- 若【同組社交】是獨自／今晚第一班：改說獨自享受這片天空，不要複誦本班乘客姓名＋已起飛
 
 地理（非常重要）：
 - 使用【廣播用地名】；不要照念難懂的羅馬字、音標、撇號地名
@@ -271,8 +275,8 @@ export async function generateCaptainBroadcast(input: BroadcastInput): Promise<s
 
   const socialLine = input.socialCue.cueType === 'solo'
     ? (locale === 'en'
-      ? '(No other squad flights — skip social, or one line that the radar shows only you tonight.)'
-      : '（同組暫無其他航班，可略過社交句，或一句「小隊雷達上今晚只有你一人」）')
+      ? '(No other squad flights — one line that they have the sky to themselves tonight; do not say this passenger already took off.)'
+      : '（同組暫無其他航班：一句「今晚這片天空先交給你獨享」，禁止說乘客本人已經起飛）')
     : buildSocialBlock(input.socialCue, locale);
 
   const takeoffUser = locale === 'en'

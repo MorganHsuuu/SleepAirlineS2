@@ -53,7 +53,7 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
     case 'fresh_arrival':
       return `${name} 剛在 ${candidate.facts.arrivalLocation} 降落。`;
     case 'first_of_night':
-      return `${String(candidate.facts.passengerName ?? '你')} 是小隊今晚第一班起飛的航班。`;
+      return '今晚這片天空先交給你獨享，小隊雷達上還沒有其他航班。';
     case 'relay_flight':
       return `你已降落，${name} 仍在夜航中，從 ${candidate.facts.teammateDeparture} 繼續替小隊飛。`;
     case 'early_landing':
@@ -62,7 +62,7 @@ export function fallbackSocialCueText(candidate: SocialCueCandidate): string {
       return `${name} 在你之後也降落在 ${candidate.facts.arrivalLocation}。`;
     case 'solo':
     default:
-      return '今晚你獨自飛行。同組雷達上暫時只有你一人。';
+      return '今晚你獨自享受這片天空。同組雷達上暫時只有你一人。';
   }
 }
 
@@ -71,7 +71,9 @@ const TAKEOFF_SOCIAL_RULES = `
 - 禁止：即將、將要、X 分鐘內、快抵達、下降、預計到達、即將降落
 - 禁止把隊友所在城市／空域寫成「快要降落的地方」
 - 如果 teammateStatus 是「飛行中」，禁止寫成已降落
-- 如果只提供一位 teammateName，禁止寫成「隊友們」或「大家都」`;
+- 如果只提供一位 teammateName，禁止寫成「隊友們」或「大家都」
+- 禁止把本班乘客姓名寫成已起飛／正在飛的隊友
+- first_of_night 或 solo：寫獨享天空，不要複誦乘客本人已經起飛`;
 
 export async function generateSocialCueText(
   candidate: SocialCueCandidate,

@@ -480,6 +480,12 @@
       <div class="fx-status">
         <div class="fx-title" id="takeoff-fx-title">塔台連線中…</div>
         <div class="fx-sub" id="takeoff-fx-sub">塔台連線中 · 請稍候…</div>
+        <label class="fx-memo" id="takeoff-memo-wrap">
+          <span class="fx-memo-label" data-i18n="fx.memoLabel">給夜空的一句話</span>
+          <input id="takeoff-memo" class="fx-memo-input" maxlength="10" autocomplete="off"
+            placeholder="最多十字，可空白" data-i18n-placeholder="fx.memoPh">
+          <span class="fx-memo-count" id="takeoff-memo-count">0 / 10</span>
+        </label>
         <div class="fx-bar"><i></i></div>
       </div>
     </div>
@@ -533,6 +539,11 @@
       <button type="button" class="brand-menu-close" id="brand-menu-close" aria-label="Close">×</button>
       <div class="brand-menu-account">
         <span class="brand-menu-kicker" data-i18n="account.kicker">帳戶</span>
+        <button type="button" class="brand-avatar-btn" id="btn-avatar" aria-label="上傳頭像" data-i18n-aria="account.avatarAria">
+          <span class="brand-avatar" id="brand-avatar" aria-hidden="true">＋</span>
+          <span class="brand-avatar-hint" data-i18n="account.avatarHint">點擊更換頭像</span>
+        </button>
+        <input type="file" id="input-avatar" accept="image/*" hidden>
         <div class="brand-menu-name" id="brand-menu-name">—</div>
       </div>
       <div class="brand-menu-row">
@@ -560,6 +571,29 @@
         >Morgan Hsu</a>
       </p>
     </div>
+  </div>
+
+  <div id="plane-bubble" class="plane-bubble hidden" hidden>
+    <div class="plane-bubble-card" id="plane-bubble-card">
+      <div class="plane-bubble-who">
+        <div class="plane-bubble-av" id="plane-bubble-av"></div>
+        <div class="plane-bubble-name" id="plane-bubble-name">—</div>
+      </div>
+      <p class="plane-bubble-memo" id="plane-bubble-memo"></p>
+    </div>
+  </div>
+
+  <div id="avatar-prompt" class="avatar-prompt hidden" aria-hidden="true">
+    <div class="avatar-prompt-backdrop" id="avatar-prompt-backdrop"></div>
+    <section class="avatar-prompt-card glass" role="dialog" aria-modal="true" aria-labelledby="avatar-prompt-title">
+      <p class="avatar-prompt-kicker" data-i18n="avatar.kicker">護照照片</p>
+      <h2 id="avatar-prompt-title" data-i18n="avatar.title">要設定頭像嗎？</h2>
+      <p class="avatar-prompt-copy" data-i18n="avatar.copy">小隊看板與飛機氣泡會用這張照片。現在沒有的話，下次登入還會再問一次。</p>
+      <div class="avatar-prompt-actions">
+        <button type="button" class="btn-soft" id="avatar-prompt-later" data-i18n="avatar.later">稍後</button>
+        <button type="button" class="btn-soft btn-soft--share" id="avatar-prompt-now" data-i18n="avatar.now">上傳照片</button>
+      </div>
+    </section>
   </div>
 
   <div id="share-preview" class="share-preview hidden" aria-hidden="true">

@@ -64,6 +64,8 @@ function flight(partial: Partial<Flight> & Pick<Flight, 'passengerId' | 'passeng
     socialCueType: null,
     socialCueText: null,
     relatedPassenger: null,
+    textMemo: null,
+    idPhotoUrl: null,
     createdAt: '2026-07-11T15:00:00.000Z',
     updatedAt: '2026-07-11T15:00:00.000Z',
   };

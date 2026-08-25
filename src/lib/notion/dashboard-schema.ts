@@ -68,6 +68,8 @@ export const DASHBOARD_PROPERTY_ORDER = [
   'Social Cue Type',
   'Social Cue Text',
   'Related Passenger',
+  'ID photo',
+  'Text memo',
   // 系統
   'Created At',
   'Updated At',
@@ -101,6 +103,8 @@ export function getDashboardProperties() {
     'Social Cue Type': { select: { options: SOCIAL_CUE_OPTIONS } },
     'Social Cue Text': { rich_text: {} },
     'Related Passenger': { rich_text: {} },
+    'ID photo': { files: {} },
+    'Text memo': { rich_text: {} },
     // ── 系統 ──
     'Created At': { date: {} },
     'Updated At': { date: {} },

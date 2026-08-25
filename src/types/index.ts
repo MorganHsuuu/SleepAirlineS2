@@ -55,6 +55,7 @@ export interface Passenger {
   currentLongitude: number;
   lastFlightId: string | null;
   status: PassengerStatus;
+  idPhotoUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,6 +86,8 @@ export interface Flight {
   socialCueType: SocialCueType | null;
   socialCueText: string | null;
   relatedPassenger: string | null;
+  textMemo: string | null;
+  idPhotoUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

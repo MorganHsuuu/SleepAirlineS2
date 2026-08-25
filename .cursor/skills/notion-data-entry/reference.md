@@ -149,6 +149,8 @@ unknown
 | Social Cue Type | Select | 見下方 |
 | Social Cue Text | Text | 社交提示文案 |
 | Related Passenger | Text | 相關乘客姓名或 ID |
+| ID photo | Files | 乘客頭像；上傳前會壓縮 |
+| Text memo | Text | 起飛留言，最多 10 字，可空白 |
 
 ### Social Cue Type
 

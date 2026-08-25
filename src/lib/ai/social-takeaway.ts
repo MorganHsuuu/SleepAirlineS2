@@ -101,7 +101,7 @@ export function fallbackSocialTakeaway(input: SocialTakeawayInput): string {
   switch (input.socialCue.cueType) {
     case 'solo':
       primary = input.phase === 'takeoff'
-        ? '今晚小隊雷達很安靜，你先起飛。'
+        ? '今晚這片天空先交給你獨享。'
         : '今晚你完成了一趟安靜的個人航班。';
       break;
     case 'teammate_departure':

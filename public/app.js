@@ -967,7 +967,7 @@ const Globe = (() => {
       .style('cursor', (d) => (Number.isInteger(d.idx) ? 'pointer' : null))
       .on('click', (ev, d) => {
         ev.stopPropagation();
-        if (Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+        if (Number.isInteger(d.idx)) onFriendPick?.(d.idx, ev);
       });
     routeHitSel.filter((d) => d.pick === 'trail')
       .style('cursor', 'pointer')
@@ -1109,7 +1109,7 @@ const Globe = (() => {
           .attr('fill', labelInk).attr('opacity', d.dim ? 0.35 : 1).text(d.label || '');
         const clickablePlane = Number.isInteger(d.idx);
         g.style('cursor', clickablePlane ? 'pointer' : null)
-          .on('click', clickablePlane ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
+          .on('click', clickablePlane ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx, ev); } : null);
         return;
       }
       if (d.kind === 'land-dot') {
@@ -1154,7 +1154,7 @@ const Globe = (() => {
           .on('click', clickableDot ? (ev) => {
             ev.stopPropagation();
             if (d.segment) onTrailPick?.(d.segment);
-            else if (Number.isInteger(d.idx)) onFriendPick?.(d.idx);
+            else if (Number.isInteger(d.idx)) onFriendPick?.(d.idx, ev);
           } : null);
         return;
       }
@@ -1181,7 +1181,7 @@ const Globe = (() => {
         .attr('pointer-events', clickable ? 'all' : 'none')
         .raise();
       g.style('cursor', clickable ? 'pointer' : null)
-        .on('click', clickable ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx); } : null);
+        .on('click', clickable ? (ev) => { ev.stopPropagation(); onFriendPick?.(d.idx, ev); } : null);
     });
   }
 
@@ -1933,6 +1933,161 @@ function avatarColor(name) {
   return AVATAR_COLORS[hsh % AVATAR_COLORS.length];
 }
 
+const TEXT_MEMO_MAX = 10;
+function avatarStorageKey(pid) {
+  return 'sleepAirline_avatar_' + String(pid || '');
+}
+function getLocalAvatar(pid) {
+  try { return localStorage.getItem(avatarStorageKey(pid)) || ''; } catch { return ''; }
+}
+function setLocalAvatar(pid, dataUrl) {
+  try {
+    if (pid && dataUrl) localStorage.setItem(avatarStorageKey(pid), dataUrl);
+  } catch { /* quota */ }
+}
+function photoForFlight(f) {
+  if (f?.idPhotoUrl) return f.idPhotoUrl;
+  if (passenger && f?.passengerId === passenger.passengerId) {
+    return passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || '';
+  }
+  return '';
+}
+function avatarInnerHtml(name, photoUrl) {
+  if (photoUrl) return `<img src="${escHtml(photoUrl)}" alt="">`;
+  return escHtml((name || '?').slice(0, 1));
+}
+function paintAvatarEl(el, name, photoUrl) {
+  if (!el) return;
+  if (photoUrl) el.innerHTML = `<img src="${escHtml(photoUrl)}" alt="">`;
+  else el.textContent = (name || '＋').slice(0, 1);
+}
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      reject(new Error('not-image'));
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 512;
+      const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
+      canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('decode'));
+    };
+    img.src = url;
+  });
+}
+function clampMemoInput(value) {
+  return Array.from(String(value || '')).slice(0, TEXT_MEMO_MAX).join('');
+}
+function syncTakeoffMemoCount() {
+  const input = $('takeoff-memo');
+  const count = $('takeoff-memo-count');
+  if (!input || !count) return;
+  const text = clampMemoInput(input.value);
+  if (input.value !== text) input.value = text;
+  count.textContent = `${Array.from(text).length} / ${TEXT_MEMO_MAX}`;
+}
+function setTakeoffMemoLocked(locked) {
+  const input = $('takeoff-memo');
+  const wrap = $('takeoff-memo-wrap');
+  if (input) input.disabled = !!locked;
+  wrap?.classList.toggle('is-locked', !!locked);
+}
+
+function renderBrandAvatar() {
+  const photo = passenger?.idPhotoUrl || getLocalAvatar(passenger?.passengerId) || '';
+  paintAvatarEl($('brand-avatar'), photo ? '' : '＋', photo);
+}
+
+let planeBubbleTimer = null;
+function hidePlaneBubble({ immediate = false } = {}) {
+  const el = $('plane-bubble');
+  if (!el) return;
+  if (planeBubbleTimer) {
+    clearTimeout(planeBubbleTimer);
+    planeBubbleTimer = null;
+  }
+  if (immediate) {
+    el.classList.add('hidden');
+    el.hidden = true;
+    el.classList.remove('is-out');
+    return;
+  }
+  el.classList.add('is-out');
+  setTimeout(() => {
+    el.classList.add('hidden');
+    el.hidden = true;
+    el.classList.remove('is-out');
+  }, 560);
+}
+function showPlaneBubble(f, ev) {
+  const el = $('plane-bubble');
+  if (!el || !f) return;
+  const photo = photoForFlight(f);
+  paintAvatarEl($('plane-bubble-av'), f.passengerName, photo);
+  $('plane-bubble-name').textContent = f.passengerName || tt('geo.teammate');
+  const memo = String(f.textMemo || '').trim();
+  $('plane-bubble-memo').textContent = memo;
+  const x = ev?.clientX ?? (window.innerWidth / 2);
+  const y = ev?.clientY ?? (window.innerHeight / 2);
+  el.style.left = `${Math.min(window.innerWidth - 24, Math.max(16, x))}px`;
+  el.style.top = `${Math.max(24, y - 8)}px`;
+  el.hidden = false;
+  el.classList.remove('hidden', 'is-out');
+  if (planeBubbleTimer) clearTimeout(planeBubbleTimer);
+  planeBubbleTimer = setTimeout(() => hidePlaneBubble(), 4200);
+}
+function hideAvatarPrompt() {
+  const el = $('avatar-prompt');
+  if (!el) return;
+  el.classList.add('hidden');
+  el.setAttribute('aria-hidden', 'true');
+}
+function maybePromptAvatar() {
+  if (!passenger || previewMode) return;
+  const hasPhoto = !!(passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId));
+  if (hasPhoto) return;
+  const el = $('avatar-prompt');
+  if (!el) return;
+  el.classList.remove('hidden');
+  el.setAttribute('aria-hidden', 'false');
+}
+async function uploadAvatarDataUrl(dataUrl) {
+  if (!passenger || !dataUrl) return false;
+  setLocalAvatar(passenger.passengerId, dataUrl);
+  passenger.idPhotoUrl = dataUrl;
+  renderBrandAvatar();
+  try {
+    const data = await api('POST', '/api/passenger/avatar', {
+      passengerId: passenger.passengerId,
+      imageDataUrl: dataUrl,
+    });
+    if (data.idPhotoUrl) passenger.idPhotoUrl = data.idPhotoUrl;
+    renderBrandAvatar();
+    await fetchBoard();
+    return true;
+  } catch {
+    showMsg('main', 'error', tt('account.avatarFail'));
+    return false;
+  }
+}
+async function pickAndUploadAvatar() {
+  const input = $('input-avatar');
+  if (!input) return;
+  input.value = '';
+  input.click();
+}
+
 // ── API Helper（workshop-local 相容）─────────────────────────────────────────
 
 async function api(method, url, body, { timeoutMs = 0 } = {}) {
@@ -2680,14 +2835,14 @@ function renderBoard() {
   empty.classList.add('hidden');
 
   listEl.innerHTML = groupFlights.map((f, i) => {
-    const initial = (f.passengerName || '?').slice(0, 1);
     const flying = f.status === 'in_flight';
     const sub = formatBoardRouteLine(f);
     const tag = flying
       ? `<span class="tag-fly">${escHtml(tt('board.tagFlying'))}</span>`
       : f.status === 'landed' ? `<span class="tag-land">${escHtml(tt('board.tagLanded'))}</span>` : '';
+    const photo = photoForFlight(f);
     return `<div class="brow" role="button" tabindex="0" data-idx="${i}">
-      <div class="avatar" style="background:${avatarColor(f.passengerName)}">${initial}</div>
+      <div class="avatar" style="background:${photo ? 'transparent' : avatarColor(f.passengerName)}">${avatarInnerHtml(f.passengerName, photo)}</div>
       <div class="brow-info">
         <div class="brow-name">${f.passengerName}</div>
         <div class="brow-sub">${sub}</div>
@@ -3425,6 +3580,30 @@ async function revealDockPanel(panelId) {
   panel.classList.remove('dock-panel--enter');
 }
 
+function resetTakeoffMemo() {
+  const input = $('takeoff-memo');
+  if (input) {
+    input.value = '';
+    input.disabled = false;
+  }
+  syncTakeoffMemoCount();
+}
+async function flushTakeoffMemo() {
+  setTakeoffMemoLocked(true);
+  const memo = clampMemoInput($('takeoff-memo')?.value);
+  if (!passenger || !activeFlight) return;
+  activeFlight.textMemo = memo;
+  try {
+    await api('POST', '/api/flight/memo', {
+      passengerId: passenger.passengerId,
+      flightId: activeFlight.flightId,
+      textMemo: memo,
+    }, { timeoutMs: 4500 });
+  } catch {
+    /* 起飛動畫仍繼續 */
+  }
+}
+
 function setTakeoffFxPhase(phase) {
   const fx = $('takeoff-fx');
   const video = $('takeoff-fx-video');
@@ -3435,7 +3614,9 @@ function setTakeoffFxPhase(phase) {
     pauseWindowVideo(video);
     animateFxLine('takeoff-fx-title', tt('fx.tower'));
     BroadcastAudio?.stopFlightSfx?.({ fade: false });
+    setTakeoffMemoLocked(false);
   } else if (phase === 'launch') {
+    setTakeoffMemoLocked(true);
     preloadTakeoffVideo();
     animateFxLine('takeoff-fx-title', tt('fx.launching'));
     // 原生 loop：避免 fade-seek 在手機上黑屏
@@ -3907,6 +4088,7 @@ function updateUI() {
   $('hdr-badge').textContent = statusLabel(passenger.status);
   const brandName = $('brand-menu-name');
   if (brandName) brandName.textContent = passenger.name || tt('account.kicker');
+  renderBrandAvatar();
 
   let showReady;
   let showFlight;
@@ -4732,6 +4914,8 @@ async function doLogin(e) {
     const data = await api('POST', '/api/passenger', { passengerId, name, groupId });
     previewMode = false;
     passenger = data.passenger;
+    const localPhoto = getLocalAvatar(passenger.passengerId);
+    if (localPhoto && !passenger.idPhotoUrl) passenger.idPhotoUrl = localPhoto;
     lastLandedFlight = data.lastLandedFlight || null;
     landingScenery = data.landingScenery || null;
     resetTakeoffPrep();
@@ -4762,7 +4946,12 @@ async function doLogin(e) {
       } catch { /* silent */ }
     })();
     void Promise.all([sceneryPromise, boardPromise]);
-    void window.SleepOnboarding?.start?.({ passengerId: passenger.passengerId });
+    void Promise.resolve(window.SleepOnboarding?.start?.({ passengerId: passenger.passengerId }))
+      .catch(() => {})
+      .then(() => {
+        if (localPhoto && !data.passenger?.idPhotoUrl) void uploadAvatarDataUrl(localPhoto);
+        else maybePromptAvatar();
+      });
   } catch (err) {
     showMsg('login', 'error', err.message);
     setLoginLoading(false);
@@ -4833,6 +5022,7 @@ async function doTakeoff() {
   try {
     await ensureMediaUnlocked();
     lockDockForFx('takeoff');
+    resetTakeoffMemo();
     showTakeoffFx(tt('fx.takeoffPrep'), { phase: 'prep' });
     BroadcastAudio?.startTowerSignalLoop?.();
     statusCycle = startFxStatusCycle('takeoff-fx-sub', [
@@ -4848,6 +5038,7 @@ async function doTakeoff() {
         groupId: passenger.groupId,
         routeDirection: $('tk-direction').value,
         locale: currentLocale(),
+        idPhotoBase64: passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || undefined,
       }, { timeoutMs: 52000 }),
       waitMs(TAKEOFF_FX_MS.prepMin),
       mediaPrime,
@@ -4875,6 +5066,7 @@ async function doTakeoff() {
     }
 
     await animateFxLine('takeoff-fx-sub', tt('fx.takeoffGo'));
+    await flushTakeoffMemo();
     setTakeoffFxPhase('launch');
     await waitTakeoffLaunchComplete();
 
@@ -5532,6 +5724,8 @@ function doLogout() {
   memorySceneryCache.clear();
   memorySceneryJobs.clear();
   closeSheets();
+  hideAvatarPrompt();
+  hidePlaneBubble({ immediate: true });
   stopAutoRefresh();
   stopFlightTicker();
   stopLandingReminderTimer();
@@ -5654,6 +5848,35 @@ $('bd-list').addEventListener('click', (e) => {
   if (!row) return;
   openMateFromBoard(groupFlights[+row.dataset.idx]);
 });
+$('takeoff-memo')?.addEventListener('input', () => {
+  syncTakeoffMemoCount();
+});
+$('btn-avatar')?.addEventListener('click', () => { void pickAndUploadAvatar(); });
+$('input-avatar')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file || !passenger) return;
+  try {
+    const dataUrl = await compressImageFile(file);
+    const ok = await uploadAvatarDataUrl(dataUrl);
+    if (ok) {
+      hideAvatarPrompt();
+      showMsg('main', 'success', tt('account.avatarOk'));
+    }
+  } catch {
+    showMsg('main', 'error', tt('account.avatarFail'));
+  }
+});
+$('avatar-prompt-later')?.addEventListener('click', hideAvatarPrompt);
+$('avatar-prompt-backdrop')?.addEventListener('click', hideAvatarPrompt);
+$('avatar-prompt-now')?.addEventListener('click', () => {
+  hideAvatarPrompt();
+  void pickAndUploadAvatar();
+});
+$('plane-bubble-card')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  hidePlaneBubble();
+});
 $('bd-list').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const row = e.target.closest('.brow');
@@ -5714,10 +5937,11 @@ $('globe-svg')?.addEventListener('click', (e) => {
     dismissLandedPanel();
     return;
   }
+  if (e.target.closest('.pt') || e.target.closest('.pt-pick')) return;
+  hidePlaneBubble();
   // 點空白處取消地圖軌跡焦點／單段選取（看板詳情開著時不處理；剛收起詳情的那一下也不算）
   if ((globeFocusPid || selectedTrailKey) && !document.body.classList.contains('sheet-open')) {
     if (Date.now() - mateSheetDismissedAt < 400) return;
-    if (e.target.closest('.pt') || e.target.closest('.pt-pick')) return;
     globeFocusPid = null;
     clearTrailSegmentSelection({ refresh: false });
     Globe.clearMate();
@@ -5738,7 +5962,12 @@ $('globe-svg')?.addEventListener('click', (e) => {
   else window.addEventListener('load', () => { Globe.init(); Globe.refreshPalette(); });
 
   // 點地球儀上的隊友／航點才展開詳細資訊；平常地圖維持純淨。
-  Globe.setFriendPick((idx) => { if (groupFlights[idx]) openMateFromBoard(groupFlights[idx]); });
+  Globe.setFriendPick((idx, ev) => {
+    const f = groupFlights[idx];
+    if (!f) return;
+    if (f.status === 'in_flight') showPlaneBubble(f, ev);
+    else openMateFromBoard(f);
+  });
   Globe.setTrailPick((seg) => selectTrailSegment(seg));
   $('trail-segment-close')?.addEventListener('click', (e) => {
     e.stopPropagation();

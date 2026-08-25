@@ -4,6 +4,7 @@ import {
   readTitle, readText, readSelect, readNumber, readDate,
   wTitle, wText, wSelect, wNumber, wDate,
 } from './client';
+import { hydrateFlightPhotos, readIdPhotoUrl } from './id-photo';
 import { resolveDashboardDbId } from './ensure-dashboard';
 import { syncMemPassenger } from './passengers';
 import { calculateFlightProgress } from '../flight/progress';
@@ -104,6 +105,8 @@ export function parseFlight(page: Record<string, unknown>): Flight {
     socialCueType: readSelect(props, 'Social Cue Type') as SocialCueType | null,
     socialCueText: readText(props, 'Social Cue Text') || null,
     relatedPassenger: readText(props, 'Related Passenger') || null,
+    textMemo: readText(props, 'Text memo') || null,
+    idPhotoUrl: readIdPhotoUrl(props),
     createdAt: readDate(props, 'Created At') ?? new Date().toISOString(),
     updatedAt: readDate(props, 'Updated At') ?? new Date().toISOString(),
   };
@@ -154,9 +157,12 @@ export async function createFlight(params: {
       takeoffBroadcastStyle: null, takeoffBroadcast: null,
       captainBroadcast: null,
       socialCueType: null, socialCueText: null, relatedPassenger: null,
+      textMemo: null, idPhotoUrl: null,
       createdAt: now, updatedAt: now,
     };
     mem.push(f);
+    const prevPhoto = [...mem].reverse().find((x) => x.passengerId === params.passengerId && x.idPhotoUrl)?.idPhotoUrl;
+    if (prevPhoto) f.idPhotoUrl = prevPhoto;
     syncMemPassenger(params.passengerId, {
       status: 'in_flight',
       lastFlightId: flightId,
@@ -194,6 +200,7 @@ export async function createFlight(params: {
       'Social Cue Type': wSelect(null),
       'Social Cue Text': wText(null),
       'Related Passenger': wText(null),
+      'Text memo': wText(null),
       'Created At': wDate(now),
       'Updated At': wDate(now),
   };
@@ -249,6 +256,7 @@ export async function updateFlight(
     socialCueType: SocialCueType;
     socialCueText: string;
     relatedPassenger: string;
+    textMemo: string;
   }>
 ): Promise<void> {
   if (!isNotionConfigured()) {
@@ -293,6 +301,7 @@ export async function updateFlight(
   if (updates.socialCueType !== undefined) fullProperties['Social Cue Type'] = wSelect(updates.socialCueType);
   if (updates.socialCueText !== undefined) fullProperties['Social Cue Text'] = wText(updates.socialCueText);
   if (updates.relatedPassenger !== undefined) fullProperties['Related Passenger'] = wText(updates.relatedPassenger);
+  if (updates.textMemo !== undefined) fullProperties['Text memo'] = wText(updates.textMemo);
 
   const properties = pickExistingProperties(fullProperties, allowed);
 
@@ -386,7 +395,7 @@ export async function getLastLandedFlight(passengerId: string): Promise<Flight |
 }
 
 export async function getGroupBoardFlights(groupId: string): Promise<Flight[]> {
-  const flights = await queryGroupFlightsByStatus(groupId, ['in_flight', 'landed']);
+  const flights = hydrateFlightPhotos(await queryGroupFlightsByStatus(groupId, ['in_flight', 'landed']));
   return buildGroupBoardFlights(flights);
 }
 
@@ -424,6 +433,13 @@ export async function getGroupFlights(
   return result.results
     .map((p) => parseFlight(p as unknown as Record<string, unknown>))
     .filter((f) => f.status === 'in_flight' || f.status === 'landed');
+}
+
+export function applyMemIdPhoto(passengerId: string, idPhotoUrl: string): void {
+  for (const flight of mem) {
+    if (flight.passengerId === passengerId) flight.idPhotoUrl = idPhotoUrl;
+  }
+  syncMemPassenger(passengerId, { idPhotoUrl });
 }
 
 export async function getAllActiveFlights(): Promise<Flight[]> {

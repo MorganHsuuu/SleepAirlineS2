@@ -7,7 +7,7 @@ import { join } from 'path';
 import { getOrCreatePassenger } from './src/lib/notion/passengers';
 import {
   createFlight, getActiveFlight, updateFlight, getGroupFlights, getGroupBoardFlights,
-  getLastLandedFlight, getAllActiveFlights, parseFlight,
+  getLastLandedFlight, getAllActiveFlights, parseFlight, applyMemIdPhoto,
 } from './src/lib/notion/flights';
 import { getAvailableDestinations, seedDestinations } from './src/lib/notion/destinations';
 import { calculateFlightDistance } from './src/lib/flight/distance';
@@ -25,6 +25,12 @@ import { backfillSceneryForFlights, generateSceneryForLanding } from './src/lib/
 import { runInBackground } from './src/lib/run-in-background';
 import { withTimeout } from './src/lib/with-timeout';
 import { getDataModeStatus } from './src/lib/data-mode';
+import { isNotionConfigured } from './src/lib/notion/client';
+import {
+  attachIdPhotoToPage,
+  clampTextMemo,
+  savePassengerIdPhoto,
+} from './src/lib/notion/id-photo';
 import { getVapidPublicKey, isWebPushConfigured } from './src/lib/reminders/push';
 import {
   isPersistentReminderStoreConfigured,
@@ -40,7 +46,7 @@ import type { RouteDirection, BroadcastStyle, NarrativeRegion, SocialCue } from 
 const SOLO_SOCIAL_CUE: SocialCue = {
   cueType: 'solo',
   relatedPassenger: null,
-  cueText: '今晚你獨自飛行。同組雷達上暫時只有你一人。',
+  cueText: '今晚你獨自享受這片天空。同組雷達上暫時只有你一人。',
 };
 
 async function resolveSocialCueWithBudget(
@@ -96,7 +102,7 @@ import { formatNotionError } from './src/lib/notion/db-access';
 import { introspectNotionSchemas } from './src/lib/notion/schema-introspect';
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(join(process.cwd(), 'public')));
 
 function envMinutes(name: string, fallback: number): number {
@@ -280,11 +286,59 @@ app.post('/api/passenger', async (req, res) => {
 
     // 風景圖改由前端背景載入，不擋登入回應
     res.json({
-      passenger: result.passenger,
+      passenger: {
+        ...result.passenger,
+        idPhotoUrl: result.passenger.idPhotoUrl || lastLandedFlight?.idPhotoUrl || null,
+      },
       created: result.created,
       lastLandedFlight,
       landingScenery: null,
     });
+  } catch (err) {
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
+  }
+});
+
+app.post('/api/passenger/avatar', async (req, res) => {
+  try {
+    const { passengerId, imageDataUrl } = req.body as { passengerId?: string; imageDataUrl?: string };
+    if (!passengerId || !imageDataUrl) {
+      res.status(400).json({ error: '請提供乘客 ID 與頭像。' });
+      return;
+    }
+    const result = await savePassengerIdPhoto(passengerId, imageDataUrl);
+    if (result.idPhotoUrl) applyMemIdPhoto(passengerId, result.idPhotoUrl);
+    res.json(result);
+  } catch (err) {
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
+  }
+});
+
+app.post('/api/flight/memo', async (req, res) => {
+  try {
+    const { passengerId, flightId, textMemo } = req.body as {
+      passengerId?: string;
+      flightId?: string;
+      textMemo?: string;
+    };
+    if (!passengerId) {
+      res.status(400).json({ error: '請提供乘客 ID。' });
+      return;
+    }
+    const flight = await getActiveFlight(passengerId);
+    if (!flight) {
+      res.status(404).json({ error: '找不到進行中的航班。' });
+      return;
+    }
+    if (flightId && flight.flightId !== flightId) {
+      res.status(409).json({ error: '航班已更新，請重新整理。' });
+      return;
+    }
+    const memo = clampTextMemo(textMemo);
+    await updateFlight(flight.notionId, { textMemo: memo });
+    res.json({ textMemo: memo, flight: { ...flight, textMemo: memo } });
   } catch (err) {
     const message = formatNotionError(err);
     res.status(500).json({ error: message, message });
@@ -303,6 +357,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       broadcastStyle = 'formal_captain',
       simulatedTakeoffTime,
       locale = 'zh',
+      idPhotoBase64,
     } = req.body;
 
     if (!passengerId) { res.status(400).json({ error: '請提供乘客 ID。' }); return; }
@@ -336,6 +391,19 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection: routeDirection as RouteDirection,
       takeoffTime,
     });
+
+    if (typeof idPhotoBase64 === 'string' && idPhotoBase64.startsWith('data:image/')) {
+      try {
+        if (isNotionConfigured() && !flight.notionId.startsWith('mem_')) {
+          flight.idPhotoUrl = await attachIdPhotoToPage(flight.notionId, idPhotoBase64);
+        } else {
+          applyMemIdPhoto(passengerId, idPhotoBase64);
+          flight.idPhotoUrl = idPhotoBase64;
+        }
+      } catch (err) {
+        console.warn('[takeoff id photo]', err);
+      }
+    }
 
     const groupFlights = await getGroupFlights(passenger.groupId);
     const depPlace = parseDisplayLocation(flight.departureLocation);
