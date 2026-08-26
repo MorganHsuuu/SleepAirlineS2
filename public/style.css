@@ -2671,24 +2671,28 @@ body[data-open-sheet="mate-sheet"] #sheet-mask.show {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-/* sheet-open 會關掉 #main-section 的 pointer-events；隊友詳情時讓地球恢復互動 */
+/* 隊友詳情保留主畫面事件，讓地球與面板把手都能操作；底層 HUD / dock 則停用 */
 body[data-open-sheet="mate-sheet"] #globe-svg {
   pointer-events: auto;
+}
+body[data-open-sheet="mate-sheet"] .hud-top,
+body[data-open-sheet="mate-sheet"] .dock {
+  pointer-events: none;
 }
 
 /* sheet 開啟時：底層 HUD／登入卡不攔截點擊 */
 body.sheet-open #login-section,
-body.sheet-open #main-section {
+body.sheet-open:not([data-open-sheet="mate-sheet"]) #main-section {
   pointer-events: none;
 }
 
 .sheet-grip {
   position: relative;
   display: block;
-  width: 40px; height: 4px;
-  margin: 0 auto 14px; padding: 0;
-  border: none; border-radius: 3px;
-  background: var(--divider);
+  width: 72px; height: 36px;
+  margin: -8px auto 2px; padding: 0;
+  border: none;
+  background: transparent;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -2696,8 +2700,10 @@ body.sheet-open #main-section {
   content: '';
   position: absolute;
   left: 50%; top: 50%;
-  width: 72px; height: 32px;
+  width: 40px; height: 4px;
   transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: var(--divider);
 }
 .sheet-title { text-align: center; font-size: 13px; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 4px; }
 .sheet-sub { text-align: center; font-size: 10px; color: var(--ink-faint); margin-bottom: 14px; }
