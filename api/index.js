@@ -136,6 +136,8 @@ var DASHBOARD_PROPERTY_ORDER = [
   "Social Cue Type",
   "Social Cue Text",
   "Related Passenger",
+  "ID photo",
+  "Text memo",
   // 系統
   "Created At",
   "Updated At"
@@ -168,6 +170,8 @@ function getDashboardProperties() {
     "Social Cue Type": { select: { options: SOCIAL_CUE_OPTIONS } },
     "Social Cue Text": { rich_text: {} },
     "Related Passenger": { rich_text: {} },
+    "ID photo": { files: {} },
+    "Text memo": { rich_text: {} },
     // ── 系統 ──
     "Created At": { date: {} },
     "Updated At": { date: {} }
@@ -413,186 +417,52 @@ function wUrl(value) {
   return value ? { url: value } : { url: null };
 }
 
-// src/lib/notion/passengers.ts
-var DEFAULT_LOCATION = "Taipei, Taiwan";
-var DEFAULT_LAT = 25.033;
-var DEFAULT_LNG = 121.5654;
-var mem = /* @__PURE__ */ new Map();
-var profileCache = /* @__PURE__ */ new Map();
-function readGroupId(props) {
-  const numeric = readNumber(props, "Group ID");
-  if (typeof numeric === "number" && Number.isFinite(numeric)) {
-    return String(Math.trunc(numeric)).padStart(4, "0");
-  }
-  return readSelect(props, "Group ID") ?? "";
-}
-function resolveProfile(passengerId, name, groupId) {
-  const cached = profileCache.get(passengerId);
-  const resolved = {
-    name: name || cached?.name || "",
-    groupId: groupId || cached?.groupId || ""
-  };
-  if (resolved.name || resolved.groupId) {
-    profileCache.set(passengerId, resolved);
-  }
-  return resolved;
-}
-function readPassengerId(props) {
-  return readText(props, "Passenger ID") || readTitle(props, "Passenger ID");
-}
-function readFlightId(props) {
-  return readTitle(props, "Flight ID") || readText(props, "Flight ID");
-}
-function parsePassengerFromFlightRow(page, overrides) {
-  const props = page.properties;
-  const status = readSelect(props, "Status") ?? "not_started";
-  const passengerId = readPassengerId(props);
-  let currentLocation = DEFAULT_LOCATION;
-  let currentLatitude = DEFAULT_LAT;
-  let currentLongitude = DEFAULT_LNG;
-  if (status === "landed") {
-    currentLocation = readText(props, "Arrival Location") || DEFAULT_LOCATION;
-    currentLatitude = readNumber(props, "Arrival Latitude") ?? DEFAULT_LAT;
-    currentLongitude = readNumber(props, "Arrival Longitude") ?? DEFAULT_LNG;
-  } else if (status === "in_flight") {
-    currentLocation = readText(props, "Departure Location") || DEFAULT_LOCATION;
-    currentLatitude = readNumber(props, "Departure Latitude") ?? DEFAULT_LAT;
-    currentLongitude = readNumber(props, "Departure Longitude") ?? DEFAULT_LNG;
-  }
+// src/lib/notion/notion-file-upload.ts
+var NOTION_API_VERSION = "2025-09-03";
+function notionHeaders() {
   return {
-    notionId: page.id,
-    passengerId,
-    name: overrides?.name || readText(props, "Name"),
-    groupId: overrides?.groupId || readGroupId(props),
-    currentLocation,
-    currentLatitude,
-    currentLongitude,
-    lastFlightId: readFlightId(props) || null,
-    status: status === "not_started" ? "landed" : status,
-    createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString(),
-    updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
+    Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
+    "Notion-Version": NOTION_API_VERSION
   };
 }
-function defaultPassenger(passengerId, name, groupId) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  return {
-    notionId: `pending_${passengerId}`,
-    passengerId,
-    name,
-    groupId,
-    currentLocation: DEFAULT_LOCATION,
-    currentLatitude: DEFAULT_LAT,
-    currentLongitude: DEFAULT_LNG,
-    lastFlightId: null,
-    status: "not_started",
-    createdAt: now,
-    updatedAt: now
-  };
-}
-async function getOrCreatePassenger(passengerId, name, groupId) {
-  const profile = resolveProfile(passengerId, name, groupId);
-  if (!isNotionConfigured()) {
-    const existing = mem.get(passengerId);
-    if (existing) {
-      if (profile.name) existing.name = profile.name;
-      if (profile.groupId) existing.groupId = profile.groupId;
-      existing.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-      return { passenger: existing, created: false, sourcePage: null, sourceKind: null };
-    }
-    const p = defaultPassenger(passengerId, profile.name, profile.groupId);
-    p.notionId = `mem_${passengerId}`;
-    mem.set(passengerId, p);
-    return { passenger: p, created: true, sourcePage: null, sourceKind: null };
-  }
-  const client = getNotionClient();
-  const dbId = await resolveDashboardDbId();
-  const inFlight = await client.databases.query({
-    database_id: dbId,
-    filter: {
-      and: [
-        { property: "Passenger ID", rich_text: { equals: passengerId } },
-        { property: "Status", select: { equals: "in_flight" } }
-      ]
+async function uploadImageToNotion(buffer, filename, contentType = "image/png") {
+  const createRes = await fetch("https://api.notion.com/v1/file_uploads", {
+    method: "POST",
+    headers: {
+      ...notionHeaders(),
+      "Content-Type": "application/json"
     },
-    page_size: 1
+    body: JSON.stringify({ filename, content_type: contentType })
   });
-  if (inFlight.results.length > 0) {
-    const page = inFlight.results[0];
-    const props = page.properties;
-    const rowName = readText(props, "Name");
-    const rowGroup = readGroupId(props);
-    return {
-      passenger: parsePassengerFromFlightRow(page, {
-        name: profile.name || rowName || void 0,
-        groupId: profile.groupId || rowGroup || void 0
-      }),
-      created: false,
-      sourcePage: page,
-      sourceKind: "in_flight"
-    };
+  if (!createRes.ok) {
+    throw new Error(`Notion file_upload create failed: ${createRes.status} ${await createRes.text()}`);
   }
-  const lastLanded = await client.databases.query({
-    database_id: dbId,
-    filter: {
-      and: [
-        { property: "Passenger ID", rich_text: { equals: passengerId } },
-        { property: "Status", select: { equals: "landed" } }
-      ]
-    },
-    sorts: [{ property: "Landing Time", direction: "descending" }],
-    page_size: 1
+  const created = await createRes.json();
+  const uploadId = created.id;
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(buffer)], { type: contentType }), filename);
+  const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${uploadId}/send`, {
+    method: "POST",
+    headers: notionHeaders(),
+    body: form
   });
-  if (lastLanded.results.length > 0) {
-    const page = lastLanded.results[0];
-    const passenger = parsePassengerFromFlightRow(page, {
-      name: profile.name || void 0,
-      groupId: profile.groupId || void 0
-    });
-    passenger.status = "not_started";
-    return {
-      passenger,
-      created: false,
-      sourcePage: page,
-      sourceKind: "landed"
-    };
+  if (!sendRes.ok) {
+    throw new Error(`Notion file_upload send failed: ${sendRes.status} ${await sendRes.text()}`);
   }
+  const sent = await sendRes.json();
+  if (sent.status !== "uploaded") {
+    throw new Error(`Notion file_upload status: ${sent.status ?? "unknown"}`);
+  }
+  return uploadId;
+}
+function wFileUpload(fileUploadId, name) {
   return {
-    passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
-    created: true,
-    sourcePage: null,
-    sourceKind: null
+    files: [{
+      type: "file_upload",
+      file_upload: { id: fileUploadId },
+      name
+    }]
   };
-}
-function syncMemPassenger(passengerId, updates) {
-  const p = mem.get(passengerId);
-  if (!p) return;
-  if (updates.status !== void 0) p.status = updates.status;
-  if (updates.currentLocation !== void 0) p.currentLocation = updates.currentLocation;
-  if (updates.currentLatitude !== void 0) p.currentLatitude = updates.currentLatitude;
-  if (updates.currentLongitude !== void 0) p.currentLongitude = updates.currentLongitude;
-  if (updates.lastFlightId !== void 0) p.lastFlightId = updates.lastFlightId;
-  if (updates.name !== void 0) p.name = updates.name;
-  if (updates.groupId !== void 0) p.groupId = updates.groupId;
-  p.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-}
-
-// src/lib/flight/progress.ts
-var REFERENCE_MINUTES = 480;
-function calculateFlightProgress(takeoffTime) {
-  const now = Date.now();
-  const takeoff = new Date(takeoffTime).getTime();
-  const elapsedMinutes = (now - takeoff) / 6e4;
-  const progress = elapsedMinutes / REFERENCE_MINUTES * 100;
-  return Math.min(100, Math.max(0, progress));
-}
-
-// src/lib/flight/region.ts
-function getNarrativeRegion(progress) {
-  if (progress < 20) return "departure_clouds";
-  if (progress < 40) return "pacific_drift";
-  if (progress < 60) return "deep_night_current";
-  if (progress < 80) return "dawn_corridor";
-  return "arrival_harbor";
 }
 
 // src/lib/notion/landscape-schema.ts
@@ -814,6 +684,287 @@ async function introspectNotionSchemas() {
   };
 }
 
+// src/lib/notion/id-photo.ts
+var ID_PHOTO_PROP = "ID photo";
+var TEXT_MEMO_MAX = 20;
+function clampTextMemo(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  return Array.from(text).slice(0, TEXT_MEMO_MAX).join("");
+}
+function readIdPhotoUrl(props) {
+  return readFirstFileUrl(props, ID_PHOTO_PROP) || null;
+}
+function hydrateFlightPhotos(flights) {
+  const latest = /* @__PURE__ */ new Map();
+  for (const flight of flights) {
+    const url = flight.idPhotoUrl?.trim();
+    if (!url || !flight.passengerId) continue;
+    const t = new Date(flight.updatedAt || flight.takeoffTime).getTime();
+    const prev = latest.get(flight.passengerId);
+    if (!prev || t >= prev.t) latest.set(flight.passengerId, { url, t });
+  }
+  return flights.map((flight) => ({
+    ...flight,
+    idPhotoUrl: flight.idPhotoUrl || latest.get(flight.passengerId)?.url || null
+  }));
+}
+function parseDataUrl(input) {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(input.trim());
+  if (!match) return null;
+  const contentType = match[1];
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > 9e5) return null;
+  const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+  return { buffer, contentType, filename: `id-photo.${ext}` };
+}
+async function findPhotoTargetPageId(passengerId) {
+  if (!isNotionConfigured()) return null;
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  const inFlight = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "in_flight" } }
+      ]
+    },
+    page_size: 1
+  });
+  if (inFlight.results[0]) return inFlight.results[0].id;
+  const lastLanded = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "landed" } }
+      ]
+    },
+    sorts: [{ property: "Landing Time", direction: "descending" }],
+    page_size: 1
+  });
+  return lastLanded.results[0]?.id ?? null;
+}
+async function attachIdPhotoToPage(pageId, dataUrl) {
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) throw new Error("\u982D\u50CF\u683C\u5F0F\u7121\u6548\uFF0C\u8ACB\u6539\u50B3 JPG \u6216 PNG\u3002");
+  if (!isNotionConfigured()) return dataUrl;
+  const allowed = await getDashboardPropertyNames();
+  if (!allowed.has(ID_PHOTO_PROP)) {
+    throw new Error("Notion \u5C1A\u672A\u5EFA\u7ACB ID photo \u6B04\u4F4D\u3002");
+  }
+  const fileUploadId = await uploadImageToNotion(
+    parsed.buffer,
+    parsed.filename,
+    parsed.contentType
+  );
+  const client = getNotionClient();
+  await client.pages.update({
+    page_id: pageId,
+    properties: {
+      [ID_PHOTO_PROP]: wFileUpload(fileUploadId, parsed.filename)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }
+  });
+  const fresh = await client.pages.retrieve({ page_id: pageId });
+  return readIdPhotoUrl(fresh.properties ?? {});
+}
+async function savePassengerIdPhoto(passengerId, dataUrl) {
+  if (!isNotionConfigured()) {
+    return { idPhotoUrl: dataUrl, pending: false };
+  }
+  const pageId = await findPhotoTargetPageId(passengerId);
+  if (!pageId) return { idPhotoUrl: null, pending: true };
+  const idPhotoUrl = await attachIdPhotoToPage(pageId, dataUrl);
+  return { idPhotoUrl, pending: false };
+}
+
+// src/lib/notion/passengers.ts
+var DEFAULT_LOCATION = "Taipei, Taiwan";
+var DEFAULT_LAT = 25.033;
+var DEFAULT_LNG = 121.5654;
+var mem = /* @__PURE__ */ new Map();
+var profileCache = /* @__PURE__ */ new Map();
+function readGroupId(props) {
+  const numeric = readNumber(props, "Group ID");
+  if (typeof numeric === "number" && Number.isFinite(numeric)) {
+    return String(Math.trunc(numeric)).padStart(4, "0");
+  }
+  return readSelect(props, "Group ID") ?? "";
+}
+function resolveProfile(passengerId, name, groupId) {
+  const cached = profileCache.get(passengerId);
+  const resolved = {
+    name: name || cached?.name || "",
+    groupId: groupId || cached?.groupId || ""
+  };
+  if (resolved.name || resolved.groupId) {
+    profileCache.set(passengerId, resolved);
+  }
+  return resolved;
+}
+function readPassengerId(props) {
+  return readText(props, "Passenger ID") || readTitle(props, "Passenger ID");
+}
+function readFlightId(props) {
+  return readTitle(props, "Flight ID") || readText(props, "Flight ID");
+}
+function parsePassengerFromFlightRow(page, overrides) {
+  const props = page.properties;
+  const status = readSelect(props, "Status") ?? "not_started";
+  const passengerId = readPassengerId(props);
+  let currentLocation = DEFAULT_LOCATION;
+  let currentLatitude = DEFAULT_LAT;
+  let currentLongitude = DEFAULT_LNG;
+  if (status === "landed") {
+    currentLocation = readText(props, "Arrival Location") || DEFAULT_LOCATION;
+    currentLatitude = readNumber(props, "Arrival Latitude") ?? DEFAULT_LAT;
+    currentLongitude = readNumber(props, "Arrival Longitude") ?? DEFAULT_LNG;
+  } else if (status === "in_flight") {
+    currentLocation = readText(props, "Departure Location") || DEFAULT_LOCATION;
+    currentLatitude = readNumber(props, "Departure Latitude") ?? DEFAULT_LAT;
+    currentLongitude = readNumber(props, "Departure Longitude") ?? DEFAULT_LNG;
+  }
+  return {
+    notionId: page.id,
+    passengerId,
+    name: overrides?.name || readText(props, "Name"),
+    groupId: overrides?.groupId || readGroupId(props),
+    currentLocation,
+    currentLatitude,
+    currentLongitude,
+    lastFlightId: readFlightId(props) || null,
+    status: status === "not_started" ? "landed" : status,
+    idPhotoUrl: readIdPhotoUrl(props),
+    createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString(),
+    updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function defaultPassenger(passengerId, name, groupId) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return {
+    notionId: `pending_${passengerId}`,
+    passengerId,
+    name,
+    groupId,
+    currentLocation: DEFAULT_LOCATION,
+    currentLatitude: DEFAULT_LAT,
+    currentLongitude: DEFAULT_LNG,
+    lastFlightId: null,
+    status: "not_started",
+    idPhotoUrl: null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+async function getOrCreatePassenger(passengerId, name, groupId) {
+  const profile = resolveProfile(passengerId, name, groupId);
+  if (!isNotionConfigured()) {
+    const existing = mem.get(passengerId);
+    if (existing) {
+      if (profile.name) existing.name = profile.name;
+      if (profile.groupId) existing.groupId = profile.groupId;
+      existing.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      return { passenger: existing, created: false, sourcePage: null, sourceKind: null };
+    }
+    const p = defaultPassenger(passengerId, profile.name, profile.groupId);
+    p.notionId = `mem_${passengerId}`;
+    mem.set(passengerId, p);
+    return { passenger: p, created: true, sourcePage: null, sourceKind: null };
+  }
+  const client = getNotionClient();
+  const dbId = await resolveDashboardDbId();
+  const inFlight = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "in_flight" } }
+      ]
+    },
+    page_size: 1
+  });
+  if (inFlight.results.length > 0) {
+    const page = inFlight.results[0];
+    const props = page.properties;
+    const rowName = readText(props, "Name");
+    const rowGroup = readGroupId(props);
+    return {
+      passenger: parsePassengerFromFlightRow(page, {
+        name: profile.name || rowName || void 0,
+        groupId: profile.groupId || rowGroup || void 0
+      }),
+      created: false,
+      sourcePage: page,
+      sourceKind: "in_flight"
+    };
+  }
+  const lastLanded = await client.databases.query({
+    database_id: dbId,
+    filter: {
+      and: [
+        { property: "Passenger ID", rich_text: { equals: passengerId } },
+        { property: "Status", select: { equals: "landed" } }
+      ]
+    },
+    sorts: [{ property: "Landing Time", direction: "descending" }],
+    page_size: 1
+  });
+  if (lastLanded.results.length > 0) {
+    const page = lastLanded.results[0];
+    const passenger = parsePassengerFromFlightRow(page, {
+      name: profile.name || void 0,
+      groupId: profile.groupId || void 0
+    });
+    passenger.status = "not_started";
+    return {
+      passenger,
+      created: false,
+      sourcePage: page,
+      sourceKind: "landed"
+    };
+  }
+  return {
+    passenger: defaultPassenger(passengerId, profile.name, profile.groupId),
+    created: true,
+    sourcePage: null,
+    sourceKind: null
+  };
+}
+function syncMemPassenger(passengerId, updates) {
+  const p = mem.get(passengerId);
+  if (!p) return;
+  if (updates.status !== void 0) p.status = updates.status;
+  if (updates.currentLocation !== void 0) p.currentLocation = updates.currentLocation;
+  if (updates.currentLatitude !== void 0) p.currentLatitude = updates.currentLatitude;
+  if (updates.currentLongitude !== void 0) p.currentLongitude = updates.currentLongitude;
+  if (updates.lastFlightId !== void 0) p.lastFlightId = updates.lastFlightId;
+  if (updates.name !== void 0) p.name = updates.name;
+  if (updates.groupId !== void 0) p.groupId = updates.groupId;
+  if (updates.idPhotoUrl !== void 0) p.idPhotoUrl = updates.idPhotoUrl;
+  p.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+}
+
+// src/lib/flight/progress.ts
+var REFERENCE_MINUTES = 480;
+function calculateFlightProgress(takeoffTime) {
+  const now = Date.now();
+  const takeoff = new Date(takeoffTime).getTime();
+  const elapsedMinutes = (now - takeoff) / 6e4;
+  const progress = elapsedMinutes / REFERENCE_MINUTES * 100;
+  return Math.min(100, Math.max(0, progress));
+}
+
+// src/lib/flight/region.ts
+function getNarrativeRegion(progress) {
+  if (progress < 20) return "departure_clouds";
+  if (progress < 40) return "pacific_drift";
+  if (progress < 60) return "deep_night_current";
+  if (progress < 80) return "dawn_corridor";
+  return "arrival_harbor";
+}
+
 // src/lib/notion/flights.ts
 var mem2 = [];
 function normalizeGroupDigits(groupId) {
@@ -891,6 +1042,8 @@ function parseFlight(page) {
     socialCueType: readSelect(props, "Social Cue Type"),
     socialCueText: readText(props, "Social Cue Text") || null,
     relatedPassenger: readText(props, "Related Passenger") || null,
+    textMemo: readText(props, "Text memo") || null,
+    idPhotoUrl: readIdPhotoUrl(props),
     createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString(),
     updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -936,10 +1089,14 @@ async function createFlight(params) {
       socialCueType: null,
       socialCueText: null,
       relatedPassenger: null,
+      textMemo: null,
+      idPhotoUrl: null,
       createdAt: now,
       updatedAt: now
     };
     mem2.push(f);
+    const prevPhoto = [...mem2].reverse().find((x) => x.passengerId === params.passengerId && x.idPhotoUrl)?.idPhotoUrl;
+    if (prevPhoto) f.idPhotoUrl = prevPhoto;
     syncMemPassenger(params.passengerId, {
       status: "in_flight",
       lastFlightId: flightId,
@@ -975,6 +1132,7 @@ async function createFlight(params) {
     "Social Cue Type": wSelect(null),
     "Social Cue Text": wText(null),
     "Related Passenger": wText(null),
+    "Text memo": wText(null),
     "Created At": wDate(now),
     "Updated At": wDate(now)
   };
@@ -1045,6 +1203,7 @@ async function updateFlight(notionId, updates) {
   if (updates.socialCueType !== void 0) fullProperties["Social Cue Type"] = wSelect(updates.socialCueType);
   if (updates.socialCueText !== void 0) fullProperties["Social Cue Text"] = wText(updates.socialCueText);
   if (updates.relatedPassenger !== void 0) fullProperties["Related Passenger"] = wText(updates.relatedPassenger);
+  if (updates.textMemo !== void 0) fullProperties["Text memo"] = wText(updates.textMemo);
   const properties = pickExistingProperties(fullProperties, allowed);
   await client.pages.update({ page_id: notionId, properties });
 }
@@ -1116,7 +1275,7 @@ async function getLastLandedFlight(passengerId) {
   return parseFlight(result.results[0]);
 }
 async function getGroupBoardFlights(groupId) {
-  const flights = await queryGroupFlightsByStatus(groupId, ["in_flight", "landed"]);
+  const flights = hydrateFlightPhotos(await queryGroupFlightsByStatus(groupId, ["in_flight", "landed"]));
   return buildGroupBoardFlights(flights);
 }
 async function getGroupFlights(groupId, sinceHours = 24) {
@@ -1142,6 +1301,12 @@ async function getGroupFlights(groupId, sinceHours = 24) {
     page_size: 50
   });
   return result.results.map((p) => parseFlight(p)).filter((f) => f.status === "in_flight" || f.status === "landed");
+}
+function applyMemIdPhoto(passengerId, idPhotoUrl) {
+  for (const flight of mem2) {
+    if (flight.passengerId === passengerId) flight.idPhotoUrl = idPhotoUrl;
+  }
+  syncMemPassenger(passengerId, { idPhotoUrl });
 }
 async function getAllActiveFlights() {
   if (!isNotionConfigured()) {
@@ -107658,7 +107823,7 @@ function fallbackSocialCueText(candidate) {
     case "fresh_arrival":
       return `${name} \u525B\u5728 ${candidate.facts.arrivalLocation} \u964D\u843D\u3002`;
     case "first_of_night":
-      return `${String(candidate.facts.passengerName ?? "\u4F60")} \u662F\u5C0F\u968A\u4ECA\u665A\u7B2C\u4E00\u73ED\u8D77\u98DB\u7684\u822A\u73ED\u3002`;
+      return "\u4ECA\u665A\u9019\u7247\u5929\u7A7A\u5148\u4EA4\u7D66\u4F60\u7368\u4EAB\uFF0C\u5C0F\u968A\u96F7\u9054\u4E0A\u9084\u6C92\u6709\u5176\u4ED6\u822A\u73ED\u3002";
     case "relay_flight":
       return `\u4F60\u5DF2\u964D\u843D\uFF0C${name} \u4ECD\u5728\u591C\u822A\u4E2D\uFF0C\u5F9E ${candidate.facts.teammateDeparture} \u7E7C\u7E8C\u66FF\u5C0F\u968A\u98DB\u3002`;
     case "early_landing":
@@ -107667,7 +107832,7 @@ function fallbackSocialCueText(candidate) {
       return `${name} \u5728\u4F60\u4E4B\u5F8C\u4E5F\u964D\u843D\u5728 ${candidate.facts.arrivalLocation}\u3002`;
     case "solo":
     default:
-      return "\u4ECA\u665A\u4F60\u7368\u81EA\u98DB\u884C\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002";
+      return "\u4ECA\u665A\u4F60\u7368\u81EA\u4EAB\u53D7\u9019\u7247\u5929\u7A7A\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002";
   }
 }
 var TAKEOFF_SOCIAL_RULES = `
@@ -107675,7 +107840,9 @@ var TAKEOFF_SOCIAL_RULES = `
 - \u7981\u6B62\uFF1A\u5373\u5C07\u3001\u5C07\u8981\u3001X \u5206\u9418\u5167\u3001\u5FEB\u62B5\u9054\u3001\u4E0B\u964D\u3001\u9810\u8A08\u5230\u9054\u3001\u5373\u5C07\u964D\u843D
 - \u7981\u6B62\u628A\u968A\u53CB\u6240\u5728\u57CE\u5E02\uFF0F\u7A7A\u57DF\u5BEB\u6210\u300C\u5FEB\u8981\u964D\u843D\u7684\u5730\u65B9\u300D
 - \u5982\u679C teammateStatus \u662F\u300C\u98DB\u884C\u4E2D\u300D\uFF0C\u7981\u6B62\u5BEB\u6210\u5DF2\u964D\u843D
-- \u5982\u679C\u53EA\u63D0\u4F9B\u4E00\u4F4D teammateName\uFF0C\u7981\u6B62\u5BEB\u6210\u300C\u968A\u53CB\u5011\u300D\u6216\u300C\u5927\u5BB6\u90FD\u300D`;
+- \u5982\u679C\u53EA\u63D0\u4F9B\u4E00\u4F4D teammateName\uFF0C\u7981\u6B62\u5BEB\u6210\u300C\u968A\u53CB\u5011\u300D\u6216\u300C\u5927\u5BB6\u90FD\u300D
+- \u7981\u6B62\u628A\u672C\u73ED\u4E58\u5BA2\u59D3\u540D\u5BEB\u6210\u5DF2\u8D77\u98DB\uFF0F\u6B63\u5728\u98DB\u7684\u968A\u53CB
+- first_of_night \u6216 solo\uFF1A\u5BEB\u7368\u4EAB\u5929\u7A7A\uFF0C\u4E0D\u8981\u8907\u8AA6\u4E58\u5BA2\u672C\u4EBA\u5DF2\u7D93\u8D77\u98DB`;
 async function generateSocialCueText(candidate, phase = "landing") {
   if (!process.env.OPENAI_API_KEY) {
     return fallbackSocialCueText(candidate);
@@ -108116,7 +108283,15 @@ function soloSocialCueCandidate() {
 
 // src/lib/flight/social.ts
 async function resolveGroupSocialCue(current, groupFlights) {
-  const candidates = collectSocialCueCandidates(current, groupFlights).filter((candidate) => {
+  const others = groupFlights.filter((flight) => {
+    if (flight.passengerId && current.passengerId && flight.passengerId === current.passengerId) {
+      return false;
+    }
+    const relatedName = String(flight.passengerName || "").trim().toLowerCase();
+    const selfName = String(current.passengerName || "").trim().toLowerCase();
+    return !relatedName || relatedName !== selfName;
+  });
+  const candidates = collectSocialCueCandidates(current, others).filter((candidate) => {
     const related = candidate.relatedPassenger?.trim();
     if (!related) return true;
     return related.toLowerCase() !== current.passengerName.trim().toLowerCase();
@@ -108135,35 +108310,68 @@ async function resolveGroupSocialCue(current, groupFlights) {
 // src/lib/ai/broadcast.ts
 var import_openai2 = __toESM(require("openai"));
 var STYLE_DESCRIPTIONS = {
-  formal_captain: "\u8A9E\u6C23\u6C89\u7A69\u3001\u7C21\u6F54\uFF0C\u50CF\u6DF1\u591C\u822A\u73ED\u7684\u771F\u6B63\u6A5F\u9577\uFF0C\u4E0D\u8AAA\u5957\u8A71\u3002",
-  poetic: "\u8A9E\u6C23\u8A69\u610F\u3001\u610F\u8C61\u6E05\u695A\uFF0C\u4E00\u5169\u500B\u756B\u9762\u5373\u53EF\uFF0C\u4E0D\u5806\u780C\u5F62\u5BB9\u3002",
-  playful: "\u8A9E\u6C23\u8F15\u9B06\u3001\u5E36\u4E00\u9EDE\u5E7D\u9ED8\uFF0C\u4F46\u4ECD\u50CF\u6A5F\u9577\u5728\u5EE3\u64AD\uFF0C\u4E0D\u904E\u5EA6\u73A9\u7B11\u3002",
-  flight_attendant: "\u8A9E\u6C23\u6EAB\u67D4\u3001\u7C21\u77ED\uFF0C\u50CF\u591C\u822A\u5EE3\u64AD\uFF0C\u4E0D\u662F\u5BA2\u670D\u7A3F\u3002",
-  radio_host: "\u8A9E\u6C23\u50CF\u6DF1\u591C\u96FB\u53F0\uFF0C\u4F46\u4F60\u662F\u6A5F\u9577\uFF0C\u4E0D\u662F\u4E3B\u6301\u4EBA\u672C\u4EBA\u3002",
-  custom: "\u8A9E\u6C23\u7531\u4F60\u62FF\u634F\uFF0C\u4ECD\u9808\u7B26\u5408\u7526\u9192\u822A\u73ED\u591C\u822A\u6A5F\u9577\u8EAB\u5206\u3002"
+  zh: {
+    formal_captain: "\u8A9E\u6C23\u6C89\u7A69\u3001\u7C21\u6F54\uFF0C\u50CF\u6DF1\u591C\u822A\u73ED\u7684\u771F\u6B63\u6A5F\u9577\uFF0C\u4E0D\u8AAA\u5957\u8A71\u3002",
+    poetic: "\u8A9E\u6C23\u8A69\u610F\u3001\u610F\u8C61\u6E05\u695A\uFF0C\u4E00\u5169\u500B\u756B\u9762\u5373\u53EF\uFF0C\u4E0D\u5806\u780C\u5F62\u5BB9\u3002",
+    playful: "\u8A9E\u6C23\u8F15\u9B06\u3001\u5E36\u4E00\u9EDE\u5E7D\u9ED8\uFF0C\u4F46\u4ECD\u50CF\u6A5F\u9577\u5728\u5EE3\u64AD\uFF0C\u4E0D\u904E\u5EA6\u73A9\u7B11\u3002",
+    flight_attendant: "\u8A9E\u6C23\u6EAB\u67D4\u3001\u7C21\u77ED\uFF0C\u50CF\u591C\u822A\u5EE3\u64AD\uFF0C\u4E0D\u662F\u5BA2\u670D\u7A3F\u3002",
+    radio_host: "\u8A9E\u6C23\u50CF\u6DF1\u591C\u96FB\u53F0\uFF0C\u4F46\u4F60\u662F\u6A5F\u9577\uFF0C\u4E0D\u662F\u4E3B\u6301\u4EBA\u672C\u4EBA\u3002",
+    custom: "\u8A9E\u6C23\u7531\u4F60\u62FF\u634F\uFF0C\u4ECD\u9808\u7B26\u5408\u7526\u9192\u822A\u73ED\u591C\u822A\u6A5F\u9577\u8EAB\u5206\u3002"
+  },
+  en: {
+    formal_captain: "Calm, concise tone \u2014 a real night-flight captain, no filler.",
+    poetic: "Poetic but clear; one or two images, no purple prose.",
+    playful: "Light humor, still a captain PA, not a comedy bit.",
+    flight_attendant: "Gentle and brief, night-flight PA, not customer service copy.",
+    radio_host: "Late-night radio warmth, but you remain the captain.",
+    custom: "Choose tone freely while staying Sleep Airline\u2019s night captain."
+  }
 };
 var DIRECTION_LABEL2 = {
-  auto: "\u81EA\u52D5\u822A\u7DDA",
-  eastbound: "\u5411\u6771",
-  westbound: "\u5411\u897F",
-  northbound: "\u5411\u5317",
-  southbound: "\u5411\u5357",
-  northeast: "\u6771\u5317",
-  northwest: "\u897F\u5317",
-  southeast: "\u6771\u5357",
-  southwest: "\u897F\u5357",
-  circular: "\u74B0\u5F62",
-  unknown: "\u672A\u5B9A"
+  zh: {
+    auto: "\u81EA\u52D5\u822A\u7DDA",
+    eastbound: "\u5411\u6771",
+    westbound: "\u5411\u897F",
+    northbound: "\u5411\u5317",
+    southbound: "\u5411\u5357",
+    northeast: "\u6771\u5317",
+    northwest: "\u897F\u5317",
+    southeast: "\u6771\u5357",
+    southwest: "\u897F\u5357",
+    circular: "\u74B0\u5F62",
+    unknown: "\u672A\u5B9A"
+  },
+  en: {
+    auto: "auto routing",
+    eastbound: "eastbound",
+    westbound: "westbound",
+    northbound: "northbound",
+    southbound: "southbound",
+    northeast: "northeast",
+    northwest: "northwest",
+    southeast: "southeast",
+    southwest: "southwest",
+    circular: "circular",
+    unknown: "undetermined"
+  }
 };
-function passengerLabel(name) {
-  const trimmed = name.trim();
-  if (!trimmed) return "\u9019\u4F4D\u4E58\u5BA2";
-  return trimmed.replace(/(?:先生|女士|小姐)$/u, "").trim() || "\u9019\u4F4D\u4E58\u5BA2";
+function normalizeLocale(locale) {
+  return locale === "en" ? "en" : "zh";
 }
-function formatDuration2(minutes) {
+function passengerLabel(name, locale) {
+  const trimmed = name.trim();
+  if (!trimmed) return locale === "en" ? "passenger" : "\u9019\u4F4D\u4E58\u5BA2";
+  return trimmed.replace(/(?:先生|女士|小姐)$/u, "").trim() || (locale === "en" ? "passenger" : "\u9019\u4F4D\u4E58\u5BA2");
+}
+function formatDuration2(minutes, locale) {
   if (!minutes || minutes <= 0) return "";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
+  if (locale === "en") {
+    if (h > 0 && m > 0) return `${h} h ${m} min`;
+    if (h > 0) return `${h} h`;
+    return `${m} min`;
+  }
   if (h > 0 && m > 0) return `${h} \u5C0F\u6642 ${m} \u5206\u9418`;
   if (h > 0) return `${h} \u5C0F\u6642`;
   return `${m} \u5206\u9418`;
@@ -108171,23 +108379,51 @@ function formatDuration2(minutes) {
 function hasChinese(value) {
   return /[\u4e00-\u9fff]/.test(value);
 }
-function broadcastLocationLabel(location, localContext) {
+function broadcastLocationLabel(location, locale, localContext) {
   const raw = (location ?? "").trim();
-  if (!raw) return "\u76EE\u524D\u822A\u7AD9";
+  if (!raw) return locale === "en" ? "the current station" : "\u76EE\u524D\u822A\u7AD9";
   const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
   const city = parts[0] ?? raw;
   const country = parts[parts.length - 1] ?? "";
+  if (locale === "en") {
+    if (!hasChinese(city)) return raw;
+    if (localContext?.cityName && !hasChinese(localContext.cityName)) {
+      return localContext.countryName && !hasChinese(localContext.countryName) ? `${localContext.cityName}, ${localContext.countryName}` : localContext.cityName;
+    }
+    return "your local station";
+  }
   if (hasChinese(city)) return raw;
   if (localContext?.countryName && hasChinese(localContext.countryName)) return `${localContext.countryName}\u4E00\u5E36`;
   if (hasChinese(country)) return `${country}\u4E00\u5E36`;
   return "\u7576\u5730\u822A\u7AD9";
 }
-function buildSocialBlock(cue) {
+function buildSocialBlock(cue, locale) {
+  if (locale === "en") {
+    const lines2 = [`type: ${cue.cueType}`, `system cue: ${cue.cueText}`];
+    if (cue.relatedPassenger) lines2.push(`related passenger: ${cue.relatedPassenger}`);
+    return lines2.join("\n");
+  }
   const lines = [`\u985E\u578B\uFF1A${cue.cueType}`, `\u7CFB\u7D71\u63D0\u793A\uFF1A${cue.cueText}`];
   if (cue.relatedPassenger) lines.push(`\u76F8\u95DC\u4E58\u5BA2\uFF1A${cue.relatedPassenger}`);
   return lines.join("\n");
 }
-function buildLocalBlock(ctx, phase) {
+function buildLocalBlock(ctx, phase, locale) {
+  if (locale === "en") {
+    const lines2 = [
+      `city: ${ctx.cityName}`,
+      `country: ${ctx.countryName}`,
+      `local culture / social note: ${ctx.culture}`
+    ];
+    if (phase === "landing" && ctx.morningGreeting) {
+      lines2.push(`local-language good morning (must be first sentence): ${ctx.morningGreeting}`);
+    }
+    if (ctx.weatherSummary) lines2.push(`local weather: ${ctx.weatherSummary}`);
+    if (ctx.localTimeLabel) lines2.push(`time of day: ${ctx.localTimeLabel}`);
+    lines2.push(
+      phase === "landing" ? "Rewrite into one or two natural local tips for the passenger (greeting, food, etiquette). Do not copy verbatim." : "At most one weather or atmosphere beat about departure. Do not hint at the destination."
+    );
+    return lines2.join("\n");
+  }
   const lines = [
     `\u57CE\u5E02\uFF1A${ctx.cityName}`,
     `\u570B\u5BB6\uFF1A${ctx.countryName}`,
@@ -108203,20 +108439,48 @@ function buildLocalBlock(ctx, phase) {
   );
   return lines.join("\n");
 }
-async function generateCaptainBroadcast(input) {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002");
+function buildSystemPrompt(locale, style, isTakeoff, pax, hasLocal) {
+  if (locale === "en") {
+    return `You are the captain of Sleep Airline, giving a night-flight PA to passengers.
+${STYLE_DESCRIPTIONS.en[style]}
+
+Identity (critical):
+- You are the captain speaking to the passenger; the passenger name is the addressee, never your name
+- The first sentence must naturally include \u201CWelcome aboard Sleep Airline\u201D and \u201Cthis is your captain\u201D (do not drop \u201CWelcome\u201D)${isTakeoff ? "" : "; if a local-language good morning is provided, that is sentence one, and \u201CWelcome aboard Sleep Airline, this is your captain\u201D must open sentence two"}
+- Never say \u201CI am Captain {passenger name}\u201D
+- Never speak as the passenger
+- Address them as \u201Cpassengers\u201D or \u201C${pax}\u201D; never call yourself by the passenger name
+- Use the given name directly; do not add Mr/Ms/Mrs
+- Squad lines are about FRIENDS only \u2014 never say the addressee has already taken off
+- If squad social is solo / first of night: one line that they get the sky to themselves; do not restate their own takeoff
+
+Geography (critical):
+- Use the broadcast place labels; do not recite hard romanization
+- At takeoff the destination is unknown: only departure + heading; \u201Cwake to find where we are\u201D at most once
+- Takeoff PA must not mention flight duration, ETA, km, or minutes/hours for this flight
+- Places in [squad social] belong to teammates, not this flight\u2019s route; attach them to teammate names
+- Teammates only in past/progress: already departed, already flying, already landed at Y; never \u201Cabout to land\u201D
+- If [squad social] shows anyone still flying, do not claim everyone has landed
+- Do not turn teammate airspace into a landing countdown
+- Geography must stay consistent with this flight\u2019s heading
+
+${hasLocal ? `Local context (${isTakeoff ? "departure" : "arrival"}):
+- Culture/weather in [local context] are for rewriting only \u2014 never copy lists
+- Landing: weave one natural culture tip and a light weather beat
+- Landing: sentence one must be the local-language morning greeting; continue in English afterward without translating the greeting
+- Takeoff: at most one departure weather beat
+` : ""}
+Writing:
+- English, ${isTakeoff ? "75\u201395" : "90\u2013130"} words, hard cap ${isTakeoff ? "105" : "160"}
+- ${isTakeoff ? "Takeoff: 3\u20134 sentences \u2014 \u2460 welcome + captain + departure + heading \u2461 one poetic sleep/wake beat \u2462 at most one squad beat \u2463 soft goodnight" : "One idea per sentence"}
+- Cut stock phrases like \u201Cthank you for flying with us\u201D
+- Never output a blunt slogan; write as a captain PA with imagery
+- Social info: one rewritten sentence max; never paste [squad social] verbatim
+- Do not invent places, times, or names
+- Output PA text only \u2014 no titles, quotes, or notes`;
   }
-  const client = new import_openai2.default({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-  const isTakeoff = input.phase === "takeoff";
-  const pax = passengerLabel(input.passengerName);
-  const direction = DIRECTION_LABEL2[input.routeDirection] ?? input.routeDirection;
-  const hasLocal = !!input.localContext;
-  const departureLabel = broadcastLocationLabel(input.departureLocation, isTakeoff ? input.localContext : null);
-  const arrivalLabel = broadcastLocationLabel(input.arrivalLocation, !isTakeoff ? input.localContext : null);
-  const systemPrompt = `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u6A5F\u9577\uFF0C\u6B63\u5728\u5C0D\u6A5F\u4E0A\u4E58\u5BA2\u505A\u591C\u9593\u5EE3\u64AD\u3002
-${STYLE_DESCRIPTIONS[input.style]}
+  return `\u4F60\u662F\u300C\u7526\u9192\u822A\u73ED Sleep Airline\u300D\u7684\u6A5F\u9577\uFF0C\u6B63\u5728\u5C0D\u6A5F\u4E0A\u4E58\u5BA2\u505A\u591C\u9593\u5EE3\u64AD\u3002
+${STYLE_DESCRIPTIONS.zh[style]}
 
 \u8EAB\u5206\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
 - \u4F60\u662F\u6A5F\u9577\uFF0C\u5728\u5C0D\u300C\u4E58\u5BA2\u300D\u8AAA\u8A71\uFF1B\u4E58\u5BA2\u59D3\u540D\u53EA\u662F\u5C0D\u8C61\uFF0C\u4E0D\u662F\u4F60\u7684\u540D\u5B57
@@ -108225,6 +108489,8 @@ ${STYLE_DESCRIPTIONS[input.style]}
 - \u7981\u6B62\u5192\u5145\u4E58\u5BA2\u3001\u7981\u6B62\u7528\u7B2C\u4E00\u4EBA\u7A31\u4EE3\u66FF\u4E58\u5BA2\u8AAA\u8A71
 - \u7528\u300C\u5404\u4F4D\u4E58\u5BA2\u300D\u6216\u300C${pax}\u300D\u7A31\u547C\u5C0D\u65B9\uFF1B\u4E0D\u8981\u7A31\u81EA\u5DF1\u70BA\u4E58\u5BA2\u59D3\u540D
 - \u7A31\u547C\u4E58\u5BA2\u6642\u76F4\u63A5\u4F7F\u7528\u540D\u5B57\uFF0C\u7981\u6B62\u9644\u52A0\u300C\u5148\u751F\u300D\u300C\u5973\u58EB\u300D\u300C\u5C0F\u59D0\u300D\u6216\u300C\u5148\u751F\uFF0F\u5973\u58EB\u300D
+- \u793E\u4EA4\u53E5\u53EA\u8B1B\u968A\u53CB\uFF0C\u7981\u6B62\u8AAA\u6B63\u5728\u807D\u5EE3\u64AD\u7684\u4E58\u5BA2\u300C\u5DF2\u7D93\u8D77\u98DB\u300D
+- \u82E5\u3010\u540C\u7D44\u793E\u4EA4\u3011\u662F\u7368\u81EA\uFF0F\u4ECA\u665A\u7B2C\u4E00\u73ED\uFF1A\u6539\u8AAA\u7368\u81EA\u4EAB\u53D7\u9019\u7247\u5929\u7A7A\uFF0C\u4E0D\u8981\u8907\u8AA6\u672C\u73ED\u4E58\u5BA2\u59D3\u540D\uFF0B\u5DF2\u8D77\u98DB
 
 \u5730\u7406\uFF08\u975E\u5E38\u91CD\u8981\uFF09\uFF1A
 - \u4F7F\u7528\u3010\u5EE3\u64AD\u7528\u5730\u540D\u3011\uFF1B\u4E0D\u8981\u7167\u5FF5\u96E3\u61C2\u7684\u7F85\u99AC\u5B57\u3001\u97F3\u6A19\u3001\u6487\u865F\u5730\u540D
@@ -108252,26 +108518,72 @@ ${hasLocal ? `\u7576\u5730\u8CC7\u8A0A\uFF08${isTakeoff ? "\u51FA\u767C\u5730" :
 - \u793E\u4EA4\u8CC7\u8A0A\u6539\u5BEB\u5F8C\u5D4C\u5165\u4E00\u53E5\u5373\u53EF\uFF0C\u7981\u6B62\u7167\u642C\u3010\u540C\u7D44\u793E\u4EA4\u3011\u539F\u6587
 - \u4E0D\u5F97\u7DE8\u9020\u672A\u63D0\u4F9B\u7684\u5730\u540D\u3001\u6642\u9593\u3001\u4EBA\u540D\uFF1B\u76F8\u95DC\u4E58\u5BA2\u53EA\u80FD\u7528\u7CFB\u7D71\u63D0\u4F9B\u7684\u540D\u5B57
 - \u76F4\u63A5\u8F38\u51FA\u5EE3\u64AD\u6B63\u6587\uFF0C\u4E0D\u52A0\u6A19\u984C\u3001\u5F15\u865F\u6216\u8AAA\u660E`;
-  const socialLine = input.socialCue.cueType === "solo" ? "\uFF08\u540C\u7D44\u66AB\u7121\u5176\u4ED6\u822A\u73ED\uFF0C\u53EF\u7565\u904E\u793E\u4EA4\u53E5\uFF0C\u6216\u4E00\u53E5\u300C\u5C0F\u968A\u96F7\u9054\u4E0A\u4ECA\u665A\u53EA\u6709\u4F60\u4E00\u4EBA\u300D\uFF09" : buildSocialBlock(input.socialCue);
-  const takeoffUser = `\u3010\u8D77\u98DB\u5EE3\u64AD\u3011
+}
+async function generateCaptainBroadcast(input) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY \u5C1A\u672A\u8A2D\u5B9A\u3002");
+  }
+  const locale = normalizeLocale(input.locale);
+  const client = new import_openai2.default({ apiKey: process.env.OPENAI_API_KEY });
+  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+  const isTakeoff = input.phase === "takeoff";
+  const pax = passengerLabel(input.passengerName, locale);
+  const direction = DIRECTION_LABEL2[locale][input.routeDirection] ?? input.routeDirection;
+  const hasLocal = !!input.localContext;
+  const departureLabel = broadcastLocationLabel(input.departureLocation, locale, isTakeoff ? input.localContext : null);
+  const arrivalLabel = broadcastLocationLabel(input.arrivalLocation, locale, !isTakeoff ? input.localContext : null);
+  const systemPrompt = buildSystemPrompt(locale, input.style, isTakeoff, pax, hasLocal);
+  const socialLine = input.socialCue.cueType === "solo" ? locale === "en" ? "(No other squad flights \u2014 one line that they have the sky to themselves tonight; do not say this passenger already took off.)" : "\uFF08\u540C\u7D44\u66AB\u7121\u5176\u4ED6\u822A\u73ED\uFF1A\u4E00\u53E5\u300C\u4ECA\u665A\u9019\u7247\u5929\u7A7A\u5148\u4EA4\u7D66\u4F60\u7368\u4EAB\u300D\uFF0C\u7981\u6B62\u8AAA\u4E58\u5BA2\u672C\u4EBA\u5DF2\u7D93\u8D77\u98DB\uFF09" : buildSocialBlock(input.socialCue, locale);
+  const takeoffUser = locale === "en" ? `[TAKEOFF PA]
+passenger: ${pax}
+raw departure: ${input.departureLocation}
+broadcast place: ${departureLabel}
+heading: ${direction}
+${input.localContext ? `
+[local context \xB7 departure]
+${buildLocalBlock(input.localContext, "takeoff", locale)}
+` : ""}
+[squad social]
+${socialLine}
+
+Write a fluent 3\u20134 sentence PA. Sentence one must begin with \u201CWelcome aboard Sleep Airline, this is your captain\u201D.
+If squad social exists: one past/progress sentence only \u2014 no teammate landing countdown.` : `\u3010\u8D77\u98DB\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
 \u51FA\u767C\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.departureLocation}
 \u5EE3\u64AD\u7528\u5730\u540D\uFF1A${departureLabel}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
 ${input.localContext ? `
 \u3010\u7576\u5730\u8CC7\u8A0A \xB7 \u51FA\u767C\u5730\u3011
-${buildLocalBlock(input.localContext, "takeoff")}
+${buildLocalBlock(input.localContext, "takeoff", locale)}
 ` : ""}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
 ${socialLine}
 
 \u8ACB\u4F9D\u300C3\u20134 \u53E5\u300D\u7D50\u69CB\u5BEB\u4E00\u6BB5\u6D41\u66A2\u53E3\u8A9E\u5EE3\u64AD\uFF0C\u7B2C\u4E00\u53E5\u5FC5\u9808\u4EE5\u300C\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\u300D\u958B\u982D\uFF08\u5B8C\u6574\u516B\u5B57\u300C\u6B61\u8FCE\u642D\u4E58\u300D\uFF0C\u4E0D\u53EF\u7701\u7565\u300C\u6B61\u8FCE\u300D\uFF09\u3002
 \u540C\u7D44\u793E\u4EA4\u82E5\u6709\uFF1A\u7528\u4E00\u53E5\u904E\u53BB\u5F0F\uFF0F\u9032\u884C\u5F0F\u5E36\u904E\uFF0C\u7981\u6B62\u968A\u53CB\u964D\u843D\u5012\u6578\u3002`;
-  const duration = formatDuration2(input.flightDurationMinutes);
-  const landingUser = `\u3010\u964D\u843D\u5EE3\u64AD\u3011
+  const duration = formatDuration2(input.flightDurationMinutes, locale);
+  const landingUser = locale === "en" ? `[LANDING PA]
+passenger: ${pax}
+raw departure: ${input.departureLocation}
+departure broadcast place: ${broadcastLocationLabel(input.departureLocation, locale)}
+raw arrival: ${input.arrivalLocation ?? "unknown"}
+arrival broadcast place: ${arrivalLabel}
+flight time: ${duration || "unknown"}
+distance: ${input.estimatedDistanceKm ? `${Math.round(input.estimatedDistanceKm)} km` : "unknown"}
+heading: ${direction}
+${input.localContext ? `
+[local context \xB7 arrival]
+${buildLocalBlock(input.localContext, "landing", locale)}
+` : ""}
+[squad social]
+${buildSocialBlock(input.socialCue, locale)}
+
+Announce waking up at arrival, how long you flew, and from/to. Sentence one = local-language good morning; sentence two must begin with \u201CWelcome aboard Sleep Airline, this is your captain\u201D.
+Weave one culture/weather beat; one social beat; fluent paragraph, no bullets.
+If [squad social] is not solo: within the first two sentences after the greeting, say what happened with which teammate/squad.` : `\u3010\u964D\u843D\u5EE3\u64AD\u3011
 \u4E58\u5BA2\uFF1A${pax}
 \u51FA\u767C\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.departureLocation}
-\u51FA\u767C\u5730\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${broadcastLocationLabel(input.departureLocation)}
+\u51FA\u767C\u5730\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${broadcastLocationLabel(input.departureLocation, locale)}
 \u62B5\u9054\u5730\u539F\u59CB\u8CC7\u6599\uFF1A${input.arrivalLocation ?? "\u672A\u77E5"}
 \u62B5\u9054\u5730\u5EE3\u64AD\u7528\u5730\u540D\uFF1A${arrivalLabel}
 \u98DB\u884C\u6642\u9577\uFF1A${duration || "\u672A\u77E5"}
@@ -108279,10 +108591,10 @@ ${socialLine}
 \u822A\u7DDA\u65B9\u5411\uFF1A${direction}
 ${input.localContext ? `
 \u3010\u7576\u5730\u8CC7\u8A0A \xB7 \u62B5\u9054\u5730\u3011
-${buildLocalBlock(input.localContext, "landing")}
+${buildLocalBlock(input.localContext, "landing", locale)}
 ` : ""}
 \u3010\u540C\u7D44\u793E\u4EA4\u3011
-${buildSocialBlock(input.socialCue)}
+${buildSocialBlock(input.socialCue, locale)}
 
 \u8ACB\u5BA3\u5E03\uFF1A\u9192\u4F86\u62B5\u9054\u3001\u98DB\u4E86\u591A\u4E45\u3001\u5F9E\u54EA\u5230\u54EA\uFF1B\u7B2C\u4E00\u53E5\u4EE5\u7576\u5730\u8A9E\u8A00\u65E9\u5B89\u958B\u982D\uFF0C\u7B2C\u4E8C\u53E5\u5FC5\u9808\u4EE5\u300C\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\u300D\u5B8C\u6574\u958B\u982D\uFF08\u300C\u6B61\u8FCE\u300D\u4E0D\u53EF\u7701\u7565\u3001\u7981\u6B62\u53EA\u5BEB\u300C\u642D\u4E58 Sleep Airline\u300D\uFF09\uFF0C
 \u5FC5\u9808\u878D\u5165\u4E00\u7B46\u7576\u5730\u6587\u5316\u6216\u5929\u6C23\uFF08\u6539\u5BEB\uFF09\uFF1B\u7528\u4E00\u53E5\u8A71\u9EDE\u51FA\u793E\u4EA4\u60C5\u5883\uFF0C\u5408\u4F75\u6210\u4E00\u6BB5\u6D41\u66A2\u5EE3\u64AD\uFF0C\u52FF\u5217\u9EDE\u3001\u52FF\u7167\u642C\u3002
@@ -108297,11 +108609,23 @@ ${buildSocialBlock(input.socialCue)}
     max_tokens: isTakeoff ? 220 : 280,
     temperature: isTakeoff ? 0.42 : 0.55
   });
-  const raw = completion.choices[0]?.message?.content?.trim() ?? "\u5EE3\u64AD\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66\u3002";
-  return ensureWelcomeAboardPhrase(raw);
+  const raw = completion.choices[0]?.message?.content?.trim() ?? (locale === "en" ? "Broadcast failed. Please try again." : "\u5EE3\u64AD\u751F\u6210\u5931\u6557\uFF0C\u8ACB\u91CD\u8A66\u3002");
+  return ensureWelcomeAboardPhrase(raw, locale);
 }
-function ensureWelcomeAboardPhrase(text) {
+function ensureWelcomeAboardPhrase(text, locale = "zh") {
   const body = (text || "").trim();
+  if (locale === "en") {
+    if (!body) return "Welcome aboard Sleep Airline, this is your captain.";
+    if (/welcome\s+aboard\s+Sleep\s+Airline/i.test(body)) return body;
+    if (/aboard\s+Sleep\s+Airline/i.test(body)) {
+      return body.replace(/aboard\s+Sleep\s+Airline/i, "Welcome aboard Sleep Airline");
+    }
+    const greet2 = body.match(/^(.{1,48}[!！.。…]+)(\s*)/);
+    if (greet2 && !/\b(welcome|captain)\b/i.test(greet2[1])) {
+      return `${greet2[1]}${greet2[2] || " "}Welcome aboard Sleep Airline, this is your captain. ${body.slice(greet2[0].length)}`;
+    }
+    return `Welcome aboard Sleep Airline, this is your captain. ${body}`;
+  }
   if (!body) {
     return "\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\u3002";
   }
@@ -108315,17 +108639,31 @@ function ensureWelcomeAboardPhrase(text) {
   }
   return `\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\u3002${body}`;
 }
-function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arrivalLocation, routeDirection, durationMinutes, socialCueText, localContext) {
-  const pax = passengerLabel(passengerName);
-  const direction = DIRECTION_LABEL2[routeDirection] ?? routeDirection;
-  const departureLabel = broadcastLocationLabel(departureLocation, phase === "takeoff" ? localContext : null);
-  const arrivalLabel = broadcastLocationLabel(arrivalLocation, phase === "landing" ? localContext : null);
+function fallbackCaptainBroadcast(phase, passengerName, departureLocation, arrivalLocation, routeDirection, durationMinutes, socialCueText, localContext, localeInput) {
+  const locale = normalizeLocale(localeInput);
+  const pax = passengerLabel(passengerName, locale);
+  const direction = DIRECTION_LABEL2[locale][routeDirection] ?? routeDirection;
+  const departureLabel = broadcastLocationLabel(departureLocation, locale, phase === "takeoff" ? localContext : null);
+  const arrivalLabel = broadcastLocationLabel(arrivalLocation, locale, phase === "landing" ? localContext : null);
+  if (locale === "en") {
+    if (phase === "takeoff") {
+      const wx = localContext?.weatherSummary ? `${localContext.localTimeLabel ?? "Right now"} ${localContext.weatherSummary}. ` : "";
+      const social = socialCueText?.trim() && !/alone|only you/i.test(socialCueText) ? ` ${socialCueText.replace(/[.!?\s]+$/g, "")}.` : "";
+      return `Welcome aboard Sleep Airline, this is your captain. We are departing ${departureLabel}, heading ${direction}. ${wx}Rest easy \u2014 the night will keep our destination until you wake.${social} Sleep well.`;
+    }
+    const dur2 = formatDuration2(durationMinutes, locale);
+    const greet2 = localContext?.morningGreeting ? `${localContext.morningGreeting}! ` : "";
+    const timeBit2 = localContext?.localTimeLabel ? `${localContext.localTimeLabel}, ` : "Local morning, ";
+    const wxBit2 = localContext?.weatherSummary ? `outside it\u2019s ${localContext.weatherSummary}. ` : "";
+    const cultureBit2 = localContext?.culture ? `${localContext.culture.split(";")[0]?.split(".")[0]}. ` : "Step out with a smile for the locals. ";
+    return `${greet2}Welcome aboard Sleep Airline, this is your captain. We have arrived safely in ${arrivalLabel}. ${timeBit2}${wxBit2}${pax} flew from ${departureLabel} for ${dur2 || "a stretch"}. ${cultureBit2}${socialCueText}`;
+  }
   if (phase === "takeoff") {
     const wx = localContext?.weatherSummary ? `${localContext.localTimeLabel ?? "\u6B64\u523B"}${localContext.weatherSummary}\uFF0C` : "";
     const social = socialCueText?.trim() && !/獨自飛行|只有你一人/.test(socialCueText) ? ` ${socialCueText.replace(/[。！？\s]+$/g, "")}\u3002` : "";
     return `\u6B61\u8FCE\u642D\u4E58 Sleep Airline\uFF0C\u9019\u88E1\u662F\u6A5F\u9577\uFF0C\u5404\u4F4D\u4E58\u5BA2\uFF0C\u672C\u73ED\u81EA ${departureLabel} \u8D77\u98DB\uFF0C\u822A\u5411${direction}\u3002${wx ? wx : ""}\u8ACB\u5B89\u5FC3\u5165\u7761\uFF0C\u7A97\u5916\u7684\u591C\u8272\u6703\u66FF\u6211\u5011\u4FDD\u7BA1\u76EE\u7684\u5730\u3002${social}\u795D\u5404\u4F4D\u597D\u7720\u3002`;
   }
-  const dur = formatDuration2(durationMinutes);
+  const dur = formatDuration2(durationMinutes, locale);
   const greet = localContext?.morningGreeting ? `${localContext.morningGreeting}\uFF01` : "";
   const timeBit = localContext?.localTimeLabel ? `${localContext.localTimeLabel}\uFF0C` : "\u672C\u5730\u6642\u9593\u6E05\u6668\uFF0C";
   const wxBit = localContext?.weatherSummary ? `\u7A97\u5916${localContext.weatherSummary}\u3002` : "";
@@ -108419,7 +108757,7 @@ function fallbackSocialTakeaway(input) {
   let primary = "";
   switch (input.socialCue.cueType) {
     case "solo":
-      primary = input.phase === "takeoff" ? "\u4ECA\u665A\u5C0F\u968A\u96F7\u9054\u5F88\u5B89\u975C\uFF0C\u4F60\u5148\u8D77\u98DB\u3002" : "\u4ECA\u665A\u4F60\u5B8C\u6210\u4E86\u4E00\u8D9F\u5B89\u975C\u7684\u500B\u4EBA\u822A\u73ED\u3002";
+      primary = input.phase === "takeoff" ? "\u4ECA\u665A\u9019\u7247\u5929\u7A7A\u5148\u4EA4\u7D66\u4F60\u7368\u4EAB\u3002" : "\u4ECA\u665A\u4F60\u5B8C\u6210\u4E86\u4E00\u8D9F\u5B89\u975C\u7684\u500B\u4EBA\u822A\u73ED\u3002";
       break;
     case "teammate_departure":
       primary = `${name} \u5DF2\u7D93\u8D77\u98DB\uFF0C\u5C0F\u968A\u591C\u822A\u958B\u59CB\u4E86\u3002`;
@@ -108547,54 +108885,6 @@ ${phaseGuard}
   } catch {
     return fallbackSocialTakeaway({ ...input, groupSummary });
   }
-}
-
-// src/lib/notion/notion-file-upload.ts
-var NOTION_API_VERSION = "2025-09-03";
-function notionHeaders() {
-  return {
-    Authorization: `Bearer ${process.env.NOTION_API_KEY}`,
-    "Notion-Version": NOTION_API_VERSION
-  };
-}
-async function uploadImageToNotion(buffer, filename, contentType = "image/png") {
-  const createRes = await fetch("https://api.notion.com/v1/file_uploads", {
-    method: "POST",
-    headers: {
-      ...notionHeaders(),
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ filename, content_type: contentType })
-  });
-  if (!createRes.ok) {
-    throw new Error(`Notion file_upload create failed: ${createRes.status} ${await createRes.text()}`);
-  }
-  const created = await createRes.json();
-  const uploadId = created.id;
-  const form = new FormData();
-  form.append("file", new Blob([new Uint8Array(buffer)], { type: contentType }), filename);
-  const sendRes = await fetch(`https://api.notion.com/v1/file_uploads/${uploadId}/send`, {
-    method: "POST",
-    headers: notionHeaders(),
-    body: form
-  });
-  if (!sendRes.ok) {
-    throw new Error(`Notion file_upload send failed: ${sendRes.status} ${await sendRes.text()}`);
-  }
-  const sent = await sendRes.json();
-  if (sent.status !== "uploaded") {
-    throw new Error(`Notion file_upload status: ${sent.status ?? "unknown"}`);
-  }
-  return uploadId;
-}
-function wFileUpload(fileUploadId, name) {
-  return {
-    files: [{
-      type: "file_upload",
-      file_upload: { id: fileUploadId },
-      name
-    }]
-  };
 }
 
 // src/lib/notion/landscape-images.ts
@@ -108770,6 +109060,8 @@ function parseFlightFromPage(page) {
     socialCueType: readSelect(props, "Social Cue Type"),
     socialCueText: readText(props, "Social Cue Text") || null,
     relatedPassenger: readText(props, "Related Passenger") || null,
+    textMemo: readText(props, "Text memo") || null,
+    idPhotoUrl: readIdPhotoUrl(props),
     createdAt: readDate(props, "Created At") ?? (/* @__PURE__ */ new Date()).toISOString(),
     updatedAt: readDate(props, "Updated At") ?? (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -108797,33 +109089,102 @@ async function getFlightByFlightId(flightId) {
 
 // src/lib/ai/scenery.ts
 var import_openai5 = __toESM(require("openai"));
-function buildSceneryPrompt(city, country, displayName) {
+var DEFAULT_SCENERY_IMAGE_MODEL = "gpt-image-2";
+var DEFAULT_SCENERY_IMAGE_QUALITY = "low";
+function describeSceneryLocalMoment(landingTime, timezone) {
+  if (!landingTime || !timezone) return null;
+  const instant = new Date(landingTime);
+  if (Number.isNaN(instant.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(instant);
+    const value = (type) => parts.find((part) => part.type === type)?.value ?? "";
+    const hour = Number(value("hour"));
+    if (!Number.isFinite(hour)) return null;
+    const label = hour < 5 ? "local deep night" : hour < 8 ? "local dawn" : hour < 11 ? "local morning" : hour < 16 ? "local midday" : hour < 18 ? "local afternoon" : hour < 20 ? "local sunset" : "local night";
+    return {
+      hour,
+      label,
+      localDate: `${value("year")}-${value("month")}-${value("day")}`,
+      localTime: `${value("hour")}:${value("minute")}`
+    };
+  } catch {
+    return null;
+  }
+}
+function iconicSubjectHint(city, country, displayName) {
+  const place = `${city} ${country} ${displayName}`.toLocaleLowerCase();
+  const hints = [
+    [
+      ["rio de janeiro", "\u91CC\u7D04\u71B1\u5167\u76E7"],
+      "Make Christ the Redeemer, Corcovado Mountain and Rio\u2019s dramatic bay-and-mountain geography the unmistakable subject."
+    ],
+    [
+      ["cairo", "giza", "\u958B\u7F85", "\u5409\u85A9"],
+      "Make the Giza pyramids and the desert plateau the unmistakable subject, with the Nile landscape only where compositionally accurate."
+    ],
+    [
+      ["egypt", "\u57C3\u53CA"],
+      "Use the destination\u2019s geographically correct Egyptian icon: pyramids only for the Cairo\u2013Giza area; otherwise prioritize its own Nile, desert, temple, oasis or Red Sea identity."
+    ],
+    [
+      ["antarctica", "south pole", "\u5357\u6975"],
+      "Make Antarctic ice, glaciers and penguins in a believable colony habitat the main subject; show no town or generic houses."
+    ],
+    [
+      ["arctic", "north pole", "svalbard", "longyearbyen", "\u5317\u6975", "\u65AF\u74E6\u723E\u5DF4", "\u6717\u4F0A\u723E\u57CE"],
+      "Make Arctic sea ice, polar landscape and a polar bear in a believable habitat the main subject; include aurora only when the stated local time is dark."
+    ],
+    [
+      ["netherlands", "holland", "amsterdam", "\u8377\u862D", "\u963F\u59C6\u65AF\u7279\u4E39"],
+      "Prioritize iconic Dutch windmills, canals and seasonally plausible tulip fields over ordinary houses."
+    ]
+  ];
+  return hints.find(([aliases]) => aliases.some((alias) => place.includes(alias)))?.[1] ?? null;
+}
+function buildSceneryPrompt(city, country, displayName, context = {}) {
   const place = displayName || `${city}, ${country}`;
+  const localMoment = describeSceneryLocalMoment(context.landingTime, context.timezone);
+  const timeDirection = localMoment ? `Depict the actual ${localMoment.label} at ${localMoment.localTime} on ${localMoment.localDate} in ${context.timezone}. The sun angle, sky brightness, artificial lights and shadows must match that local time exactly; never turn a night arrival into morning.` : `Use lighting that is geographically and seasonally plausible for ${place}; do not default every arrival to sunrise.`;
+  const iconicHint = iconicSubjectHint(city, country, displayName);
   return [
-    `View through an airplane cabin window during a gentle morning descent toward ${place}.`,
-    `Art style: stylized 3D animated film look \u2014 soft Pixar-like cartoon rendering,`,
-    `NOT photorealistic, NOT live-action, NOT illustration or watercolor.`,
-    `Depict the real geography of this exact location: the place name may be written in Chinese,`,
-    `but the scenery must match the actual place on the map, never the language of the name \u2014`,
-    `do not default to Chinese or East-Asian architecture unless the place is actually in such a region.`,
-    `If ${city} is famous for architecture, show its true iconic landmarks and authentic local building styles.`,
-    `If the place is defined by nature (polar ice, glaciers, atolls, desert, tundra, open mountains),`,
-    `show ONLY that natural landscape with wildlife typical of the region \u2014`,
-    `never invent buildings, temples, pagodas or towns that do not exist there.`,
-    `Rounded friendly forms, smooth CGI surfaces, subtle subsurface glow,`,
-    `charmingly exaggerated landmarks that feel instantly recognizable.`,
-    `Golden sunrise light, hopeful just-woke-up arrival feeling;`,
-    `bright saturated palette: warm gold, peach, fresh morning-blue sky, soft volumetric haze;`,
-    `gentle window-glass reflection at the frame edges \u2014 dreamy, luminous, family-friendly.`,
+    `Create a premium dimensional travel postcard of ${place}, seen during a gentle airplane descent.`,
+    `The destination must be instantly recognizable without relying on text.`,
+    timeDirection,
+    `Use a polished handcrafted 3D relief / miniature-diorama aesthetic: tactile depth, refined forms,`,
+    `cinematic composition and believable materials, but not photorealistic and not a generic toy scene.`,
+    `Build the image from the real visual DNA of ${city}, ${country}:`,
+    `accurate terrain and coastline or river pattern; one or two landmarks only if they truly exist there;`,
+    `authentic local architecture, street or roof materials, native vegetation and region-appropriate weather.`,
+    `Choose one unmistakable hero subject using this priority: an iconic landmark, dramatic natural landform,`,
+    `signature wildlife in its real habitat, or characteristic native flora. Generic houses must never be the main subject.`,
+    `Architecture should dominate only when the building itself is a genuine destination icon.`,
+    iconicHint,
+    `Use a destination-specific color palette derived from the local landscape, craft traditions,`,
+    `building materials and natural light. Do not impose a universal orange-and-blue travel palette.`,
+    `Let the local colors dominate: preserve the characteristic mineral, botanical, coastal, desert,`,
+    `tropical, polar or urban hues that distinguish this place from every other destination.`,
+    `The place name may be provided in another language, but geography and culture must follow the actual location.`,
+    `Never substitute East-Asian motifs unless ${city}, ${country} genuinely calls for them.`,
+    `For nature-led destinations, prioritize the true landforms and ecosystem and do not invent a city.`,
+    `Keep wildlife, flora, season and habitat scientifically plausible. Do not mix animals or plants from another region.`,
+    `A very subtle airplane-window reflection may appear at the outer edge; keep the scenery large and unobstructed.`,
     `Absolutely no text of any kind anywhere in the image: no signs, billboards, banners,`,
     `storefront lettering, street markings, no letters, numbers or writing in any language.`,
-    `No close-up people, no watermark, no logos.`
-  ].join(" ");
+    `No invented landmarks, no close-up people, no watermark, no logos.`
+  ].filter(Boolean).join(" ");
 }
 var SCENERY_IMAGE_SIZE = "1024x1024";
 function resolveImageQuality() {
   const q = process.env.OPENAI_IMAGE_QUALITY?.toLowerCase();
-  return q === "low" || q === "medium" || q === "high" ? q : "medium";
+  return q === "low" || q === "medium" || q === "high" ? q : DEFAULT_SCENERY_IMAGE_QUALITY;
 }
 function safeFilename(city, flightId) {
   const slug2 = city.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24) || "landing";
@@ -108832,11 +109193,11 @@ function safeFilename(city, flightId) {
 function isGptImageModel(model) {
   return model.startsWith("gpt-image") || model.startsWith("chatgpt-image");
 }
-async function generateLandingScenery(city, country, displayName, flightId) {
+async function generateLandingScenery(city, country, displayName, flightId, context = {}) {
   if (!process.env.OPENAI_API_KEY) return null;
-  const imagePrompt = buildSceneryPrompt(city, country, displayName);
+  const imagePrompt = buildSceneryPrompt(city, country, displayName, context);
   const client = new import_openai5.default({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-1-mini";
+  const model = process.env.OPENAI_IMAGE_MODEL ?? DEFAULT_SCENERY_IMAGE_MODEL;
   const useGptImage = isGptImageModel(model);
   try {
     const response = await client.images.generate(
@@ -108936,8 +109297,12 @@ async function generateAndSaveScenery(info, options) {
   }
   if (!info.arrivalLocation) return { flightId, error: "\u6C92\u6709\u62B5\u9054\u5730\u9EDE" };
   const { city, country } = parseCityCountry(info.arrivalLocation);
+  const destination = CITIES.find((item) => item.displayName === info.arrivalLocation);
   const startedAt = Date.now();
-  const sceneryGen = await generateLandingScenery(city, country, info.arrivalLocation, flightId);
+  const sceneryGen = await generateLandingScenery(city, country, info.arrivalLocation, flightId, {
+    landingTime: info.landingTime,
+    timezone: info.timezone ?? destination?.timezone
+  });
   if (!sceneryGen) {
     console.error(`[scenery] ${flightId} \u751F\u5716\u5931\u6557\uFF08${Date.now() - startedAt}ms\uFF09\u2014 \u6AA2\u67E5 OPENAI_API_KEY / OPENAI_IMAGE_MODEL`);
     return { flightId, error: "\u751F\u5716\u5931\u6557\uFF08OPENAI_API_KEY\uFF09" };
@@ -109013,6 +109378,33 @@ function withTimeout(promise, ms, onTimeout) {
   });
 }
 
+// src/lib/notion/research-consent.ts
+var RESEARCH_CONSENT_PROP = "Research consent";
+var CONSENT_TIME_PROP = "Consent time";
+function isStampablePageId(pageId) {
+  return !!pageId && !pageId.startsWith("mem_") && !pageId.startsWith("pending_");
+}
+function isResearchConsentGranted(body) {
+  return body?.researchConsent === true;
+}
+async function stampResearchConsent(pageId, atIso) {
+  if (!isNotionConfigured() || !isStampablePageId(pageId)) return;
+  const allowed = await getDashboardPropertyNames();
+  const properties = {};
+  if (allowed.has(RESEARCH_CONSENT_PROP)) {
+    properties[RESEARCH_CONSENT_PROP] = { checkbox: true };
+  }
+  if (allowed.has(CONSENT_TIME_PROP)) {
+    properties[CONSENT_TIME_PROP] = { date: { start: atIso || (/* @__PURE__ */ new Date()).toISOString() } };
+  }
+  if (!Object.keys(properties).length) return;
+  const client = getNotionClient();
+  await client.pages.update({
+    page_id: pageId,
+    properties
+  });
+}
+
 // src/lib/reminders/push.ts
 var import_web_push = __toESM(require("web-push"));
 var configured = false;
@@ -109039,14 +109431,14 @@ async function sendLandingReminderPush(record) {
   if (!isWebPushConfigured()) throw new Error("Web Push VAPID keys are not configured.");
   const payload = JSON.stringify({
     title: "\u7526\u9192\u822A\u73ED\u63D0\u9192",
-    body: "\u4F60\u7684\u822A\u73ED\u4ECD\u5728\u98DB\u884C\u4E2D\u3002\u9192\u4F86\u5F8C\u8A18\u5F97\u56DE\u5230 Sleep Airline \u6309\u4E0B\u300C\u964D\u843D\u300D\u3002",
+    body: "\u9192\u4F86\u5F8C\u8A18\u5F97\u56DE\u5230 Sleep Airline \u6309\u4E0B\u300C\u964D\u843D\u300D\u3002",
     url: "/",
-    tag: `sleep-airline-landing-${record.flightId}`
+    tag: "sleep-airline-landing-reminder"
   });
   await import_web_push.default.sendNotification(
     record.subscription,
     payload,
-    { TTL: 60 * 60 * 6 }
+    { TTL: 60 * 60 * 24 }
   );
 }
 
@@ -109173,26 +109565,11 @@ async function markLandingReminderSent(id, sentAt = /* @__PURE__ */ new Date()) 
 }
 
 // src/lib/reminders/scheduler.ts
-var DEFAULT_FIRST_REMINDER_MINUTES = 480;
-var DEFAULT_REPEAT_REMINDER_MINUTES = 60;
-function envMinutes(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
 function flightKey(flight) {
   return `${flight.passengerId}:${flight.flightId}`;
 }
-function isReminderDue(takeoffTime, lastReminderAt, now) {
-  const firstMinutes = envMinutes("REMINDER_FIRST_AFTER_MINUTES", DEFAULT_FIRST_REMINDER_MINUTES);
-  const repeatMinutes = envMinutes("REMINDER_REPEAT_MINUTES", DEFAULT_REPEAT_REMINDER_MINUTES);
-  const takeoffMs = new Date(takeoffTime).getTime();
-  if (!Number.isFinite(takeoffMs)) return false;
-  const nowMs = now.getTime();
-  if (nowMs - takeoffMs < firstMinutes * 6e4) return false;
-  if (!lastReminderAt) return true;
-  const lastMs = new Date(lastReminderAt).getTime();
-  if (!Number.isFinite(lastMs)) return true;
-  return nowMs - lastMs >= repeatMinutes * 6e4;
+function isReminderDue(lastReminderAt) {
+  return !lastReminderAt;
 }
 async function runLandingReminderCron(now = /* @__PURE__ */ new Date()) {
   const result = {
@@ -109219,7 +109596,7 @@ async function runLandingReminderCron(now = /* @__PURE__ */ new Date()) {
       result.removed += 1;
       continue;
     }
-    if (!isReminderDue(record.takeoffTime || activeFlight.takeoffTime, record.lastReminderAt, now)) {
+    if (!isReminderDue(record.lastReminderAt)) {
       result.skipped += 1;
       continue;
     }
@@ -109248,7 +109625,7 @@ import_dotenv.default.config({ path: ".env.local" });
 var SOLO_SOCIAL_CUE = {
   cueType: "solo",
   relatedPassenger: null,
-  cueText: "\u4ECA\u665A\u4F60\u7368\u81EA\u98DB\u884C\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002"
+  cueText: "\u4ECA\u665A\u4F60\u7368\u81EA\u4EAB\u53D7\u9019\u7247\u5929\u7A7A\u3002\u540C\u7D44\u96F7\u9054\u4E0A\u66AB\u6642\u53EA\u6709\u4F60\u4E00\u4EBA\u3002"
 };
 async function resolveSocialCueWithBudget(current, groupFlights) {
   return withTimeout(resolveGroupSocialCue(current, groupFlights), 8e3, () => SOLO_SOCIAL_CUE);
@@ -109287,12 +109664,8 @@ function parseDisplayLocation(displayName) {
   return { cityName: displayName, countryName: "" };
 }
 var app = (0, import_express.default)();
-app.use(import_express.default.json());
+app.use(import_express.default.json({ limit: "1mb" }));
 app.use(import_express.default.static((0, import_path.join)(process.cwd(), "public")));
-function envMinutes2(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
 function isValidPushSubscription(value) {
   const sub = value;
   return !!sub && typeof sub.endpoint === "string" && sub.endpoint.startsWith("https://") && typeof sub.keys?.p256dh === "string" && typeof sub.keys?.auth === "string";
@@ -109319,8 +109692,8 @@ app.get("/api/reminders/config", (_req, res) => {
     webPushReady: isWebPushConfigured(),
     vapidPublicKey: getVapidPublicKey(),
     persistentStoreReady: isPersistentReminderStoreConfigured(),
-    firstReminderMinutes: envMinutes2("REMINDER_FIRST_AFTER_MINUTES", 480),
-    repeatReminderMinutes: envMinutes2("REMINDER_REPEAT_MINUTES", 60)
+    firstReminderMinutes: 0,
+    repeatReminderMinutes: 0
   });
 });
 app.post("/api/reminders/subscribe", async (req, res) => {
@@ -109355,11 +109728,22 @@ app.post("/api/reminders/subscribe", async (req, res) => {
       takeoffTime: takeoffTime || activeFlight.takeoffTime,
       subscription
     });
+    let sent = false;
+    if (!record.lastReminderAt) {
+      try {
+        await sendLandingReminderPush(record);
+        await markLandingReminderSent(record.id);
+        sent = true;
+      } catch (err) {
+        console.warn("[landing-reminder] immediate push failed:", err instanceof Error ? err.message : err);
+      }
+    }
     res.json({
       ok: true,
       reminder: {
         id: record.id,
         flightId: record.flightId,
+        sent,
         persistentStoreReady: isPersistentReminderStoreConfigured()
       }
     });
@@ -109404,6 +109788,10 @@ app.get("/api/notion/schema", async (_req, res) => {
 app.post("/api/passenger", async (req, res) => {
   try {
     const { passengerId, name, groupId } = req.body;
+    if (!isResearchConsentGranted(req.body)) {
+      res.status(403).json({ error: "\u9700\u540C\u610F\u7814\u7A76\u8CC7\u6599\u4F7F\u7528\u5F8C\u624D\u80FD\u767B\u6A5F\u3002" });
+      return;
+    }
     if (!passengerId || !name || !groupId) {
       res.status(400).json({ error: "\u8ACB\u586B\u5BEB\u4E58\u5BA2 ID\u3001\u59D3\u540D\u548C\u5C0F\u968A ID\u3002" });
       return;
@@ -109419,6 +109807,10 @@ app.post("/api/passenger", async (req, res) => {
         if (patch.groupId) result.passenger.groupId = patch.groupId;
       }
     }
+    const consentAt = typeof req.body.researchConsentAt === "string" ? req.body.researchConsentAt : (/* @__PURE__ */ new Date()).toISOString();
+    const stampPageId = result.sourcePage && typeof result.sourcePage.id === "string" ? result.sourcePage.id : result.passenger.notionId;
+    await stampResearchConsent(stampPageId, consentAt).catch(() => {
+    });
     let lastLandedFlight = null;
     if (result.passenger.status !== "in_flight") {
       if (result.sourceKind === "landed" && result.sourcePage) {
@@ -109428,11 +109820,53 @@ app.post("/api/passenger", async (req, res) => {
       }
     }
     res.json({
-      passenger: result.passenger,
+      passenger: {
+        ...result.passenger,
+        idPhotoUrl: result.passenger.idPhotoUrl || lastLandedFlight?.idPhotoUrl || null
+      },
       created: result.created,
       lastLandedFlight,
       landingScenery: null
     });
+  } catch (err) {
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
+  }
+});
+app.post("/api/passenger/avatar", async (req, res) => {
+  try {
+    const { passengerId, imageDataUrl } = req.body;
+    if (!passengerId || !imageDataUrl) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID \u8207\u982D\u50CF\u3002" });
+      return;
+    }
+    const result = await savePassengerIdPhoto(passengerId, imageDataUrl);
+    if (result.idPhotoUrl) applyMemIdPhoto(passengerId, result.idPhotoUrl);
+    res.json(result);
+  } catch (err) {
+    const message = formatNotionError(err);
+    res.status(500).json({ error: message, message });
+  }
+});
+app.post("/api/flight/memo", async (req, res) => {
+  try {
+    const { passengerId, flightId, textMemo } = req.body;
+    if (!passengerId) {
+      res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
+      return;
+    }
+    const flight = await getActiveFlight(passengerId);
+    if (!flight) {
+      res.status(404).json({ error: "\u627E\u4E0D\u5230\u9032\u884C\u4E2D\u7684\u822A\u73ED\u3002" });
+      return;
+    }
+    if (flightId && flight.flightId !== flightId) {
+      res.status(409).json({ error: "\u822A\u73ED\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002" });
+      return;
+    }
+    const memo = clampTextMemo(textMemo);
+    await updateFlight(flight.notionId, { textMemo: memo });
+    res.json({ textMemo: memo, flight: { ...flight, textMemo: memo } });
   } catch (err) {
     const message = formatNotionError(err);
     res.status(500).json({ error: message, message });
@@ -109446,10 +109880,16 @@ app.post("/api/flight/takeoff", async (req, res) => {
       groupId = "",
       routeDirection = "auto",
       broadcastStyle = "formal_captain",
-      simulatedTakeoffTime
+      simulatedTakeoffTime,
+      locale = "zh",
+      idPhotoBase64
     } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
+      return;
+    }
+    if (!isResearchConsentGranted(req.body)) {
+      res.status(403).json({ error: "\u9700\u540C\u610F\u7814\u7A76\u8CC7\u6599\u4F7F\u7528\u5F8C\u624D\u80FD\u8D77\u98DB\u3002" });
       return;
     }
     const { passenger } = await getOrCreatePassenger(passengerId, name, groupId);
@@ -109476,6 +109916,21 @@ app.post("/api/flight/takeoff", async (req, res) => {
       routeDirection,
       takeoffTime
     });
+    const consentAt = typeof req.body.researchConsentAt === "string" ? req.body.researchConsentAt : (/* @__PURE__ */ new Date()).toISOString();
+    await stampResearchConsent(flight.notionId, consentAt).catch(() => {
+    });
+    if (typeof idPhotoBase64 === "string" && idPhotoBase64.startsWith("data:image/")) {
+      try {
+        if (isNotionConfigured() && !flight.notionId.startsWith("mem_")) {
+          flight.idPhotoUrl = await attachIdPhotoToPage(flight.notionId, idPhotoBase64);
+        } else {
+          applyMemIdPhoto(passengerId, idPhotoBase64);
+          flight.idPhotoUrl = idPhotoBase64;
+        }
+      } catch (err) {
+        console.warn("[takeoff id photo]", err);
+      }
+    }
     const groupFlights = await getGroupFlights(passenger.groupId);
     const depPlace = parseDisplayLocation(flight.departureLocation);
     const [socialCue, depLocal] = await Promise.all([
@@ -109529,7 +109984,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
         routeDirection: flight.routeDirection,
         socialCue,
         style: broadcastStyle,
-        localContext: depLocal
+        localContext: depLocal,
+        locale: locale === "en" ? "en" : "zh"
       },
       () => fallbackCaptainBroadcast(
         "takeoff",
@@ -109539,7 +109995,8 @@ app.post("/api/flight/takeoff", async (req, res) => {
         flight.routeDirection,
         null,
         socialCue.cueText,
-        depLocal
+        depLocal,
+        locale === "en" ? "en" : "zh"
       )
     );
     const [_, speechAudioBase64, socialTakeaway] = await Promise.all([
@@ -109577,7 +110034,8 @@ app.post("/api/flight/land", async (req, res) => {
       groupId = "",
       broadcastStyle = "formal_captain",
       simulatedDurationMinutes,
-      simulatedLandingTime
+      simulatedLandingTime,
+      locale = "zh"
     } = req.body;
     if (!passengerId) {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B\u4E58\u5BA2 ID\u3002" });
@@ -109653,7 +110111,8 @@ app.post("/api/flight/land", async (req, res) => {
       activeFlight.routeDirection,
       durationMinutes,
       socialCue.cueText,
-      arrLocal
+      arrLocal,
+      locale === "en" ? "en" : "zh"
     );
     const captainBroadcast = await generateBroadcastWithBudget(
       {
@@ -109668,7 +110127,8 @@ app.post("/api/flight/land", async (req, res) => {
         routeDirection: activeFlight.routeDirection,
         socialCue,
         style: broadcastStyle,
-        localContext: arrLocal
+        localContext: arrLocal,
+        locale: locale === "en" ? "en" : "zh"
       },
       broadcastFallback
     );
@@ -109697,7 +110157,8 @@ app.post("/api/flight/land", async (req, res) => {
         passengerName: activeFlight.passengerName,
         groupId: passenger.groupId,
         arrivalLocation: arrival.displayName,
-        landingTime
+        landingTime,
+        timezone: arrival.timezone
       });
       if (result.error) {
         console.error(`[scenery] ${activeFlight.flightId} \u964D\u843D\u80CC\u666F\u751F\u5716\u5931\u6557\uFF1A${result.error}`);

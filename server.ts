@@ -686,6 +686,7 @@ app.post('/api/flight/land', async (req, res) => {
         groupId: passenger.groupId,
         arrivalLocation: arrival.displayName,
         landingTime,
+        timezone: arrival.timezone,
       });
       if (result.error) {
         console.error(`[scenery] ${activeFlight.flightId} 降落背景生圖失敗：${result.error}`);
