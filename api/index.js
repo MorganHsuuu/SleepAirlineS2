@@ -108889,6 +108889,12 @@ ${phaseGuard}
 
 // src/lib/notion/landscape-images.ts
 var mem3 = [];
+var NOTION_RICH_TEXT_CONTENT_LIMIT = 2e3;
+function toNotionImagePrompt(value) {
+  if (value.length <= NOTION_RICH_TEXT_CONTENT_LIMIT) return value;
+  const clipped = value.slice(0, NOTION_RICH_TEXT_CONTENT_LIMIT);
+  return /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
+}
 function normalizeGroupDigits2(groupId) {
   const legacy = /^group_(\d{2})$/i.exec(groupId || "");
   if (legacy) return legacy[1].padStart(4, "0");
@@ -108972,7 +108978,7 @@ async function saveLandingScenery(params) {
     "Arrival Location": wText(params.arrivalLocation),
     "Country": wText(params.country),
     "Image": wFileUpload(fileUploadId, params.filename),
-    "Image Prompt": wText(params.imagePrompt),
+    "Image Prompt": wText(toNotionImagePrompt(params.imagePrompt)),
     "Landing Time": wDate(params.landingTime),
     "Created At": wDate(now)
   };

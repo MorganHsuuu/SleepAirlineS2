@@ -25,6 +25,13 @@ import {
 } from './schema-introspect';
 
 const mem: LandingScenery[] = [];
+const NOTION_RICH_TEXT_CONTENT_LIMIT = 2000;
+
+export function toNotionImagePrompt(value: string): string {
+  if (value.length <= NOTION_RICH_TEXT_CONTENT_LIMIT) return value;
+  const clipped = value.slice(0, NOTION_RICH_TEXT_CONTENT_LIMIT);
+  return /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
+}
 
 function normalizeGroupDigits(groupId: string): string {
   const legacy = /^group_(\d{2})$/i.exec(groupId || '');
@@ -131,7 +138,7 @@ export async function saveLandingScenery(params: {
       'Arrival Location': wText(params.arrivalLocation),
       'Country': wText(params.country),
       'Image': wFileUpload(fileUploadId, params.filename),
-      'Image Prompt': wText(params.imagePrompt),
+      'Image Prompt': wText(toNotionImagePrompt(params.imagePrompt)),
       'Landing Time': wDate(params.landingTime),
       'Created At': wDate(now),
   };
