@@ -109626,6 +109626,278 @@ async function runLandingReminderCron(now = /* @__PURE__ */ new Date()) {
   return result;
 }
 
+// src/lib/presence/store.ts
+var import_crypto2 = require("crypto");
+var KEY_PREFIX = "sleep-airline:presence:v2:";
+var MEMBER_TTL_SECONDS = 24 * 60 * 60;
+var INDEX_TTL_SECONDS = 48 * 60 * 60;
+var MAX_AVATAR_DATA_URL_LENGTH = 5e4;
+var MAX_GROUP_PRESENCE = 100;
+var MAX_WRITES_PER_MINUTE = 60;
+var UPSERT_PRESENCE_LUA = [
+  `local indexed = redis.call('SMEMBERS', KEYS[1])`,
+  `for _, member in ipairs(indexed) do`,
+  `  if redis.call('EXISTS', member) == 0 then redis.call('SREM', KEYS[1], member) end`,
+  `end`,
+  `local exists = redis.call('EXISTS', KEYS[2])`,
+  `if exists == 0 and redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[2]) then return 0 end`,
+  `redis.call('SET', KEYS[2], ARGV[1], 'EX', tonumber(ARGV[3]))`,
+  `redis.call('SADD', KEYS[1], KEYS[2])`,
+  `redis.call('EXPIRE', KEYS[1], tonumber(ARGV[4]))`,
+  `return 1`
+].join("\n");
+var REMOVE_PRESENCE_LUA = [
+  `redis.call('DEL', KEYS[2])`,
+  `redis.call('SREM', KEYS[1], KEYS[2])`,
+  `return 1`
+].join("\n");
+var PRUNE_MISSING_INDEX_LUA = [
+  `for index = 2, #KEYS do`,
+  `  if redis.call('EXISTS', KEYS[index]) == 0 then`,
+  `    redis.call('SREM', KEYS[1], KEYS[index])`,
+  `  end`,
+  `end`,
+  `return 1`
+].join("\n");
+var RATE_LIMIT_LUA = [
+  `local count = redis.call('INCR', KEYS[1])`,
+  `if count == 1 then redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1])) end`,
+  `return count`
+].join("\n");
+function presenceConfig() {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || "";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "";
+  return url && token ? { url: url.replace(/\/+$/, ""), token } : null;
+}
+function isPresenceConfigured() {
+  return presenceConfig() !== null;
+}
+function cleanString(value, maxLength) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+function validPassengerId(passengerId) {
+  return !!passengerId && !/[\u0000-\u001f\u007f]/.test(passengerId);
+}
+function validGroupId(groupId) {
+  return /^\d{4}$/.test(groupId) || /^group_\d{2}$/i.test(groupId);
+}
+function validIso(value) {
+  if (typeof value !== "string") return null;
+  const time = new Date(value);
+  return Number.isNaN(time.getTime()) ? null : time.toISOString();
+}
+function normalizeAvatar(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const avatar = value.trim();
+  if (/^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(avatar)) {
+    return avatar.length <= MAX_AVATAR_DATA_URL_LENGTH ? avatar : null;
+  }
+  if (!/^https:\/\//i.test(avatar)) return null;
+  try {
+    const host = new URL(avatar).hostname.toLowerCase();
+    const trusted = /^prod-files-secure\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(host) || host === "secure.notion-static.com" || host.endsWith(".notionusercontent.com");
+    return trusted ? avatar.slice(0, 4096) : null;
+  } catch {
+    return null;
+  }
+}
+function normalizeWaitingPassenger(input, now = /* @__PURE__ */ new Date()) {
+  if (!input || typeof input !== "object") return null;
+  const data = input;
+  const passengerId = cleanString(data.passengerId, 120);
+  const passengerName = cleanString(data.passengerName ?? data.name, 80);
+  const groupId = cleanString(data.groupId, 24);
+  if (!validPassengerId(passengerId) || !passengerName || !validGroupId(groupId)) return null;
+  const nowIso = now.toISOString();
+  return {
+    passengerId,
+    passengerName,
+    groupId,
+    idPhotoUrl: normalizeAvatar(data.idPhotoUrl),
+    checkedInAt: nowIso,
+    updatedAt: nowIso
+  };
+}
+async function redisCommand2(command) {
+  const config = presenceConfig();
+  if (!config) return null;
+  const response = await fetch(config.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(command),
+    signal: AbortSignal.timeout(3e3)
+  });
+  if (!response.ok) throw new Error(`Upstash Redis ${response.status}`);
+  const payload = await response.json();
+  if (payload.error) throw new Error(payload.error);
+  return payload.result;
+}
+function indexKey(groupId) {
+  return `${KEY_PREFIX}group:${groupId}`;
+}
+function memberKey(groupId, passengerId) {
+  const digest = (0, import_crypto2.createHash)("sha256").update(passengerId).digest("hex").slice(0, 24);
+  return `${KEY_PREFIX}member:${groupId}:${digest}`;
+}
+async function checkInPassenger(input) {
+  const waitingPassenger = normalizeWaitingPassenger(input);
+  if (!waitingPassenger || !isPresenceConfigured()) return { status: "unavailable" };
+  try {
+    const result = await redisCommand2([
+      "EVAL",
+      UPSERT_PRESENCE_LUA,
+      2,
+      indexKey(waitingPassenger.groupId),
+      memberKey(waitingPassenger.groupId, waitingPassenger.passengerId),
+      JSON.stringify(waitingPassenger),
+      MAX_GROUP_PRESENCE,
+      MEMBER_TTL_SECONDS,
+      INDEX_TTL_SECONDS
+    ]);
+    return Number(result) === 1 ? { status: "saved", waitingPassenger } : { status: "capacity" };
+  } catch (error) {
+    console.warn("[presence check-in]", error);
+    return { status: "unavailable" };
+  }
+}
+async function checkOutPassenger(groupId, passengerId) {
+  const cleanGroup = cleanString(groupId, 24);
+  const cleanPassenger = cleanString(passengerId, 120);
+  if (!validGroupId(cleanGroup) || !validPassengerId(cleanPassenger) || !isPresenceConfigured()) {
+    return { status: "unavailable" };
+  }
+  try {
+    await redisCommand2([
+      "EVAL",
+      REMOVE_PRESENCE_LUA,
+      2,
+      indexKey(cleanGroup),
+      memberKey(cleanGroup, cleanPassenger)
+    ]);
+    return { status: "removed" };
+  } catch (error) {
+    console.warn("[presence check-out]", error);
+    return { status: "unavailable" };
+  }
+}
+function parseStoredPassenger(raw, groupId) {
+  try {
+    const data = JSON.parse(String(raw));
+    const checkedInAt = validIso(data.checkedInAt);
+    const updatedAt = validIso(data.updatedAt);
+    if (!checkedInAt || !updatedAt) return null;
+    const normalized = normalizeWaitingPassenger(data, new Date(updatedAt));
+    if (!normalized || normalized.groupId !== groupId) return null;
+    return { ...normalized, checkedInAt, updatedAt };
+  } catch {
+    return null;
+  }
+}
+async function getWaitingPassengers(groupId) {
+  const cleanGroup = cleanString(groupId, 24);
+  if (!validGroupId(cleanGroup) || !isPresenceConfigured()) return [];
+  try {
+    const groupIndexKey = indexKey(cleanGroup);
+    const memberKeys = await redisCommand2(["SMEMBERS", groupIndexKey]);
+    if (!Array.isArray(memberKeys) || memberKeys.length === 0) return [];
+    const boundedKeys = memberKeys.slice(0, MAX_GROUP_PRESENCE).map(String);
+    const values = await redisCommand2(["MGET", ...boundedKeys]);
+    if (!Array.isArray(values)) return [];
+    const entries = [];
+    const missingKeys = [];
+    for (let index = 0; index < boundedKeys.length; index += 1) {
+      const entry = parseStoredPassenger(values[index], cleanGroup);
+      if (entry && memberKey(cleanGroup, entry.passengerId) === boundedKeys[index]) {
+        entries.push(entry);
+      } else if (values[index] == null) {
+        missingKeys.push(boundedKeys[index]);
+      }
+    }
+    if (missingKeys.length) {
+      try {
+        await redisCommand2([
+          "EVAL",
+          PRUNE_MISSING_INDEX_LUA,
+          missingKeys.length + 1,
+          groupIndexKey,
+          ...missingKeys
+        ]);
+      } catch (error) {
+        console.warn("[presence stale cleanup]", error);
+      }
+    }
+    return entries.sort((a, b) => Date.parse(b.checkedInAt) - Date.parse(a.checkedInAt));
+  } catch (error) {
+    console.warn("[presence list]", error);
+    return [];
+  }
+}
+async function allowPresenceWrite(identifier) {
+  if (!isPresenceConfigured()) return true;
+  const digest = (0, import_crypto2.createHash)("sha256").update(identifier || "unknown").digest("hex").slice(0, 24);
+  try {
+    const count = await redisCommand2([
+      "EVAL",
+      RATE_LIMIT_LUA,
+      1,
+      `${KEY_PREFIX}rate:${digest}`,
+      60
+    ]);
+    return Number(count) <= MAX_WRITES_PER_MINUTE;
+  } catch {
+    return true;
+  }
+}
+
+// src/lib/presence/session.ts
+var import_crypto3 = require("crypto");
+var SESSION_TTL_SECONDS = 24 * 60 * 60;
+function redisConfig() {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || "";
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "";
+  return url && token ? { url, token } : null;
+}
+function sessionSecret() {
+  const redis = redisConfig();
+  if (!redis) return null;
+  return process.env.PRESENCE_SESSION_SECRET || redis.token;
+}
+function validIdentity(passengerId, groupId) {
+  return !!passengerId && passengerId.length <= 120 && !/[\u0000-\u001f\u007f]/.test(passengerId) && (/^\d{4}$/.test(groupId) || /^group_\d{2}$/i.test(groupId));
+}
+function signature(payload, secret) {
+  return (0, import_crypto3.createHmac)("sha256", secret).update(payload).digest();
+}
+function issuePresenceSessionToken(passengerId, groupId, now = /* @__PURE__ */ new Date()) {
+  const secret = sessionSecret();
+  if (!secret || !validIdentity(passengerId, groupId)) return null;
+  const payload = {
+    passengerId,
+    groupId,
+    expiresAt: Math.floor(now.getTime() / 1e3) + SESSION_TTL_SECONDS
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${encoded}.${signature(encoded, secret).toString("base64url")}`;
+}
+function verifyPresenceSessionToken(token, passengerId, groupId, now = /* @__PURE__ */ new Date()) {
+  const secret = sessionSecret();
+  if (!secret || typeof token !== "string" || !validIdentity(passengerId, groupId)) return false;
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  try {
+    const actual = Buffer.from(parts[1], "base64url");
+    const expected = signature(parts[0], secret);
+    if (actual.length !== expected.length || !(0, import_crypto3.timingSafeEqual)(actual, expected)) return false;
+    const payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+    return payload.passengerId === passengerId && payload.groupId === groupId && Number.isInteger(payload.expiresAt) && Math.floor(now.getTime() / 1e3) < payload.expiresAt;
+  } catch {
+    return false;
+  }
+}
+
 // server.ts
 import_dotenv.default.config({ path: ".env.local" });
 var SOLO_SOCIAL_CUE = {
@@ -109686,12 +109958,67 @@ function isCronAuthorized(req) {
 function logReminderCleanup(err) {
   console.warn("[landing-reminder] cleanup failed:", err instanceof Error ? err.message : err);
 }
+function presenceRateKey(req, passengerId) {
+  return `${req.ip || "unknown"}:${passengerId}`;
+}
 app.get("/api/config", async (_req, res) => {
   try {
-    res.json(await getDataModeStatus());
+    res.json({
+      ...await getDataModeStatus(),
+      presenceReady: isPresenceConfigured()
+    });
   } catch (err) {
     res.status(500).json({ error: formatNotionError(err) });
   }
+});
+app.post("/api/presence/check-in", async (req, res) => {
+  const normalized = normalizeWaitingPassenger(req.body);
+  if (!normalized) {
+    res.status(400).json({ error: "invalid_presence", message: "\u5019\u6A5F\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002" });
+    return;
+  }
+  if (!verifyPresenceSessionToken(
+    req.body?.presenceToken,
+    normalized.passengerId,
+    normalized.groupId
+  )) {
+    res.status(401).json({ error: "invalid_presence_session", message: "\u5019\u6A5F\u6388\u6B0A\u5DF2\u5931\u6548\uFF0C\u8ACB\u91CD\u65B0\u767B\u5165\u3002" });
+    return;
+  }
+  if (!await allowPresenceWrite(presenceRateKey(req, normalized.passengerId))) {
+    res.status(429).json({ error: "presence_rate_limited", message: "\u5019\u6A5F\u66F4\u65B0\u904E\u65BC\u983B\u7E41\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002" });
+    return;
+  }
+  const checkInResult = await checkInPassenger(normalized);
+  if (checkInResult.status === "capacity") {
+    res.status(409).json({ error: "presence_capacity", message: "\u6B64 Terminal \u5019\u6A5F\u4EBA\u6578\u5DF2\u9054\u4E0A\u9650\u3002" });
+    return;
+  }
+  if (checkInResult.status === "unavailable") {
+    res.status(503).json({ error: "presence_unavailable", message: "\u5019\u6A5F\u540C\u6B65\u66AB\u6642\u7121\u6CD5\u4F7F\u7528\u3002" });
+    return;
+  }
+  res.json({
+    waitingPassenger: checkInResult.waitingPassenger,
+    presenceReady: isPresenceConfigured()
+  });
+});
+app.post("/api/presence/check-out", async (req, res) => {
+  const { groupId = "", passengerId = "", presenceToken = "" } = req.body;
+  if (!verifyPresenceSessionToken(presenceToken, passengerId, groupId)) {
+    res.status(401).json({ error: "invalid_presence_session", message: "\u5019\u6A5F\u6388\u6B0A\u5DF2\u5931\u6548\uFF0C\u8ACB\u91CD\u65B0\u767B\u5165\u3002" });
+    return;
+  }
+  if (!await allowPresenceWrite(presenceRateKey(req, passengerId))) {
+    res.status(429).json({ error: "presence_rate_limited", message: "\u5019\u6A5F\u66F4\u65B0\u904E\u65BC\u983B\u7E41\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002" });
+    return;
+  }
+  const checkOutResult = await checkOutPassenger(groupId, passengerId);
+  if (checkOutResult.status === "unavailable") {
+    res.status(503).json({ error: "presence_unavailable", message: "\u5019\u6A5F\u540C\u6B65\u66AB\u6642\u7121\u6CD5\u4F7F\u7528\u3002" });
+    return;
+  }
+  res.json({ ok: true });
 });
 app.get("/api/reminders/config", (_req, res) => {
   res.json({
@@ -109830,6 +110157,10 @@ app.post("/api/passenger", async (req, res) => {
         ...result.passenger,
         idPhotoUrl: result.passenger.idPhotoUrl || lastLandedFlight?.idPhotoUrl || null
       },
+      presenceSessionToken: issuePresenceSessionToken(
+        result.passenger.passengerId,
+        result.passenger.groupId
+      ),
       created: result.created,
       lastLandedFlight,
       landingScenery: null
@@ -109922,6 +110253,7 @@ app.post("/api/flight/takeoff", async (req, res) => {
       routeDirection,
       takeoffTime
     });
+    await checkOutPassenger(passenger.groupId, passengerId);
     const consentAt = typeof req.body.researchConsentAt === "string" ? req.body.researchConsentAt : (/* @__PURE__ */ new Date()).toISOString();
     await stampResearchConsent(flight.notionId, consentAt).catch(() => {
     });
@@ -110221,7 +110553,10 @@ app.get("/api/board", async (req, res) => {
       res.status(400).json({ error: "\u8ACB\u63D0\u4F9B groupId\u3002" });
       return;
     }
-    const flights = await getGroupBoardFlights(groupId);
+    const [flights, waitingPassengers] = await Promise.all([
+      getGroupBoardFlights(groupId),
+      getWaitingPassengers(groupId)
+    ]);
     const enriched = flights.map((f) => {
       if (f.status !== "in_flight") return f;
       const progress = calculateFlightProgress(f.takeoffTime);
@@ -110239,7 +110574,7 @@ app.get("/api/board", async (req, res) => {
         narrativeRegion: region
       };
     });
-    res.json({ flights: enriched });
+    res.json({ flights: enriched, waitingPassengers });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "\u672A\u77E5\u932F\u8AA4" });
   }

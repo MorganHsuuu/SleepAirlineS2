@@ -42,6 +42,18 @@ import {
 } from './src/lib/reminders/store';
 import { runLandingReminderCron } from './src/lib/reminders/scheduler';
 import type { PushSubscriptionPayload } from './src/lib/reminders/types';
+import {
+  allowPresenceWrite,
+  checkInPassenger,
+  checkOutPassenger,
+  getWaitingPassengers,
+  isPresenceConfigured,
+  normalizeWaitingPassenger,
+} from './src/lib/presence/store';
+import {
+  issuePresenceSessionToken,
+  verifyPresenceSessionToken,
+} from './src/lib/presence/session';
 
 import type { RouteDirection, BroadcastStyle, NarrativeRegion, SocialCue } from './src/types';
 
@@ -128,14 +140,78 @@ function logReminderCleanup(err: unknown) {
   console.warn('[landing-reminder] cleanup failed:', err instanceof Error ? err.message : err);
 }
 
+function presenceRateKey(req: express.Request, passengerId: string): string {
+  return `${req.ip || 'unknown'}:${passengerId}`;
+}
+
 // ── GET /api/config ───────────────────────────────────────────────────────────
 
 app.get('/api/config', async (_req, res) => {
   try {
-    res.json(await getDataModeStatus());
+    res.json({
+      ...await getDataModeStatus(),
+      presenceReady: isPresenceConfigured(),
+    });
   } catch (err) {
     res.status(500).json({ error: formatNotionError(err) });
   }
+});
+
+// ── Terminal waiting presence ─────────────────────────────────────────────────
+
+app.post('/api/presence/check-in', async (req, res) => {
+  const normalized = normalizeWaitingPassenger(req.body);
+  if (!normalized) {
+    res.status(400).json({ error: 'invalid_presence', message: '候機資料格式不正確。' });
+    return;
+  }
+  if (!verifyPresenceSessionToken(
+    req.body?.presenceToken,
+    normalized.passengerId,
+    normalized.groupId
+  )) {
+    res.status(401).json({ error: 'invalid_presence_session', message: '候機授權已失效，請重新登入。' });
+    return;
+  }
+  if (!(await allowPresenceWrite(presenceRateKey(req, normalized.passengerId)))) {
+    res.status(429).json({ error: 'presence_rate_limited', message: '候機更新過於頻繁，請稍後再試。' });
+    return;
+  }
+  const checkInResult = await checkInPassenger(normalized);
+  if (checkInResult.status === 'capacity') {
+    res.status(409).json({ error: 'presence_capacity', message: '此 Terminal 候機人數已達上限。' });
+    return;
+  }
+  if (checkInResult.status === 'unavailable') {
+    res.status(503).json({ error: 'presence_unavailable', message: '候機同步暫時無法使用。' });
+    return;
+  }
+  res.json({
+    waitingPassenger: checkInResult.waitingPassenger,
+    presenceReady: isPresenceConfigured(),
+  });
+});
+
+app.post('/api/presence/check-out', async (req, res) => {
+  const { groupId = '', passengerId = '', presenceToken = '' } = req.body as {
+    groupId?: string;
+    passengerId?: string;
+    presenceToken?: string;
+  };
+  if (!verifyPresenceSessionToken(presenceToken, passengerId, groupId)) {
+    res.status(401).json({ error: 'invalid_presence_session', message: '候機授權已失效，請重新登入。' });
+    return;
+  }
+  if (!(await allowPresenceWrite(presenceRateKey(req, passengerId)))) {
+    res.status(429).json({ error: 'presence_rate_limited', message: '候機更新過於頻繁，請稍後再試。' });
+    return;
+  }
+  const checkOutResult = await checkOutPassenger(groupId, passengerId);
+  if (checkOutResult.status === 'unavailable') {
+    res.status(503).json({ error: 'presence_unavailable', message: '候機同步暫時無法使用。' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 // ── Landing reminder push config / subscription ──────────────────────────────
@@ -311,6 +387,10 @@ app.post('/api/passenger', async (req, res) => {
         ...result.passenger,
         idPhotoUrl: result.passenger.idPhotoUrl || lastLandedFlight?.idPhotoUrl || null,
       },
+      presenceSessionToken: issuePresenceSessionToken(
+        result.passenger.passengerId,
+        result.passenger.groupId
+      ),
       created: result.created,
       lastLandedFlight,
       landingScenery: null,
@@ -416,6 +496,7 @@ app.post('/api/flight/takeoff', async (req, res) => {
       routeDirection: routeDirection as RouteDirection,
       takeoffTime,
     });
+    await checkOutPassenger(passenger.groupId, passengerId);
     const consentAt = typeof req.body.researchConsentAt === 'string'
       ? req.body.researchConsentAt
       : new Date().toISOString();
@@ -744,7 +825,10 @@ app.get('/api/board', async (req, res) => {
     const groupId = req.query.groupId as string;
     if (!groupId) { res.status(400).json({ error: '請提供 groupId。' }); return; }
 
-    const flights = await getGroupBoardFlights(groupId);
+    const [flights, waitingPassengers] = await Promise.all([
+      getGroupBoardFlights(groupId),
+      getWaitingPassengers(groupId),
+    ]);
     const enriched = flights.map((f) => {
       if (f.status !== 'in_flight') return f;
       const progress = calculateFlightProgress(f.takeoffTime);
@@ -762,7 +846,7 @@ app.get('/api/board', async (req, res) => {
         narrativeRegion: region,
       };
     });
-    res.json({ flights: enriched });
+    res.json({ flights: enriched, waitingPassengers });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : '未知錯誤' });
   }

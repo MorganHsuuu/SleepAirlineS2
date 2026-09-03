@@ -50,6 +50,18 @@ npm run dev          # 選用：完整後端 + OpenAI；http://localhost:3000
 
 **Vercel 環境變數：** 全部留空即可。
 
+若要讓同隊成員跨裝置看見「候機中」頭像，請在 Vercel Marketplace 建立 Upstash Redis，並加入：
+
+```bash
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+# PRESENCE_SESSION_SECRET=請使用高熵隨機字串 # 選填，建議設定
+```
+
+舊版 Vercel KV 也相容 `KV_REST_API_URL` / `KV_REST_API_TOKEN`。`PRESENCE_SESSION_SECRET` 用來簽署只存在瀏覽器記憶體、24 小時有效的候機 session；未設定時會安全回退到僅存在伺服器端的 Redis token。未設定或 Redis 暫時故障時，登入與航班仍正常，只會略過跨裝置候機狀態；直接開啟 `public/index.html` 時則以 localStorage 模擬同瀏覽器候機資料，但不保存 session token。候機不使用週期性心跳，異常關頁資料最晚 24 小時失效；Flight Log 仍於真正起飛時才建立。
+
+既有 Passenger ID 登入沒有密碼驗證；HMAC token 僅防止未走登入流程直接改寫候機狀態，不能防止他人冒用相同 Passenger ID 重新登入。完整帳號驗證不在工作坊候機功能範圍內。
+
 ---
 
 ### Phase 2 — 加入機長 Gen AI（OpenAI）

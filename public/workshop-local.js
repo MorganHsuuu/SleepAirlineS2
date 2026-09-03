@@ -10,6 +10,8 @@
   const REFERENCE_MINUTES = 480;
   const KM_PER_MINUTE = 12;
   const EARTH_RADIUS_KM = 6371;
+  const PRESENCE_TTL_MS = 24 * 60 * 60 * 1000;
+  const MAX_PRESENCE_AVATAR_LENGTH = 50_000;
 
   let active = false;
   let citiesCache = null;
@@ -18,19 +20,29 @@
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { passengers: {}, flights: [] };
+      if (!raw) return { passengers: {}, flights: [], presence: {} };
       const data = JSON.parse(raw);
       return {
         passengers: data.passengers || {},
         flights: Array.isArray(data.flights) ? data.flights : [],
+        presence: data.presence && typeof data.presence === 'object' ? data.presence : {},
       };
     } catch {
-      return { passengers: {}, flights: [] };
+      return { passengers: {}, flights: [], presence: {} };
     }
   }
 
   function saveStore(store) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  }
+
+  function normalizePresenceAvatar(value) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const avatar = value.trim();
+    return /^data:image\/(?:jpeg|jpg|png|webp);base64,/i.test(avatar)
+      && avatar.length <= MAX_PRESENCE_AVATAR_LENGTH
+      ? avatar
+      : null;
   }
 
   function toRad(deg) {
@@ -390,6 +402,7 @@
 
     store.flights.push(flight);
     p.status = 'in_flight';
+    delete store.presence[body.passengerId];
     saveStore(store);
     return { flight: enrichFlight(flight) };
   }
@@ -453,7 +466,24 @@
 
   function handleBoard(groupId) {
     const store = loadStore();
-    return { flights: buildBoardFlights(store.flights.map(enrichFlight), groupId) };
+    const cutoff = Date.now() - PRESENCE_TTL_MS;
+    let changed = false;
+    const waitingPassengers = Object.entries(store.presence)
+      .flatMap(([passengerId, entry]) => {
+        const updatedAt = Date.parse(entry?.updatedAt || '');
+        if (!Number.isFinite(updatedAt) || updatedAt < cutoff) {
+          delete store.presence[passengerId];
+          changed = true;
+          return [];
+        }
+        return entry.groupId === groupId ? [entry] : [];
+      })
+      .sort((a, b) => Date.parse(b.checkedInAt) - Date.parse(a.checkedInAt));
+    if (changed) saveStore(store);
+    return {
+      flights: buildBoardFlights(store.flights.map(enrichFlight), groupId),
+      waitingPassengers,
+    };
   }
 
   function handleProgress(passengerId) {
@@ -493,7 +523,10 @@
   }
 
   async function handle(method, url, body) {
-    const u = new URL(url, window.location.origin || 'http://localhost');
+    const baseUrl = window.location.origin && window.location.origin !== 'null'
+      ? window.location.origin
+      : 'http://localhost';
+    const u = new URL(url, baseUrl);
     const path = u.pathname;
 
     if (method === 'POST' && path === '/api/passenger') return handlePassenger(body);
@@ -507,6 +540,37 @@
       });
       saveStore(store);
       return { idPhotoUrl: p.idPhotoUrl, pending: false };
+    }
+    if (method === 'POST' && path === '/api/presence/check-in') {
+      const store = loadStore();
+      const passengerId = String(body.passengerId || '').trim();
+      const passengerName = String(body.passengerName || '').trim();
+      const groupId = String(body.groupId || '').trim();
+      if (!passengerId || !passengerName || !/^\d{4}$/.test(groupId)) {
+        throw new Error('候機資料格式不正確。');
+      }
+      const previous = store.presence[passengerId];
+      const now = new Date().toISOString();
+      const waitingPassenger = {
+        passengerId,
+        passengerName,
+        groupId,
+        idPhotoUrl: normalizePresenceAvatar(body.idPhotoUrl),
+        checkedInAt: previous?.checkedInAt || now,
+        updatedAt: now,
+      };
+      store.presence[passengerId] = waitingPassenger;
+      saveStore(store);
+      return { waitingPassenger, presenceReady: false };
+    }
+    if (method === 'POST' && path === '/api/presence/check-out') {
+      const store = loadStore();
+      const existing = store.presence[body.passengerId];
+      if (!existing || existing.groupId === body.groupId) {
+        delete store.presence[body.passengerId];
+        saveStore(store);
+      }
+      return { ok: true };
     }
     if (method === 'POST' && path === '/api/flight/memo') {
       const store = loadStore();
@@ -527,7 +591,13 @@
       return { scenery: null };
     }
     if (method === 'GET' && path === '/api/config') {
-      return { dataMode: 'preview', notionConfigured: false, notionReady: false, hint: '' };
+      return {
+        dataMode: 'preview',
+        notionConfigured: false,
+        notionReady: false,
+        presenceReady: false,
+        hint: '',
+      };
     }
     throw new Error(`本機模式不支援：${method} ${path}`);
   }
