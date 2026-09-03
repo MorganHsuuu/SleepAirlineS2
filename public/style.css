@@ -2561,6 +2561,9 @@ body[data-theme="dusk"] .board {
 
 .brow { display: flex; align-items: center; gap: 11px; padding: 9px 16px; border-top: 1px solid var(--divider); cursor: pointer; transition: background .15s; }
 .brow:hover { background: var(--glass-bg-strong); }
+.brow.is-waiting { cursor: default; }
+.brow.is-waiting:hover { background: transparent; }
+.brow.is-waiting .brow-go { visibility: hidden; }
 .brow-go { font-size: 16px; color: var(--ink-faint); flex-shrink: 0; }
 .avatar {
   width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
@@ -2577,6 +2580,7 @@ body[data-theme="dusk"] .board {
 .brow-sub { font-size: 9px; color: var(--ink-faint); margin-top: 1px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-fly { font-size: 8.5px; font-weight: 800; color: var(--gold-deep); background: var(--chip-warm-bg); border-radius: var(--radius-pill); padding: 3px 8px; flex-shrink: 0; }
 .tag-land { font-size: 8.5px; font-weight: 700; color: var(--toast-ok-ink); background: var(--toast-ok-bg); border-radius: var(--radius-pill); padding: 3px 8px; flex-shrink: 0; }
+.tag-wait { font-size: 8.5px; font-weight: 800; color: var(--ink-soft); background: var(--glass-bg-strong); border: 1px solid var(--glass-line); border-radius: var(--radius-pill); padding: 3px 8px; flex-shrink: 0; }
 
 .board-sub-head {
   padding: 9px 16px; border-top: 1px solid var(--divider);

@@ -16,6 +16,7 @@
     "check:share-card": "node scripts/check-share-card-dom.mjs",
     "check:social-cue": "tsx scripts/check-social-cue-priority.ts",
     "check:landing-speech": "node scripts/check-landing-speech-gate.mjs",
+    "check:presence": "tsx scripts/check-terminal-presence-store.ts && node scripts/check-terminal-presence-api.mjs && node scripts/check-terminal-presence-ui.mjs",
     "reminders:vapid": "node scripts/generate-vapid-keys.mjs"
   },
   "dependencies": {

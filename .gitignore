@@ -8,3 +8,4 @@ public/country-iso.json
 .vercel
 .env*
 .superpowers/
+.worktrees/

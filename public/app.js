@@ -333,6 +333,16 @@ function formatPlaceLine(meta) {
 
 /** 看板列表：起點 → 終點（飛行中僅起點） */
 function formatBoardRouteLine(f) {
+  if (f.isWaiting) {
+    const at = new Date(f.checkedInAt || f.takeoffTime);
+    const time = Number.isNaN(at.getTime())
+      ? ''
+      : new Intl.DateTimeFormat(currentLocale() === 'en' ? 'en' : 'zh-TW', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(at);
+    return time ? tt('board.waitingSince', { time }) : tt('board.waiting');
+  }
   const depM = departureMeta(f);
   const depLine = formatPlaceLine(depM);
   if (f.status === 'in_flight') {
@@ -418,6 +428,10 @@ function buildWindowScene(cityName) {
 let passenger = null;
 let activeFlight = null;
 let groupFlights = [];
+let waitingPassengers = [];
+let presenceCheckedInAt = null;
+let presenceSessionToken = null;
+let presenceMutationQueue = Promise.resolve();
 let lastLandedFlight = null;
 let landingScenery = null;
 let refreshTimer = null;
@@ -2036,14 +2050,14 @@ function compressImageFile(file) {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const max = 512;
+      const max = 128;
       const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
       canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.82));
+      resolve(canvas.toDataURL('image/jpeg', 0.65));
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -2241,16 +2255,19 @@ function maybePromptAvatar() {
 }
 async function uploadAvatarDataUrl(dataUrl) {
   if (!passenger || !dataUrl) return false;
-  setLocalAvatar(passenger.passengerId, dataUrl);
-  passenger.idPhotoUrl = dataUrl;
+  const uploadPassenger = passenger;
+  setLocalAvatar(uploadPassenger.passengerId, dataUrl);
+  uploadPassenger.idPhotoUrl = dataUrl;
   renderBrandAvatar();
   try {
     const data = await api('POST', '/api/passenger/avatar', {
-      passengerId: passenger.passengerId,
+      passengerId: uploadPassenger.passengerId,
       imageDataUrl: dataUrl,
     });
-    if (data.idPhotoUrl) passenger.idPhotoUrl = data.idPhotoUrl;
+    if (passenger?.passengerId !== uploadPassenger.passengerId) return false;
+    if (data.idPhotoUrl) uploadPassenger.idPhotoUrl = data.idPhotoUrl;
     renderBrandAvatar();
+    await checkInPresence();
     await fetchBoard();
     return true;
   } catch {
@@ -2313,6 +2330,49 @@ async function api(method, url, body, { timeoutMs = 0 } = {}) {
     throw new Error(data.message || data.error || `伺服器錯誤 (${res.status})`);
   }
   return data;
+}
+
+async function checkInPresence({ retryOnce = false } = {}) {
+  const currentPassenger = passenger;
+  if (!currentPassenger || previewMode || currentPassenger.status === 'in_flight') return null;
+  const currentPresenceToken = presenceSessionToken;
+  if (!currentPresenceToken && !window.WorkshopLocal?.isActive?.()) return null;
+  if (!presenceCheckedInAt) presenceCheckedInAt = new Date().toISOString();
+  const checkedInAt = presenceCheckedInAt;
+  const request = () => api('POST', '/api/presence/check-in', {
+      passengerId: currentPassenger.passengerId,
+      passengerName: currentPassenger.name,
+      groupId: currentPassenger.groupId,
+      idPhotoUrl: currentPassenger.idPhotoUrl || getLocalAvatar(currentPassenger.passengerId) || null,
+      checkedInAt,
+      presenceToken: currentPresenceToken,
+    });
+  presenceMutationQueue = presenceMutationQueue.catch(() => null).then(async () => {
+    const first = await request().catch(() => null);
+    if (first || !retryOnce) return first;
+    await waitMs(750);
+    if (
+      passenger?.passengerId !== currentPassenger.passengerId
+      || passenger.groupId !== currentPassenger.groupId
+      || passenger.status === 'in_flight'
+    ) return null;
+    return request().catch(() => null);
+  });
+  return presenceMutationQueue;
+}
+
+async function checkOutPresence(leavingPassenger = passenger) {
+  if (!leavingPassenger || previewMode) return;
+  const currentPresenceToken = presenceSessionToken;
+  if (!currentPresenceToken && !window.WorkshopLocal?.isActive?.()) return;
+  presenceMutationQueue = presenceMutationQueue.catch(() => null).then(() => (
+    api('POST', '/api/presence/check-out', {
+      passengerId: leavingPassenger.passengerId,
+      groupId: leavingPassenger.groupId,
+      presenceToken: currentPresenceToken,
+    }).catch(() => null)
+  ));
+  await presenceMutationQueue;
 }
 
 // ── 地球儀資料同步 ────────────────────────────────────────────────────────────
@@ -3004,11 +3064,11 @@ function trimElementChildren(el, count) {
   while (el.children.length > count) el.removeChild(el.lastElementChild);
 }
 
-function syncBoardStatusTag(row, flying, landed) {
+function syncBoardStatusTag(row, f) {
   const go = row.querySelector('.brow-go');
-  let tag = row.querySelector('.tag-fly, .tag-land');
-  const wantClass = flying ? 'tag-fly' : landed ? 'tag-land' : '';
-  const wantText = flying ? tt('board.tagFlying') : landed ? tt('board.tagLanded') : '';
+  let tag = row.querySelector('.tag-fly, .tag-land, .tag-wait');
+  const wantClass = f.isWaiting ? 'tag-wait' : f.status === 'in_flight' ? 'tag-fly' : f.status === 'landed' ? 'tag-land' : '';
+  const wantText = f.isWaiting ? tt('board.tagWaiting') : f.status === 'in_flight' ? tt('board.tagFlying') : f.status === 'landed' ? tt('board.tagLanded') : '';
   if (!wantClass) {
     tag?.remove();
     return;
@@ -3023,9 +3083,10 @@ function syncBoardStatusTag(row, flying, landed) {
 }
 
 function syncBoardRow(row, f, i) {
-  row.setAttribute('role', 'button');
-  row.tabIndex = 0;
+  row.setAttribute('role', f.isWaiting ? 'status' : 'button');
+  row.tabIndex = f.isWaiting ? -1 : 0;
   row.dataset.idx = String(i);
+  row.classList.toggle('is-waiting', !!f.isWaiting);
 
   let avatar = row.querySelector('.avatar');
   let info = row.querySelector('.brow-info');
@@ -3049,7 +3110,7 @@ function syncBoardRow(row, f, i) {
   if (nameEl && nameEl.textContent !== f.passengerName) nameEl.textContent = f.passengerName;
   const sub = formatBoardRouteLine(f);
   if (subEl && subEl.textContent !== sub) subEl.textContent = sub;
-  syncBoardStatusTag(row, f.status === 'in_flight', f.status === 'landed');
+  syncBoardStatusTag(row, f);
 }
 
 function syncBoardMemoItem(btn, f, i, memo) {
@@ -3074,10 +3135,34 @@ function syncBoardMemoItem(btn, f, i, memo) {
   if (text && text.textContent !== memo) text.textContent = memo;
 }
 
+function getBoardRows() {
+  const flyingIds = new Set(
+    groupFlights.filter((flight) => flight.status === 'in_flight').map((flight) => flight.passengerId)
+  );
+  const waitingRows = waitingPassengers
+    .filter((entry) => entry?.passengerId && !flyingIds.has(entry.passengerId))
+    .map((entry) => ({
+      isWaiting: true,
+      status: 'not_started',
+      passengerId: entry.passengerId,
+      passengerName: entry.passengerName,
+      groupId: entry.groupId,
+      idPhotoUrl: entry.idPhotoUrl,
+      checkedInAt: entry.checkedInAt,
+      takeoffTime: entry.checkedInAt,
+    }));
+  const waitingIds = new Set(waitingRows.map((row) => row.passengerId));
+  const flightRows = groupFlights.filter(
+    (flight) => flight.status === 'in_flight' || !waitingIds.has(flight.passengerId)
+  );
+  return [...waitingRows, ...flightRows];
+}
+
 function renderBoard() {
   $('bd-group').textContent = formatTerminalLabel(passenger?.groupId);
   const empty = $('bd-empty'), listEl = $('bd-list');
-  if (!groupFlights.length) {
+  const boardRows = getBoardRows();
+  if (!boardRows.length) {
     empty.classList.remove('hidden');
     listEl.replaceChildren();
     $('bd-broadcasts').classList.add('hidden');
@@ -3088,7 +3173,7 @@ function renderBoard() {
   if ([...listEl.children].some((el) => !el.classList.contains('brow'))) {
     listEl.replaceChildren();
   }
-  groupFlights.forEach((f, i) => {
+  boardRows.forEach((f, i) => {
     let row = listEl.children[i];
     if (!row) {
       row = document.createElement('div');
@@ -3097,7 +3182,7 @@ function renderBoard() {
     }
     syncBoardRow(row, f, i);
   });
-  trimElementChildren(listEl, groupFlights.length);
+  trimElementChildren(listEl, boardRows.length);
 
   const notes = groupFlights
     .map((f, i) => ({ f, i, memo: String(f.textMemo || '').trim() }))
@@ -5179,6 +5264,7 @@ async function doLogin(e) {
     });
     previewMode = false;
     passenger = data.passenger;
+    presenceSessionToken = data.presenceSessionToken || null;
     const localPhoto = getLocalAvatar(passenger.passengerId);
     if (localPhoto && !passenger.idPhotoUrl) passenger.idPhotoUrl = localPhoto;
     lastLandedFlight = data.lastLandedFlight || null;
@@ -5187,6 +5273,7 @@ async function doLogin(e) {
     delete $('landed-panel').dataset.dismissed;
     saveLoginProfile({ passengerId, name, groupId });
     saveResearchConsent(passengerId);
+    presenceCheckedInAt = new Date().toISOString();
     if (lastLandedFlight) {
       archiveFlightTrail(lastLandedFlight);
     }
@@ -5196,6 +5283,9 @@ async function doLogin(e) {
     Globe.flyTo(youCoord(), 1200);
     startAutoRefresh();
     setLoginLoading(false);
+    void checkInPresence({ retryOnce: true }).then((result) => {
+      if (result) void fetchBoard();
+    });
 
     void ensureCities().then(() => {
       if (passenger?.status === 'in_flight') updateGlobeForFlight();
@@ -5337,6 +5427,8 @@ async function doTakeoff() {
 
     activeFlight = data.flight;
     activeFlight.socialTakeaway = data.socialTakeaway || '';
+    void checkOutPresence(passenger);
+    presenceCheckedInAt = null;
     passenger.status = 'in_flight';
     takeoffArmed = false;
     lastLandedFlight = null;
@@ -5545,26 +5637,54 @@ async function doLand() {
 
 async function fetchBoard() {
   if (!passenger) return;
+  const requestedPassengerId = passenger.passengerId;
+  const requestedGroupId = passenger.groupId;
   try {
-    const groupIds = compatibleGroupIds(passenger.groupId);
+    const groupIds = compatibleGroupIds(requestedGroupId);
     const results = await Promise.allSettled(groupIds.map((groupId) => (
       api('GET', '/api/board?groupId=' + encodeURIComponent(groupId))
     )));
     const seen = new Set();
     const flights = [];
+    const waitingByPassenger = new Map();
     for (const result of results) {
-      if (result.status !== 'fulfilled' || !Array.isArray(result.value.flights)) continue;
-      for (const flight of result.value.flights) {
-        const key = flight.flightId || flight.notionId || [
-          flight.passengerId,
-          flight.takeoffTime,
-          flight.groupId,
-        ].filter(Boolean).join('|');
-        if (seen.has(key)) continue;
-        seen.add(key);
-        flights.push(sanitizeBoardFlight(flight));
+      if (result.status !== 'fulfilled') continue;
+      if (Array.isArray(result.value.flights)) {
+        for (const flight of result.value.flights) {
+          const key = flight.flightId || flight.notionId || [
+            flight.passengerId,
+            flight.takeoffTime,
+            flight.groupId,
+          ].filter(Boolean).join('|');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          flights.push(sanitizeBoardFlight(flight));
+        }
+      }
+      if (Array.isArray(result.value.waitingPassengers)) {
+        for (const entry of result.value.waitingPassengers) {
+          if (!entry?.passengerId || !entry?.passengerName) continue;
+          const previous = waitingByPassenger.get(entry.passengerId);
+          if (!previous || Date.parse(entry.updatedAt || 0) > Date.parse(previous.updatedAt || 0)) {
+            waitingByPassenger.set(entry.passengerId, entry);
+          }
+        }
       }
     }
+    if (passenger?.passengerId !== requestedPassengerId || passenger.groupId !== requestedGroupId) return;
+    if (window.WorkshopLocal?.isActive?.() && passenger.status !== 'in_flight') {
+      waitingByPassenger.set(passenger.passengerId, {
+        passengerId: passenger.passengerId,
+        passengerName: passenger.name,
+        groupId: passenger.groupId,
+        idPhotoUrl: passenger.idPhotoUrl || getLocalAvatar(passenger.passengerId) || null,
+        checkedInAt: presenceCheckedInAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    waitingPassengers = [...waitingByPassenger.values()].sort(
+      (a, b) => Date.parse(b.checkedInAt || 0) - Date.parse(a.checkedInAt || 0)
+    );
     if (flights.length || results.some((r) => r.status === 'fulfilled')) {
       groupFlights = reuseSignedPhotoUrls(flights).sort((a, b) => {
         const at = new Date(a.landingTime || a.takeoffTime || 0).getTime();
@@ -5987,9 +6107,14 @@ function onLogoutClick() {
 function doLogout() {
   resetLogoutConfirm();
   previewMode = false;
+  const leavingPassenger = passenger;
+  void checkOutPresence(leavingPassenger);
   passenger = null;
   activeFlight = null;
   groupFlights = [];
+  waitingPassengers = [];
+  presenceCheckedInAt = null;
+  presenceSessionToken = null;
   lastLandedFlight = null;
   landingScenery = null;
   resetTakeoffPrep();
@@ -6146,7 +6271,9 @@ $('bd-broadcasts-list')?.addEventListener('click', (e) => {
 $('bd-list').addEventListener('click', (e) => {
   const row = e.target.closest('.brow');
   if (!row) return;
-  openMateFromBoard(groupFlights[+row.dataset.idx]);
+  const f = getBoardRows()[+row.dataset.idx];
+  if (!f || f.isWaiting) return;
+  openMateFromBoard(f);
 });
 $('takeoff-memo')?.addEventListener('input', () => {
   syncTakeoffMemoCount();
@@ -6182,7 +6309,9 @@ $('bd-list').addEventListener('keydown', (e) => {
   const row = e.target.closest('.brow');
   if (!row) return;
   e.preventDefault();
-  openMateFromBoard(groupFlights[+row.dataset.idx]);
+  const f = getBoardRows()[+row.dataset.idx];
+  if (!f || f.isWaiting) return;
+  openMateFromBoard(f);
 });
 
 $('btn-compass').addEventListener('click', () => openSheet('compass-sheet'));
